@@ -1,4 +1,7 @@
 """
+DEPRECATED: This Tkinter GUI is superseded by mdma_gui.py (wxPython Action Panel).
+Use `python mdma_gui.py` instead. This file is retained for reference only.
+
 Simple graphical front‑end for the MDMA rebuild with DSL support.
 
 This script provides a minimal GUI around the existing MDMA session

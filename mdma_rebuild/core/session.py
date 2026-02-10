@@ -37,7 +37,7 @@ from __future__ import annotations
 import os
 import wave
 import struct
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np  # type: ignore
 
@@ -278,7 +278,7 @@ class Session:
         self.project_length_seconds: float = 30.0
         self.project_length_samples: int = int(self.project_length_seconds * self.sample_rate)
 
-        self.tracks: list[dict[str, any]] = []
+        self.tracks: list[dict[str, Any]] = []
         self.current_track_index: int = 0
 
         # Create a default track
@@ -306,6 +306,14 @@ class Session:
         self.current_sketch: str = ''
         self.current_file: str = ''
         self.current_clip: str = ''
+
+        # --- User-defined functions and chains ---
+        # These are populated by bmdma.py at startup (from persisted data)
+        # and updated at runtime when the user defines new functions/chains.
+        self.user_functions: dict[str, list[str]] = {}
+        self.function_commands: list[str] = []
+        self.defining_function: Optional[str] = None  # name of function being defined, or None
+        self.chains: dict[str, list[str]] = {}
 
     
     # ------------ Track timeline helpers (simplified) ------------

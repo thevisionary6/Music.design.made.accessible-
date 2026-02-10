@@ -42,7 +42,7 @@ class Theme:
     BG_PANEL = wx.Colour(40, 40, 48)
     BG_INPUT = wx.Colour(50, 50, 58)
     FG_TEXT = wx.Colour(220, 220, 225)
-    FG_DIM = wx.Colour(140, 140, 150)
+    FG_DIM = wx.Colour(180, 180, 190)  # Raised from (140,140,150) for WCAG AA contrast
     ACCENT = wx.Colour(100, 180, 255)
     SUCCESS = wx.Colour(100, 200, 120)
     ERROR = wx.Colour(255, 100, 100)
@@ -331,10 +331,13 @@ class CommandExecutor:
             try:
                 from mdma_rebuild.commands.sydef_cmds import load_factory_presets
                 load_factory_presets(self.session)
-            except:
+            except (ImportError, AttributeError):
                 pass
-                
+
+            self.init_error = None
+
         except ImportError as e:
+            self.init_error = str(e)
             print(f"Warning: Could not import MDMA engine: {e}")
             self.session = None
             self.commands = {}
@@ -470,10 +473,35 @@ class ObjectBrowser(wx.Panel):
                 self.on_select(obj_type, obj_id)
     
     def on_search(self, event):
-        """Filter tree based on search."""
-        query = self.search_box.GetValue().lower()
-        # For MVP, just highlight matching - full filter in later version
-        pass
+        """Filter tree by highlighting matching items and collapsing non-matches."""
+        query = self.search_box.GetValue().lower().strip()
+        if not query:
+            self.tree.ExpandAll()
+            return
+
+        root = self.tree.GetRootItem()
+        if not root.IsOk():
+            return
+
+        # Walk categories and expand/collapse based on match
+        item, cookie = self.tree.GetFirstChild(root)
+        while item.IsOk():
+            cat_text = self.tree.GetItemText(item).lower()
+            cat_match = query in cat_text
+            child_match = False
+
+            child, c_cookie = self.tree.GetFirstChild(item)
+            while child.IsOk():
+                if query in self.tree.GetItemText(child).lower():
+                    child_match = True
+                child, c_cookie = self.tree.GetNextChild(item, c_cookie)
+
+            if cat_match or child_match:
+                self.tree.Expand(item)
+            else:
+                self.tree.Collapse(item)
+
+            item, cookie = self.tree.GetNextChild(root, cookie)
     
     def on_refresh(self, event):
         """Refresh the tree."""
@@ -699,7 +727,8 @@ class ActionPanel(wx.Panel):
         values = self.get_param_values()
         try:
             return self.current_action.command_template.format(**values)
-        except KeyError:
+        except KeyError as e:
+            self.console_callback(f"Warning: missing parameter {e} in command template\n", 'warning')
             return self.current_action.command_template
     
     def update_command_preview(self):
@@ -851,8 +880,15 @@ class MDMAFrame(wx.Frame):
         # Welcome message
         self.console.append("MDMA GUI v0.2.0 - Action Panel Client\n", 'info')
         self.console.append("="*50 + "\n", 'info')
-        self.console.append("Select a category from the left panel, choose an action,\n", 'info')
-        self.console.append("set parameters, and click Run (Ctrl+R) to execute.\n\n", 'info')
+
+        # Warn if engine failed to load
+        if self.executor.init_error:
+            self.console.append(f"WARNING: MDMA engine failed to load: {self.executor.init_error}\n", 'error')
+            self.console.append("Commands will not execute. Check your installation.\n\n", 'error')
+            self.SetStatusText("MDMA GUI v0.2.0 - ENGINE NOT LOADED")
+        else:
+            self.console.append("Select a category from the left panel, choose an action,\n", 'info')
+            self.console.append("set parameters, and click Run (Ctrl+R) to execute.\n\n", 'info')
     
     def create_menu_bar(self):
         """Create the menu bar."""

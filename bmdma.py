@@ -1158,23 +1158,12 @@ def main() -> None:
                 return advanced_cmds.cmd_stack_get(session, args, idx)
             except Exception as exc:
                 return f"ERROR: {exc}"
-        if func is None:
-            # Suggest similar commands
-            similar = [c for c in commands.keys() if cmd in c or c.startswith(cmd[:2])][:5]
-            if similar:
-                return f"ERROR: Unknown command /{cmd}. Did you mean: {', '.join('/' + s for s in similar)}?"
-            return f"ERROR: Unknown command /{cmd}"
-        
-        try:
-            return func(session, args)
-        except Exception as exc:
-            error_msg = f"ERROR: {exc}"
-            # Try to add helpful info
-            if hasattr(advanced_cmds, 'get_command_help'):
-                help_text = advanced_cmds.get_command_help(cmd)
-                if help_text:
-                    error_msg += f"\n\n--- Help for /{cmd} ---\n{help_text}"
-            return error_msg
+
+        # Suggest similar commands for unknown input
+        similar = [c for c in commands.keys() if cmd in c or c.startswith(cmd[:2])][:5]
+        if similar:
+            return f"ERROR: Unknown command /{cmd}. Did you mean: {', '.join('/' + s for s in similar)}?"
+        return f"ERROR: Unknown command /{cmd}"
     
     # Store executor in session for function execution
     session.command_executor = execute_command

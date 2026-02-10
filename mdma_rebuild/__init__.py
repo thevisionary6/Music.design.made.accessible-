@@ -3,8 +3,8 @@
 Music Design Made Accessible - Command-line audio production environment
 designed for screen reader accessibility and zero-vision workflows.
 
-VERSION: 45.0
-BUILD ID: mdma_v45.0_20260203
+VERSION: 52.0
+BUILD ID: mdma_v52.0_20260203
 
 FEATURES:
 - Multi-buffer system for building complex sounds
