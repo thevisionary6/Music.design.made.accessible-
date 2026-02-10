@@ -312,21 +312,21 @@ ACTIONS: Dict[str, List[ActionDef]] = {
 
 class CommandExecutor:
     """Executes MDMA commands and captures output."""
-    
+
     def __init__(self):
         self.session = None
         self.commands = None
         self._init_engine()
-    
+
     def _init_engine(self):
         """Initialize the MDMA engine."""
         try:
             from mdma_rebuild.core.session import Session
             import bmdma
-            
+
             self.session = Session()
             self.commands = bmdma.build_command_table()
-            
+
             # Load factory presets
             try:
                 from mdma_rebuild.commands.sydef_cmds import load_factory_presets
@@ -341,25 +341,25 @@ class CommandExecutor:
             print(f"Warning: Could not import MDMA engine: {e}")
             self.session = None
             self.commands = {}
-    
-    def execute(self, command: str) -> tuple[str, str, bool]:
+
+    def execute(self, command: str) -> tuple:
         """Execute a command and return (stdout, stderr, success)."""
         if not command.startswith('/'):
             command = '/' + command
-            
+
         stdout_capture = io.StringIO()
         stderr_capture = io.StringIO()
         success = True
-        
+
         try:
             # Parse command
             parts = command[1:].split()
             if not parts:
                 return "", "Empty command", False
-            
+
             cmd = parts[0].lower()
             args = parts[1:]
-            
+
             # Look up and execute
             if self.commands and cmd in self.commands:
                 func = self.commands[cmd]
@@ -370,22 +370,109 @@ class CommandExecutor:
             else:
                 stderr_capture.write(f"Unknown command: {cmd}\n")
                 success = False
-                
+
         except Exception as e:
             stderr_capture.write(f"Error: {e}\n")
             success = False
-        
+
         return stdout_capture.getvalue(), stderr_capture.getvalue(), success
-    
-    def get_presets(self) -> List[str]:
-        """Get list of available presets."""
-        if self.session and hasattr(self.session, 'sydefs'):
-            return list(self.session.sydefs.keys())
-        return ['saw', 'square', 'sine', 'bass', 'lead', 'pad']
-    
-    def get_banks(self) -> List[str]:
-        """Get list of available banks."""
-        return [f"Bank {i}" for i in range(1, 9)]
+
+    # ------------------------------------------------------------------
+    # Live state queries — read directly from the Session object
+    # ------------------------------------------------------------------
+
+    def get_engine_state(self) -> Dict[str, Any]:
+        """Return a snapshot of key engine state for GUI display."""
+        s = self.session
+        if not s:
+            return {}
+
+        op_idx = s.current_operator
+        current_op = s.engine.operators.get(op_idx, {}) if hasattr(s, 'engine') else {}
+        filt_slot = s.selected_filter
+        buf_len = len(s.working_buffer) if s.working_buffer is not None else 0
+
+        return {
+            'bpm': s.bpm,
+            'sample_rate': s.sample_rate,
+            'buffer_samples': buf_len,
+            'buffer_seconds': buf_len / s.sample_rate if buf_len else 0,
+            'current_operator': op_idx,
+            'waveform': current_op.get('wave', '—'),
+            'frequency': current_op.get('freq', 0),
+            'amplitude': current_op.get('amp', 0),
+            'voice_count': s.voice_count,
+            'voice_algorithm': s.voice_algorithm,
+            'detune': s.dt,
+            'filter_type': s.filter_type_names.get(
+                s.filter_types.get(filt_slot, 0), 'lowpass'),
+            'filter_cutoff': s.filter_cutoffs.get(filt_slot, 4500.0),
+            'filter_resonance': s.filter_resonances.get(filt_slot, 50.0),
+            'attack': s.attack,
+            'decay': s.decay,
+            'sustain': s.sustain,
+            'release': s.release,
+            'hq_mode': s.hq_mode,
+            'output_format': s.output_format,
+            'output_bit_depth': s.output_bit_depth,
+            'track_count': len(s.tracks),
+            'effects': list(s.effects),
+        }
+
+    def get_dynamic_tree_data(self) -> Dict[str, List[str]]:
+        """Return lists of live objects for the browser tree."""
+        s = self.session
+        if not s:
+            return {}
+
+        # Tracks
+        tracks = [t.get('name', f'track_{i+1}') for i, t in enumerate(s.tracks)]
+
+        # Filled buffers
+        filled = sorted(k for k, v in s.buffers.items()
+                        if v is not None and len(v) > 0)
+        buffers = [f"Buffer {i}" for i in filled] if filled else ["(empty)"]
+
+        # Decks
+        decks = [f"Deck {i}" for i in sorted(s.decks.keys())] if s.decks else []
+
+        # Effects chain
+        effects = list(s.effects) if s.effects else ["(none)"]
+
+        # Presets / sydefs
+        presets = []
+        if hasattr(s, 'sydefs') and s.sydefs:
+            presets = sorted(s.sydefs.keys())
+        elif hasattr(s.engine, 'preset_bank') and s.engine.preset_bank:
+            presets = [f"Preset {k}" for k in sorted(s.engine.preset_bank.keys())]
+        if not presets:
+            presets = ["(none)"]
+
+        # User functions
+        funcs = sorted(s.user_functions.keys()) if s.user_functions else []
+
+        # Chains
+        chains = sorted(s.chains.keys()) if s.chains else []
+
+        # Operators
+        operators = []
+        if hasattr(s.engine, 'operators'):
+            for idx in sorted(s.engine.operators.keys()):
+                op = s.engine.operators[idx]
+                wave = op.get('wave', 'sine')
+                freq = op.get('freq', 440)
+                operators.append(f"Op {idx}: {wave} @ {freq:.0f}Hz")
+
+        return {
+            'tracks': tracks,
+            'buffers': buffers,
+            'decks': decks,
+            'effects': effects,
+            'presets': presets,
+            'user_functions': funcs,
+            'chains': chains,
+            'operators': operators,
+        }
 
 
 # ============================================================================
@@ -393,16 +480,33 @@ class CommandExecutor:
 # ============================================================================
 
 class ObjectBrowser(wx.Panel):
-    """Left panel - tree/list of objects to act on."""
-    
-    def __init__(self, parent, on_select_callback):
+    """Left panel - tree/list of objects to act on.
+
+    Reads live data from the CommandExecutor to show real session
+    objects (tracks, buffers, operators, presets, effects, etc.)
+    instead of hardcoded placeholder strings.
+    """
+
+    # Static categories always shown; dynamic children come from session.
+    STATIC_CATEGORIES = [
+        ('engine', 'Engine'),
+        ('synth', 'Synthesizer'),
+        ('filter', 'Filter'),
+        ('envelope', 'Envelope'),
+        ('fx', 'Effects'),
+        ('preset', 'Presets'),
+        ('bank', 'Banks'),
+    ]
+
+    def __init__(self, parent, on_select_callback, executor: CommandExecutor):
         super().__init__(parent)
         self.on_select = on_select_callback
-        
+        self.executor = executor
+
         self.SetBackgroundColour(Theme.BG_PANEL)
-        
+
         sizer = wx.BoxSizer(wx.VERTICAL)
-        
+
         # Search box
         search_sizer = wx.BoxSizer(wx.HORIZONTAL)
         search_label = wx.StaticText(self, label="Search:")
@@ -411,58 +515,112 @@ class ObjectBrowser(wx.Panel):
         self.search_box.SetBackgroundColour(Theme.BG_INPUT)
         self.search_box.SetForegroundColour(Theme.FG_TEXT)
         self.search_box.Bind(wx.EVT_TEXT, self.on_search)
-        
+
         search_sizer.Add(search_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         search_sizer.Add(self.search_box, 1, wx.EXPAND)
-        
+
         sizer.Add(search_sizer, 0, wx.EXPAND | wx.ALL, 5)
-        
+
         # Tree control
         self.tree = wx.TreeCtrl(self, style=wx.TR_DEFAULT_STYLE | wx.TR_HIDE_ROOT)
         self.tree.SetBackgroundColour(Theme.BG_INPUT)
         self.tree.SetForegroundColour(Theme.FG_TEXT)
         self.tree.Bind(wx.EVT_TREE_SEL_CHANGED, self.on_tree_select)
-        
+
         sizer.Add(self.tree, 1, wx.EXPAND | wx.ALL, 5)
-        
+
         # Refresh button
         refresh_btn = wx.Button(self, label="Refresh (F5)")
         refresh_btn.Bind(wx.EVT_BUTTON, self.on_refresh)
         sizer.Add(refresh_btn, 0, wx.EXPAND | wx.ALL, 5)
-        
+
         self.SetSizer(sizer)
+        self.category_items: Dict[str, Any] = {}
         self.populate_tree()
-    
+
     def populate_tree(self):
-        """Populate the tree with object categories."""
+        """Populate the tree from live session data."""
         self.tree.DeleteAllItems()
-        
         root = self.tree.AddRoot("MDMA")
-        
-        # Categories matching ACTIONS
-        categories = [
-            ('engine', 'Engine', ['Generate', 'Playback', 'Settings']),
-            ('synth', 'Synthesizer', ['Oscillator', 'Voices']),
-            ('filter', 'Filter', ['Type', 'Cutoff', 'Resonance']),
-            ('envelope', 'Envelope', ['ADSR']),
-            ('fx', 'Effects', ['Add', 'Manage']),
-            ('preset', 'Presets', ['Factory', 'User']),
-            ('bank', 'Banks', ['Select', 'Browse']),
-        ]
-        
         self.category_items = {}
-        
-        for cat_id, cat_name, subcats in categories:
-            cat_item = self.tree.AppendItem(root, cat_name)
+
+        # Fetch live data (empty dict if engine not loaded)
+        live = self.executor.get_dynamic_tree_data()
+        state = self.executor.get_engine_state()
+
+        # Mapping: category -> (static fallback children, live key)
+        cat_children = {
+            'engine': (['Generate', 'Playback', 'Settings'], None),
+            'synth': ([], 'operators'),
+            'filter': ([], None),
+            'envelope': (['ADSR'], None),
+            'fx': ([], 'effects'),
+            'preset': ([], 'presets'),
+            'bank': (['Select', 'Browse'], None),
+        }
+
+        for cat_id, cat_name in self.STATIC_CATEGORIES:
+            # Annotate category label with live summary where useful
+            label = cat_name
+            if cat_id == 'engine' and state:
+                label = f"Engine  ({state.get('bpm', 128):.0f} BPM)"
+            elif cat_id == 'synth' and state:
+                label = f"Synthesizer  ({state.get('waveform', '—')})"
+            elif cat_id == 'filter' and state:
+                label = f"Filter  ({state.get('filter_type', 'lp')} {state.get('filter_cutoff', 0):.0f}Hz)"
+            elif cat_id == 'envelope' and state:
+                label = (f"Envelope  (A{state.get('attack',0):.2f} D{state.get('decay',0):.2f} "
+                         f"S{state.get('sustain',0):.2f} R{state.get('release',0):.2f})")
+            elif cat_id == 'fx' and state:
+                n = len(state.get('effects', []))
+                label = f"Effects  ({n} active)"
+
+            cat_item = self.tree.AppendItem(root, label)
             self.tree.SetItemData(cat_item, ('category', cat_id))
             self.category_items[cat_id] = cat_item
-            
-            for subcat in subcats:
-                sub_item = self.tree.AppendItem(cat_item, subcat)
-                self.tree.SetItemData(sub_item, ('subcategory', cat_id))
-        
+
+            # Add children — prefer live data, fall back to static
+            static_children, live_key = cat_children.get(cat_id, ([], None))
+            children = live.get(live_key, []) if live_key and live else static_children
+
+            # Special: filter — show per-slot info from state
+            if cat_id == 'filter' and state:
+                children = [
+                    f"Type: {state.get('filter_type', 'lowpass')}",
+                    f"Cutoff: {state.get('filter_cutoff', 4500):.0f} Hz",
+                    f"Resonance: {state.get('filter_resonance', 50):.0f}",
+                ]
+
+            for child_label in children:
+                sub = self.tree.AppendItem(cat_item, str(child_label))
+                self.tree.SetItemData(sub, ('subcategory', cat_id))
+
+            # Extra live sections under Engine
+            if cat_id == 'engine' and live:
+                # Tracks
+                for t_label in live.get('tracks', []):
+                    sub = self.tree.AppendItem(cat_item, f"Track: {t_label}")
+                    self.tree.SetItemData(sub, ('subcategory', 'engine'))
+                # Buffers
+                for b_label in live.get('buffers', []):
+                    sub = self.tree.AppendItem(cat_item, str(b_label))
+                    self.tree.SetItemData(sub, ('subcategory', 'engine'))
+                # Decks
+                for d_label in live.get('decks', []):
+                    sub = self.tree.AppendItem(cat_item, str(d_label))
+                    self.tree.SetItemData(sub, ('subcategory', 'engine'))
+
+            # User functions and chains under Presets
+            if cat_id == 'preset' and live:
+                for fn in live.get('user_functions', []):
+                    sub = self.tree.AppendItem(cat_item, f"fn: {fn}")
+                    self.tree.SetItemData(sub, ('subcategory', 'preset'))
+                for ch in live.get('chains', []):
+                    sub = self.tree.AppendItem(cat_item, f"chain: {ch}")
+                    self.tree.SetItemData(sub, ('subcategory', 'preset'))
+
         self.tree.ExpandAll()
-    
+
     def on_tree_select(self, event):
         """Handle tree selection."""
         item = event.GetItem()
@@ -471,9 +629,9 @@ class ObjectBrowser(wx.Panel):
             if data:
                 obj_type, obj_id = data
                 self.on_select(obj_type, obj_id)
-    
+
     def on_search(self, event):
-        """Filter tree by highlighting matching items and collapsing non-matches."""
+        """Filter tree by expanding matching categories and collapsing others."""
         query = self.search_box.GetValue().lower().strip()
         if not query:
             self.tree.ExpandAll()
@@ -483,7 +641,6 @@ class ObjectBrowser(wx.Panel):
         if not root.IsOk():
             return
 
-        # Walk categories and expand/collapse based on match
         item, cookie = self.tree.GetFirstChild(root)
         while item.IsOk():
             cat_text = self.tree.GetItemText(item).lower()
@@ -502,19 +659,21 @@ class ObjectBrowser(wx.Panel):
                 self.tree.Collapse(item)
 
             item, cookie = self.tree.GetNextChild(root, cookie)
-    
+
     def on_refresh(self, event):
-        """Refresh the tree."""
+        """Re-read session state and rebuild the tree."""
         self.populate_tree()
 
 
 class ActionPanel(wx.Panel):
     """Right panel - action selection and parameter editing."""
-    
-    def __init__(self, parent, executor: CommandExecutor, console_callback):
+
+    def __init__(self, parent, executor: CommandExecutor, console_callback,
+                 state_sync_callback: Optional[Callable] = None):
         super().__init__(parent)
         self.executor = executor
         self.console_callback = console_callback
+        self.state_sync_callback = state_sync_callback
         self.current_category = 'engine'
         self.current_action: Optional[ActionDef] = None
         self.param_controls: Dict[str, wx.Control] = {}
@@ -737,7 +896,7 @@ class ActionPanel(wx.Panel):
         self.command_preview.SetValue(cmd)
     
     def on_run(self, event):
-        """Execute the current command."""
+        """Execute the current command and sync GUI state."""
         cmd = self.build_command()
         if cmd:
             self.console_callback(f">>> {cmd}\n", 'command')
@@ -749,6 +908,10 @@ class ActionPanel(wx.Panel):
             status = "OK" if success else "ERROR"
             color = 'success' if success else 'error'
             self.console_callback(f"[{status}]\n\n", color)
+
+            # Tell the frame to refresh status bar + browser
+            if self.state_sync_callback:
+                self.state_sync_callback()
     
     def on_copy(self, event):
         """Copy command to clipboard."""
@@ -889,6 +1052,8 @@ class MDMAFrame(wx.Frame):
         else:
             self.console.append("Select a category from the left panel, choose an action,\n", 'info')
             self.console.append("set parameters, and click Run (Ctrl+R) to execute.\n\n", 'info')
+            # Show live engine state on startup
+            self.sync_state()
     
     def create_menu_bar(self):
         """Create the menu bar."""
@@ -926,6 +1091,9 @@ class MDMAFrame(wx.Frame):
         self.SetMenuBar(menubar)
         
         # Bind events
+        self.Bind(wx.EVT_MENU, self.on_new_session, id=wx.ID_NEW)
+        self.Bind(wx.EVT_MENU, self.on_open_project, id=wx.ID_OPEN)
+        self.Bind(wx.EVT_MENU, self.on_save_project, id=wx.ID_SAVE)
         self.Bind(wx.EVT_MENU, self.on_exit, id=wx.ID_EXIT)
         self.Bind(wx.EVT_MENU, self.on_about, id=wx.ID_ABOUT)
     
@@ -933,19 +1101,23 @@ class MDMAFrame(wx.Frame):
         """Create the main layout with splitters."""
         # Main vertical splitter (top panels / bottom console)
         self.main_splitter = wx.SplitterWindow(self)
-        
+
         # Top horizontal splitter (left browser / right action panel)
         self.top_splitter = wx.SplitterWindow(self.main_splitter)
-        
-        # Create panels
-        self.browser = ObjectBrowser(self.top_splitter, self.on_object_select)
-        self.action_panel = ActionPanel(self.top_splitter, self.executor, self.console_append)
+
+        # Create panels — browser gets executor for live data, action panel
+        # gets a state_sync_callback so it can trigger refresh after commands.
+        self.browser = ObjectBrowser(
+            self.top_splitter, self.on_object_select, self.executor)
+        self.action_panel = ActionPanel(
+            self.top_splitter, self.executor, self.console_append,
+            state_sync_callback=self.sync_state)
         self.console = ConsolePanel(self.main_splitter)
-        
+
         # Configure splitters
-        self.top_splitter.SplitVertically(self.browser, self.action_panel, 250)
+        self.top_splitter.SplitVertically(self.browser, self.action_panel, 280)
         self.top_splitter.SetMinimumPaneSize(200)
-        
+
         self.main_splitter.SplitHorizontally(self.top_splitter, self.console, -200)
         self.main_splitter.SetMinimumPaneSize(150)
     
@@ -977,20 +1149,90 @@ class MDMAFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, lambda e: self.browser.search_box.SetFocus(), id=self.search_id)
         self.Bind(wx.EVT_MENU, lambda e: self.browser.on_refresh(e), id=self.refresh_id)
     
+    # ------------------------------------------------------------------
+    # State synchronisation — called after every command execution
+    # ------------------------------------------------------------------
+
+    def sync_state(self):
+        """Read engine state and update status bar + browser tree."""
+        state = self.executor.get_engine_state()
+        if not state:
+            return
+
+        buf_sec = state.get('buffer_seconds', 0)
+        status = (
+            f"BPM: {state['bpm']:.0f}  |  "
+            f"Buffer: {buf_sec:.2f}s  |  "
+            f"{state['waveform']} @ {state['frequency']:.0f}Hz  |  "
+            f"Voices: {state['voice_count']} ({state['voice_algorithm']})  |  "
+            f"Filter: {state['filter_type']} {state['filter_cutoff']:.0f}Hz  |  "
+            f"FX: {len(state['effects'])}  |  "
+            f"HQ: {'ON' if state['hq_mode'] else 'OFF'} {state['output_format'].upper()} "
+            f"{state['output_bit_depth']}bit"
+        )
+        self.SetStatusText(status)
+
+        # Rebuild browser tree with fresh data
+        self.browser.populate_tree()
+
+    # ------------------------------------------------------------------
+    # Callbacks
+    # ------------------------------------------------------------------
+
     def on_object_select(self, obj_type: str, obj_id: str):
         """Handle object selection from browser."""
         if obj_type in ('category', 'subcategory'):
             self.action_panel.set_category(obj_id)
-            self.SetStatusText(f"Category: {obj_id}")
-    
+
     def console_append(self, text: str, style: str = 'stdout'):
         """Append text to console (callback for action panel)."""
         self.console.append(text, style)
-    
+
+    # ------------------------------------------------------------------
+    # Menu handlers
+    # ------------------------------------------------------------------
+
+    def on_new_session(self, event):
+        """Reset the engine to a fresh session."""
+        self.executor._init_engine()
+        self.console.append("Session reset.\n", 'info')
+        self.sync_state()
+
+    def on_open_project(self, event):
+        """Open a project via file dialog."""
+        dlg = wx.FileDialog(self, "Open MDMA Project",
+                            wildcard="MDMA files (*.mdma)|*.mdma|All files (*.*)|*.*",
+                            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST)
+        if dlg.ShowModal() == wx.ID_OK:
+            path = dlg.GetPath()
+            name = os.path.splitext(os.path.basename(path))[0]
+            stdout, stderr, ok = self.executor.execute(f"/load {name}")
+            self.console.append(f">>> /load {name}\n", 'command')
+            if stdout:
+                self.console.append(stdout, 'stdout')
+            if stderr:
+                self.console.append(stderr, 'stderr')
+            self.sync_state()
+        dlg.Destroy()
+
+    def on_save_project(self, event):
+        """Save the current project via dialog."""
+        dlg = wx.TextEntryDialog(self, "Project name:", "Save Project", "myproject")
+        if dlg.ShowModal() == wx.ID_OK:
+            name = dlg.GetValue().strip()
+            if name:
+                stdout, stderr, ok = self.executor.execute(f"/save {name}")
+                self.console.append(f">>> /save {name}\n", 'command')
+                if stdout:
+                    self.console.append(stdout, 'stdout')
+                if stderr:
+                    self.console.append(stderr, 'stderr')
+        dlg.Destroy()
+
     def on_exit(self, event):
         """Handle exit."""
         self.Close()
-    
+
     def on_about(self, event):
         """Show about dialog."""
         info = wx.adv.AboutDialogInfo()
