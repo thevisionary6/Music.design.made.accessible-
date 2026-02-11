@@ -1,14 +1,24 @@
 #!/usr/bin/env python3
 """
-MDMA GUI - Action Panel Client MVP
-==================================
+MDMA GUI - Phase 1: Core Interface & Workflow
+==============================================
 
-A thin wxPython client over the MDMA CLI entrypoint.
-Maps GUI actions to existing commands and shows results immediately.
+Full-featured wxPython interface for the MDMA audio engine.
 
-Version: 0.2.0
+Phase 1 features:
+- Hierarchical object tree with live previews (tracks, buffers, decks,
+  operators, filters, effects, presets, chains)
+- Inspector panel with full object detail views
+- Step grid with playback position and buffer I/O tracking
+- Context menus for generation, FX, and destructive editing
+- Selection-based FX targeting (apply FX to tracks, buses, sections)
+- Accessibility section markers for deck regions
+- Auto-refresh timer for live state synchronization
+- Tabbed right panel (Inspector + Action Panel)
+
+Version: 1.0.0
 Author: Based on spec by Cyrus
-Date: 2026-02-03
+Date: 2026-02-11
 
 Requirements:
     pip install wxPython
@@ -16,7 +26,7 @@ Requirements:
 Usage:
     python mdma_gui.py
 
-BUILD ID: mdma_gui_v0.2.0
+BUILD ID: mdma_gui_v1.0.0_phase1
 """
 
 import wx
@@ -474,34 +484,337 @@ class CommandExecutor:
             'operators': operators,
         }
 
+    # ------------------------------------------------------------------
+    # Rich object queries for Phase 1 inspector / tree previews
+    # ------------------------------------------------------------------
+
+    def get_track_details(self, index: int) -> Dict[str, Any]:
+        """Return detailed info for a single track."""
+        import numpy as np
+        s = self.session
+        if not s or index >= len(s.tracks):
+            return {}
+        t = s.tracks[index]
+        audio = t.get('audio')
+        duration = 0.0
+        peak_db = -100.0
+        channels = 0
+        if audio is not None and len(audio) > 0:
+            duration = len(audio) / s.sample_rate
+            peak = float(np.max(np.abs(audio)))
+            peak_db = 20 * np.log10(peak) if peak > 0 else -100.0
+            channels = audio.shape[1] if audio.ndim == 2 else 1
+        return {
+            'index': index,
+            'name': t.get('name', f'track_{index+1}'),
+            'duration': duration,
+            'peak_db': peak_db,
+            'channels': channels,
+            'gain': t.get('gain', 1.0),
+            'pan': t.get('pan', 0.0),
+            'mute': t.get('mute', False),
+            'solo': t.get('solo', False),
+            'fx_chain': [fx[0] if isinstance(fx, (list, tuple)) else str(fx)
+                         for fx in t.get('fx_chain', [])],
+            'write_pos': t.get('write_pos', 0),
+            'write_pos_sec': t.get('write_pos', 0) / s.sample_rate,
+            'has_audio': duration > 0.01,
+        }
+
+    def get_buffer_details(self, index: int) -> Dict[str, Any]:
+        """Return detailed info for a single buffer."""
+        import numpy as np
+        s = self.session
+        if not s:
+            return {}
+        audio = s.buffers.get(index)
+        if audio is None or len(audio) == 0:
+            return {'index': index, 'empty': True, 'duration': 0, 'channels': 0,
+                    'peak_db': -100.0}
+        duration = len(audio) / s.sample_rate
+        peak = float(np.max(np.abs(audio)))
+        peak_db = 20 * np.log10(peak) if peak > 0 else -100.0
+        channels = audio.shape[1] if audio.ndim == 2 else 1
+        return {
+            'index': index,
+            'empty': False,
+            'duration': duration,
+            'peak_db': peak_db,
+            'channels': channels,
+            'samples': len(audio),
+        }
+
+    def get_working_buffer_details(self) -> Dict[str, Any]:
+        """Return detailed info for the working buffer."""
+        import numpy as np
+        s = self.session
+        if not s:
+            return {}
+        audio = s.working_buffer
+        source = getattr(s, 'working_buffer_source', 'init')
+        if audio is None or len(audio) == 0:
+            return {'empty': True, 'duration': 0, 'channels': 0,
+                    'peak_db': -100.0, 'source': source}
+        duration = len(audio) / s.sample_rate
+        peak = float(np.max(np.abs(audio)))
+        peak_db = 20 * np.log10(peak) if peak > 0 else -100.0
+        channels = audio.shape[1] if audio.ndim == 2 else 1
+        has_real = hasattr(s, 'has_real_working_audio') and s.has_real_working_audio()
+        return {
+            'empty': not has_real,
+            'duration': duration,
+            'peak_db': peak_db,
+            'channels': channels,
+            'source': source,
+            'samples': len(audio),
+        }
+
+    def get_deck_details(self, index: int) -> Dict[str, Any]:
+        """Return detailed info for a single deck."""
+        import numpy as np
+        s = self.session
+        if not s or index not in s.decks:
+            return {'index': index, 'loaded': False}
+        dk = s.decks[index]
+        audio = dk.get('buffer')
+        duration = 0.0
+        if audio is not None and len(audio) > 0:
+            duration = len(audio) / s.sample_rate
+        return {
+            'index': index,
+            'loaded': audio is not None and len(audio) > 0 if audio is not None else False,
+            'duration': duration,
+            'fx_chain': [fx[0] if isinstance(fx, (list, tuple)) else str(fx)
+                         for fx in dk.get('fx_chain', [])],
+        }
+
+    def get_operator_details(self, index: int) -> Dict[str, Any]:
+        """Return detailed info for a single operator."""
+        s = self.session
+        if not s or not hasattr(s.engine, 'operators'):
+            return {}
+        op = s.engine.operators.get(index, {})
+        env = None
+        if hasattr(s, 'operator_envelopes') and index in s.operator_envelopes:
+            e = s.operator_envelopes[index]
+            env = {'attack': e.get('attack', s.attack),
+                   'decay': e.get('decay', s.decay),
+                   'sustain': e.get('sustain', s.sustain),
+                   'release': e.get('release', s.release)}
+        return {
+            'index': index,
+            'wave': op.get('wave', 'sine'),
+            'freq': op.get('freq', 440.0),
+            'amp': op.get('amp', 0.8),
+            'is_current': index == s.current_operator,
+            'envelope': env,
+        }
+
+    def get_filter_slot_details(self, slot: int) -> Dict[str, Any]:
+        """Return detailed info for a single filter slot."""
+        s = self.session
+        if not s:
+            return {}
+        type_idx = s.filter_types.get(slot, 0)
+        return {
+            'slot': slot,
+            'type_name': s.filter_type_names.get(type_idx, 'lowpass'),
+            'cutoff': s.filter_cutoffs.get(slot, 4500.0),
+            'resonance': s.filter_resonances.get(slot, 50.0),
+            'enabled': s.filter_enabled.get(slot, slot == 0),
+            'is_selected': slot == s.selected_filter,
+        }
+
+    def get_all_filter_slots(self) -> List[Dict[str, Any]]:
+        """Return info for all active filter slots."""
+        s = self.session
+        if not s:
+            return []
+        slots = []
+        for slot in range(8):
+            info = self.get_filter_slot_details(slot)
+            if info.get('enabled', False) or slot == 0:
+                slots.append(info)
+        return slots
+
+    def get_rich_tree_data(self) -> Dict[str, Any]:
+        """Return enriched tree data with inline previews for all objects."""
+        import numpy as np
+        s = self.session
+        if not s:
+            return {}
+
+        # Tracks with previews
+        tracks = []
+        for i, t in enumerate(s.tracks):
+            info = self.get_track_details(i)
+            ch_str = 'stereo' if info.get('channels', 0) == 2 else 'mono'
+            if info.get('has_audio'):
+                preview = (f"{info['name']}  [{info['duration']:.2f}s, {ch_str}, "
+                           f"peak: {info['peak_db']:.1f}dB]")
+            else:
+                preview = f"{info['name']}  [empty]"
+            if info.get('mute'):
+                preview += '  [MUTE]'
+            if info.get('solo'):
+                preview += '  [SOLO]'
+            tracks.append({'label': preview, 'index': i, 'type': 'track',
+                           'details': info})
+
+        # Buffers with previews
+        buffers = []
+        filled = sorted(k for k, v in s.buffers.items()
+                        if v is not None and len(v) > 0)
+        for idx in filled:
+            info = self.get_buffer_details(idx)
+            ch_str = 'stereo' if info.get('channels', 0) == 2 else 'mono'
+            preview = f"Buffer {idx}  [{info['duration']:.2f}s, {ch_str}]"
+            buffers.append({'label': preview, 'index': idx, 'type': 'buffer',
+                            'details': info})
+
+        # Working buffer
+        wb_info = self.get_working_buffer_details()
+        if wb_info.get('empty'):
+            wb_preview = 'Working Buffer  [empty]'
+        else:
+            ch_str = 'stereo' if wb_info.get('channels', 0) == 2 else 'mono'
+            wb_preview = (f"Working Buffer  [{wb_info['duration']:.2f}s, {ch_str}, "
+                          f"src: {wb_info.get('source', '?')}]")
+
+        # Decks with previews
+        decks = []
+        for dk_id in sorted(s.decks.keys()):
+            info = self.get_deck_details(dk_id)
+            if info.get('loaded'):
+                preview = f"Deck {dk_id}  [{info['duration']:.2f}s loaded]"
+            else:
+                preview = f"Deck {dk_id}  [empty]"
+            decks.append({'label': preview, 'index': dk_id, 'type': 'deck',
+                          'details': info})
+
+        # Operators with previews
+        operators = []
+        if hasattr(s.engine, 'operators'):
+            for idx in sorted(s.engine.operators.keys()):
+                info = self.get_operator_details(idx)
+                current = ' *' if info.get('is_current') else ''
+                preview = (f"Op {idx}: {info['wave']} @ {info['freq']:.0f}Hz "
+                           f"(amp: {info['amp']:.2f}){current}")
+                operators.append({'label': preview, 'index': idx,
+                                  'type': 'operator', 'details': info})
+
+        # Filter slots
+        filters = self.get_all_filter_slots()
+        filter_items = []
+        for f in filters:
+            sel = ' *' if f.get('is_selected') else ''
+            en = '' if f.get('enabled') else '  [OFF]'
+            preview = (f"Slot {f['slot']}: {f['type_name']} "
+                       f"{f['cutoff']:.0f}Hz res:{f['resonance']:.0f}{en}{sel}")
+            filter_items.append({'label': preview, 'slot': f['slot'],
+                                 'type': 'filter_slot', 'details': f})
+
+        # Effects
+        effects = []
+        for i, fx in enumerate(s.effects):
+            fx_name = fx[0] if isinstance(fx, (list, tuple)) else str(fx)
+            effects.append({'label': fx_name, 'index': i, 'type': 'effect'})
+
+        # Presets
+        presets = []
+        if hasattr(s, 'sydefs') and s.sydefs:
+            for name in sorted(s.sydefs.keys()):
+                presets.append({'label': name, 'name': name, 'type': 'sydef'})
+        elif hasattr(s.engine, 'preset_bank') and s.engine.preset_bank:
+            for k in sorted(s.engine.preset_bank.keys()):
+                presets.append({'label': f"Preset {k}", 'name': str(k),
+                                'type': 'preset'})
+
+        # User functions
+        funcs = []
+        if s.user_functions:
+            for name in sorted(s.user_functions.keys()):
+                funcs.append({'label': f"fn: {name}", 'name': name,
+                              'type': 'user_function'})
+
+        # Chains
+        chains = []
+        if s.chains:
+            for name in sorted(s.chains.keys()):
+                ch = s.chains[name]
+                n = len(ch) if isinstance(ch, list) else 0
+                chains.append({'label': f"chain: {name} ({n} fx)",
+                                'name': name, 'type': 'chain'})
+
+        # Deck section markers (accessibility)
+        deck_sections = []
+        for dk_id in sorted(s.decks.keys()):
+            info = self.get_deck_details(dk_id)
+            if info.get('loaded') and info['duration'] > 0:
+                dur = info['duration']
+                # Create section markers at intro/body/outro boundaries
+                sections = []
+                if dur > 2:
+                    sections.append({'label': f'Deck {dk_id} Intro (0s-{min(dur, 2):.1f}s)',
+                                     'deck': dk_id, 'start': 0, 'end': min(dur, 2)})
+                if dur > 4:
+                    sections.append({'label': f'Deck {dk_id} Body ({2:.1f}s-{dur-2:.1f}s)',
+                                     'deck': dk_id, 'start': 2, 'end': dur - 2})
+                    sections.append({'label': f'Deck {dk_id} Outro ({dur-2:.1f}s-{dur:.1f}s)',
+                                     'deck': dk_id, 'start': dur - 2, 'end': dur})
+                deck_sections.extend(sections)
+
+        return {
+            'tracks': tracks,
+            'buffers': buffers,
+            'working_buffer': {'label': wb_preview, 'type': 'working_buffer',
+                               'details': wb_info},
+            'decks': decks,
+            'operators': operators,
+            'filters': filter_items,
+            'effects': effects,
+            'presets': presets,
+            'user_functions': funcs,
+            'chains': chains,
+            'deck_sections': deck_sections,
+        }
+
 
 # ============================================================================
 # GUI COMPONENTS
 # ============================================================================
 
 class ObjectBrowser(wx.Panel):
-    """Left panel - tree/list of objects to act on.
+    """Left panel - hierarchical tree of all session objects.
 
-    Reads live data from the CommandExecutor to show real session
-    objects (tracks, buffers, operators, presets, effects, etc.)
-    instead of hardcoded placeholder strings.
+    Provides a rich, navigable tree with:
+    - Top-level categories for every object domain
+    - Inline preview metadata (duration, peak, channels, state)
+    - Context menus for direct actions on objects
+    - Accessibility markers for deck sections
+    - Dynamic population from live session state
     """
 
-    # Static categories always shown; dynamic children come from session.
-    STATIC_CATEGORIES = [
-        ('engine', 'Engine'),
-        ('synth', 'Synthesizer'),
-        ('filter', 'Filter'),
+    # Top-level categories — each is its own branch in the tree.
+    CATEGORIES = [
+        ('engine',   'Engine'),
+        ('synth',    'Synthesizer'),
+        ('filter',   'Filter'),
         ('envelope', 'Envelope'),
-        ('fx', 'Effects'),
-        ('preset', 'Presets'),
-        ('bank', 'Banks'),
+        ('tracks',   'Tracks'),
+        ('buffers',  'Buffers'),
+        ('decks',    'Decks'),
+        ('fx',       'Effects'),
+        ('preset',   'Presets'),
+        ('bank',     'Banks'),
     ]
 
-    def __init__(self, parent, on_select_callback, executor: CommandExecutor):
+    def __init__(self, parent, on_select_callback, executor: CommandExecutor,
+                 console_callback=None):
         super().__init__(parent)
         self.on_select = on_select_callback
         self.executor = executor
+        self.console_cb = console_callback
 
         self.SetBackgroundColour(Theme.BG_PANEL)
 
@@ -511,7 +824,8 @@ class ObjectBrowser(wx.Panel):
         search_sizer = wx.BoxSizer(wx.HORIZONTAL)
         search_label = wx.StaticText(self, label="Search:")
         search_label.SetForegroundColour(Theme.FG_TEXT)
-        self.search_box = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER)
+        self.search_box = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER,
+                                       name="ObjectSearch")
         self.search_box.SetBackgroundColour(Theme.BG_INPUT)
         self.search_box.SetForegroundColour(Theme.FG_TEXT)
         self.search_box.Bind(wx.EVT_TEXT, self.on_search)
@@ -522,10 +836,12 @@ class ObjectBrowser(wx.Panel):
         sizer.Add(search_sizer, 0, wx.EXPAND | wx.ALL, 5)
 
         # Tree control
-        self.tree = wx.TreeCtrl(self, style=wx.TR_DEFAULT_STYLE | wx.TR_HIDE_ROOT)
+        self.tree = wx.TreeCtrl(self, style=wx.TR_DEFAULT_STYLE | wx.TR_HIDE_ROOT,
+                                name="ObjectTree")
         self.tree.SetBackgroundColour(Theme.BG_INPUT)
         self.tree.SetForegroundColour(Theme.FG_TEXT)
         self.tree.Bind(wx.EVT_TREE_SEL_CHANGED, self.on_tree_select)
+        self.tree.Bind(wx.EVT_TREE_ITEM_RIGHT_CLICK, self.on_context_menu)
 
         sizer.Add(self.tree, 1, wx.EXPAND | wx.ALL, 5)
 
@@ -538,97 +854,398 @@ class ObjectBrowser(wx.Panel):
         self.category_items: Dict[str, Any] = {}
         self.populate_tree()
 
+    # ------------------------------------------------------------------
+    # Tree population
+    # ------------------------------------------------------------------
+
     def populate_tree(self):
-        """Populate the tree from live session data."""
+        """Build the full object tree from live session data."""
         self.tree.DeleteAllItems()
-        root = self.tree.AddRoot("MDMA")
+        root = self.tree.AddRoot("MDMA Session")
         self.category_items = {}
 
-        # Fetch live data (empty dict if engine not loaded)
-        live = self.executor.get_dynamic_tree_data()
         state = self.executor.get_engine_state()
+        rich = self.executor.get_rich_tree_data()
 
-        # Mapping: category -> (static fallback children, live key)
-        cat_children = {
-            'engine': (['Generate', 'Playback', 'Settings'], None),
-            'synth': ([], 'operators'),
-            'filter': ([], None),
-            'envelope': (['ADSR'], None),
-            'fx': ([], 'effects'),
-            'preset': ([], 'presets'),
-            'bank': (['Select', 'Browse'], None),
-        }
+        # ---- Engine ----
+        bpm = state.get('bpm', 128) if state else 128
+        sr = state.get('sample_rate', 48000) if state else 48000
+        hq = state.get('hq_mode', False) if state else False
+        fmt = state.get('output_format', 'wav') if state else 'wav'
+        bits = state.get('output_bit_depth', 16) if state else 16
+        eng = self.tree.AppendItem(root, f"Engine  ({bpm:.0f} BPM, {sr}Hz)")
+        self.tree.SetItemData(eng, {'type': 'category', 'id': 'engine'})
+        self.category_items['engine'] = eng
+        for lbl in [f"BPM: {bpm:.0f}", f"Sample Rate: {sr}",
+                     f"HQ Mode: {'ON' if hq else 'OFF'} ({fmt.upper()} {bits}-bit)"]:
+            sub = self.tree.AppendItem(eng, lbl)
+            self.tree.SetItemData(sub, {'type': 'engine_prop', 'id': 'engine'})
 
-        for cat_id, cat_name in self.STATIC_CATEGORIES:
-            # Annotate category label with live summary where useful
-            label = cat_name
-            if cat_id == 'engine' and state:
-                label = f"Engine  ({state.get('bpm', 128):.0f} BPM)"
-            elif cat_id == 'synth' and state:
-                label = f"Synthesizer  ({state.get('waveform', '—')})"
-            elif cat_id == 'filter' and state:
-                label = f"Filter  ({state.get('filter_type', 'lp')} {state.get('filter_cutoff', 0):.0f}Hz)"
-            elif cat_id == 'envelope' and state:
-                label = (f"Envelope  (A{state.get('attack',0):.2f} D{state.get('decay',0):.2f} "
-                         f"S{state.get('sustain',0):.2f} R{state.get('release',0):.2f})")
-            elif cat_id == 'fx' and state:
-                n = len(state.get('effects', []))
-                label = f"Effects  ({n} active)"
+        # ---- Synthesizer ----
+        wave = state.get('waveform', '---') if state else '---'
+        syn = self.tree.AppendItem(root, f"Synthesizer  ({wave})")
+        self.tree.SetItemData(syn, {'type': 'category', 'id': 'synth'})
+        self.category_items['synth'] = syn
+        for op_item in rich.get('operators', []):
+            sub = self.tree.AppendItem(syn, op_item['label'])
+            self.tree.SetItemData(sub, {'type': 'operator',
+                                         'index': op_item['index'],
+                                         'id': 'synth'})
 
-            cat_item = self.tree.AppendItem(root, label)
-            self.tree.SetItemData(cat_item, ('category', cat_id))
-            self.category_items[cat_id] = cat_item
+        # ---- Filter ----
+        filt_items = rich.get('filters', [])
+        ftype = state.get('filter_type', 'lp') if state else 'lp'
+        fcut = state.get('filter_cutoff', 4500) if state else 4500
+        flt = self.tree.AppendItem(root, f"Filter  ({ftype} {fcut:.0f}Hz)")
+        self.tree.SetItemData(flt, {'type': 'category', 'id': 'filter'})
+        self.category_items['filter'] = flt
+        for fi in filt_items:
+            sub = self.tree.AppendItem(flt, fi['label'])
+            self.tree.SetItemData(sub, {'type': 'filter_slot',
+                                         'slot': fi['slot'],
+                                         'id': 'filter'})
 
-            # Add children — prefer live data, fall back to static
-            static_children, live_key = cat_children.get(cat_id, ([], None))
-            children = live.get(live_key, []) if live_key and live else static_children
+        # ---- Envelope ----
+        if state:
+            env_lbl = (f"Envelope  (A{state.get('attack',0):.2f} "
+                       f"D{state.get('decay',0):.2f} "
+                       f"S{state.get('sustain',0):.2f} "
+                       f"R{state.get('release',0):.2f})")
+        else:
+            env_lbl = "Envelope"
+        env = self.tree.AppendItem(root, env_lbl)
+        self.tree.SetItemData(env, {'type': 'category', 'id': 'envelope'})
+        self.category_items['envelope'] = env
+        if state:
+            for param in ['attack', 'decay', 'sustain', 'release']:
+                sub = self.tree.AppendItem(env,
+                    f"{param.capitalize()}: {state.get(param, 0):.3f}")
+                self.tree.SetItemData(sub, {'type': 'envelope_param',
+                                             'param': param, 'id': 'envelope'})
 
-            # Special: filter — show per-slot info from state
-            if cat_id == 'filter' and state:
-                children = [
-                    f"Type: {state.get('filter_type', 'lowpass')}",
-                    f"Cutoff: {state.get('filter_cutoff', 4500):.0f} Hz",
-                    f"Resonance: {state.get('filter_resonance', 50):.0f}",
-                ]
+        # ---- Tracks ----
+        track_items = rich.get('tracks', [])
+        trk = self.tree.AppendItem(root, f"Tracks  ({len(track_items)})")
+        self.tree.SetItemData(trk, {'type': 'category', 'id': 'tracks'})
+        self.category_items['tracks'] = trk
+        for ti in track_items:
+            sub = self.tree.AppendItem(trk, ti['label'])
+            self.tree.SetItemData(sub, {'type': 'track', 'index': ti['index'],
+                                         'id': 'tracks',
+                                         'details': ti.get('details', {})})
 
-            for child_label in children:
-                sub = self.tree.AppendItem(cat_item, str(child_label))
-                self.tree.SetItemData(sub, ('subcategory', cat_id))
+        # ---- Buffers ----
+        buf_items = rich.get('buffers', [])
+        wb = rich.get('working_buffer', {})
+        total_bufs = len(buf_items) + (0 if wb.get('details', {}).get('empty', True) else 1)
+        buf_cat = self.tree.AppendItem(root,
+            f"Buffers  ({len(buf_items)} filled)")
+        self.tree.SetItemData(buf_cat, {'type': 'category', 'id': 'buffers'})
+        self.category_items['buffers'] = buf_cat
+        # Working buffer first
+        wb_sub = self.tree.AppendItem(buf_cat, wb.get('label', 'Working Buffer'))
+        self.tree.SetItemData(wb_sub, {'type': 'working_buffer', 'id': 'buffers',
+                                        'details': wb.get('details', {})})
+        for bi in buf_items:
+            sub = self.tree.AppendItem(buf_cat, bi['label'])
+            self.tree.SetItemData(sub, {'type': 'buffer', 'index': bi['index'],
+                                         'id': 'buffers',
+                                         'details': bi.get('details', {})})
 
-            # Extra live sections under Engine
-            if cat_id == 'engine' and live:
-                # Tracks
-                for t_label in live.get('tracks', []):
-                    sub = self.tree.AppendItem(cat_item, f"Track: {t_label}")
-                    self.tree.SetItemData(sub, ('subcategory', 'engine'))
-                # Buffers
-                for b_label in live.get('buffers', []):
-                    sub = self.tree.AppendItem(cat_item, str(b_label))
-                    self.tree.SetItemData(sub, ('subcategory', 'engine'))
-                # Decks
-                for d_label in live.get('decks', []):
-                    sub = self.tree.AppendItem(cat_item, str(d_label))
-                    self.tree.SetItemData(sub, ('subcategory', 'engine'))
+        # ---- Decks ----
+        deck_items = rich.get('decks', [])
+        deck_sections = rich.get('deck_sections', [])
+        dk_cat = self.tree.AppendItem(root, f"Decks  ({len(deck_items)})")
+        self.tree.SetItemData(dk_cat, {'type': 'category', 'id': 'decks'})
+        self.category_items['decks'] = dk_cat
+        for di in deck_items:
+            dk_sub = self.tree.AppendItem(dk_cat, di['label'])
+            self.tree.SetItemData(dk_sub, {'type': 'deck', 'index': di['index'],
+                                            'id': 'decks',
+                                            'details': di.get('details', {})})
+            # Add accessibility section markers as children of each deck
+            for sec in deck_sections:
+                if sec.get('deck') == di['index']:
+                    sec_sub = self.tree.AppendItem(dk_sub, sec['label'])
+                    self.tree.SetItemData(sec_sub, {
+                        'type': 'deck_section',
+                        'deck': sec['deck'],
+                        'start': sec['start'],
+                        'end': sec['end'],
+                        'id': 'decks',
+                    })
 
-            # User functions and chains under Presets
-            if cat_id == 'preset' and live:
-                for fn in live.get('user_functions', []):
-                    sub = self.tree.AppendItem(cat_item, f"fn: {fn}")
-                    self.tree.SetItemData(sub, ('subcategory', 'preset'))
-                for ch in live.get('chains', []):
-                    sub = self.tree.AppendItem(cat_item, f"chain: {ch}")
-                    self.tree.SetItemData(sub, ('subcategory', 'preset'))
+        # ---- Effects ----
+        fx_items = rich.get('effects', [])
+        n_fx = len([e for e in fx_items if e.get('label') != '(none)'])
+        fx_cat = self.tree.AppendItem(root, f"Effects  ({n_fx} active)")
+        self.tree.SetItemData(fx_cat, {'type': 'category', 'id': 'fx'})
+        self.category_items['fx'] = fx_cat
+        for ei in fx_items:
+            sub = self.tree.AppendItem(fx_cat, ei['label'])
+            self.tree.SetItemData(sub, {'type': 'effect', 'index': ei.get('index', 0),
+                                         'id': 'fx'})
+
+        # ---- Presets (SyDefs, Functions, Chains) ----
+        preset_items = rich.get('presets', [])
+        func_items = rich.get('user_functions', [])
+        chain_items = rich.get('chains', [])
+        total_pre = len(preset_items) + len(func_items) + len(chain_items)
+        pre_cat = self.tree.AppendItem(root, f"Presets  ({total_pre})")
+        self.tree.SetItemData(pre_cat, {'type': 'category', 'id': 'preset'})
+        self.category_items['preset'] = pre_cat
+        # SyDefs
+        if preset_items:
+            sydef_grp = self.tree.AppendItem(pre_cat,
+                f"SyDefs ({len(preset_items)})")
+            self.tree.SetItemData(sydef_grp, {'type': 'group', 'id': 'preset'})
+            for pi in preset_items:
+                sub = self.tree.AppendItem(sydef_grp, pi['label'])
+                self.tree.SetItemData(sub, {'type': 'sydef',
+                                             'name': pi.get('name', ''),
+                                             'id': 'preset'})
+        # User functions
+        if func_items:
+            fn_grp = self.tree.AppendItem(pre_cat,
+                f"Functions ({len(func_items)})")
+            self.tree.SetItemData(fn_grp, {'type': 'group', 'id': 'preset'})
+            for fi in func_items:
+                sub = self.tree.AppendItem(fn_grp, fi['label'])
+                self.tree.SetItemData(sub, {'type': 'user_function',
+                                             'name': fi.get('name', ''),
+                                             'id': 'preset'})
+        # Chains
+        if chain_items:
+            ch_grp = self.tree.AppendItem(pre_cat,
+                f"Chains ({len(chain_items)})")
+            self.tree.SetItemData(ch_grp, {'type': 'group', 'id': 'preset'})
+            for ci in chain_items:
+                sub = self.tree.AppendItem(ch_grp, ci['label'])
+                self.tree.SetItemData(sub, {'type': 'chain',
+                                             'name': ci.get('name', ''),
+                                             'id': 'preset'})
+
+        # ---- Banks ----
+        bank_cat = self.tree.AppendItem(root, "Banks")
+        self.tree.SetItemData(bank_cat, {'type': 'category', 'id': 'bank'})
+        self.category_items['bank'] = bank_cat
 
         self.tree.ExpandAll()
 
+    # ------------------------------------------------------------------
+    # Selection
+    # ------------------------------------------------------------------
+
     def on_tree_select(self, event):
-        """Handle tree selection."""
+        """Handle tree selection — sends rich item data to callbacks."""
         item = event.GetItem()
-        if item.IsOk():
-            data = self.tree.GetItemData(item)
-            if data:
-                obj_type, obj_id = data
-                self.on_select(obj_type, obj_id)
+        if not item.IsOk():
+            return
+        data = self.tree.GetItemData(item)
+        if not data:
+            return
+        # Notify parent with the full data dict
+        self.on_select(data)
+
+    # ------------------------------------------------------------------
+    # Context menus
+    # ------------------------------------------------------------------
+
+    def on_context_menu(self, event):
+        """Show a context menu appropriate to the selected tree item."""
+        item = event.GetItem()
+        if not item.IsOk():
+            return
+        self.tree.SelectItem(item)
+        data = self.tree.GetItemData(item)
+        if not data:
+            return
+
+        menu = wx.Menu()
+        obj_type = data.get('type', '')
+
+        if obj_type == 'track':
+            idx = data.get('index', 0)
+            menu.Append(wx.ID_ANY, f"Play Track {idx+1}").Id
+            m_play = menu.FindItemByPosition(0).GetId()
+            menu.Append(wx.ID_ANY, "Solo")
+            m_solo = menu.FindItemByPosition(1).GetId()
+            menu.Append(wx.ID_ANY, "Mute")
+            m_mute = menu.FindItemByPosition(2).GetId()
+            menu.AppendSeparator()
+            menu.Append(wx.ID_ANY, "Apply Effect...")
+            m_fx = menu.FindItemByPosition(4).GetId()
+            menu.Append(wx.ID_ANY, "Bounce to Working Buffer")
+            m_bounce = menu.FindItemByPosition(5).GetId()
+            menu.AppendSeparator()
+            menu.Append(wx.ID_ANY, "Clear Track")
+            m_clear = menu.FindItemByPosition(7).GetId()
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/pt {i+1}'), id=m_play)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/tsolo {i+1}'), id=m_solo)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/tmute {i+1}'), id=m_mute)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_fx_picker('track', i), id=m_fx)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/btw {i+1}'), id=m_bounce)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/tclr {i+1}'), id=m_clear)
+
+        elif obj_type == 'buffer':
+            idx = data.get('index', 1)
+            m_play = wx.NewIdRef()
+            m_to_work = wx.NewIdRef()
+            m_fx = wx.NewIdRef()
+            m_clear = wx.NewIdRef()
+            menu.Append(m_play, f"Play Buffer {idx}")
+            menu.Append(m_to_work, "Copy to Working Buffer")
+            menu.AppendSeparator()
+            menu.Append(m_fx, "Apply Effect...")
+            menu.AppendSeparator()
+            menu.Append(m_clear, "Clear Buffer")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/pb {i}'), id=m_play)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/bu {i}'), id=m_to_work)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_fx_picker('buffer', i), id=m_fx)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/clr {i}'), id=m_clear)
+
+        elif obj_type == 'working_buffer':
+            m_play = wx.NewIdRef()
+            m_fx = wx.NewIdRef()
+            m_clear = wx.NewIdRef()
+            menu.Append(m_play, "Play Working Buffer")
+            menu.AppendSeparator()
+            menu.Append(m_fx, "Apply Effect...")
+            menu.AppendSeparator()
+            menu.Append(m_clear, "Clear Working Buffer")
+
+            self.Bind(wx.EVT_MENU, lambda e: self._exec('/p'), id=m_play)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._show_fx_picker('working', 0), id=m_fx)
+            self.Bind(wx.EVT_MENU, lambda e: self._exec('/wbc'), id=m_clear)
+
+        elif obj_type == 'deck':
+            idx = data.get('index', 1)
+            m_play = wx.NewIdRef()
+            m_fx = wx.NewIdRef()
+            m_clear = wx.NewIdRef()
+            menu.Append(m_play, f"Play Deck {idx}")
+            menu.AppendSeparator()
+            menu.Append(m_fx, "Apply Effect...")
+            menu.AppendSeparator()
+            menu.Append(m_clear, "Clear Deck")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/pd {i}'), id=m_play)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_fx_picker('deck', i), id=m_fx)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/deck {i} clear'), id=m_clear)
+
+        elif obj_type == 'effect':
+            idx = data.get('index', 0)
+            m_remove = wx.NewIdRef()
+            m_clear_all = wx.NewIdRef()
+            menu.Append(m_remove, f"Remove This Effect")
+            menu.AppendSeparator()
+            menu.Append(m_clear_all, "Clear All Effects")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/fxr {i}'), id=m_remove)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/fxc'), id=m_clear_all)
+
+        elif obj_type == 'operator':
+            idx = data.get('index', 0)
+            m_select = wx.NewIdRef()
+            m_gen = wx.NewIdRef()
+            menu.Append(m_select, f"Select Operator {idx}")
+            menu.Append(m_gen, "Generate Tone on This Operator")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/op {i}'), id=m_select)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/op {i}\n/tone 440 1'),
+                id=m_gen)
+
+        elif obj_type == 'sydef':
+            name = data.get('name', '')
+            m_use = wx.NewIdRef()
+            menu.Append(m_use, f"Use Preset: {name}")
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/use {n}'), id=m_use)
+
+        elif obj_type == 'chain':
+            name = data.get('name', '')
+            m_apply = wx.NewIdRef()
+            menu.Append(m_apply, f"Apply Chain: {name}")
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/chain {n} apply'), id=m_apply)
+
+        elif obj_type == 'category':
+            cat_id = data.get('id', '')
+            if cat_id == 'tracks':
+                m_new = wx.NewIdRef()
+                menu.Append(m_new, "Add New Track")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/new track'), id=m_new)
+            elif cat_id == 'fx':
+                m_add = wx.NewIdRef()
+                m_clear = wx.NewIdRef()
+                menu.Append(m_add, "Add Effect...")
+                menu.Append(m_clear, "Clear All Effects")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_fx_picker('global', 0), id=m_add)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/fxc'), id=m_clear)
+
+        if menu.GetMenuItemCount() > 0:
+            self.PopupMenu(menu)
+        menu.Destroy()
+
+    def _exec(self, command: str):
+        """Execute a command via the executor and log to console."""
+        if self.console_cb:
+            self.console_cb(f">>> {command}\n", 'command')
+        stdout, stderr, ok = self.executor.execute(command)
+        if self.console_cb:
+            if stdout:
+                self.console_cb(stdout, 'stdout')
+            if stderr:
+                self.console_cb(stderr, 'stderr')
+            status = "OK" if ok else "ERROR"
+            self.console_cb(f"[{status}]\n\n", 'success' if ok else 'error')
+        self.populate_tree()
+
+    def _show_fx_picker(self, target_type: str, target_id: int):
+        """Show a dialog to pick an effect and apply it to a target."""
+        effects = ['reverb', 'delay', 'chorus', 'distortion', 'phaser',
+                    'flanger', 'compressor', 'eq', 'bitcrush', 'normalize',
+                    'compress', 'saturate', 'stereo_wide', 'granular']
+        dlg = wx.SingleChoiceDialog(self, "Select an effect to apply:",
+                                     "Apply Effect", effects)
+        if dlg.ShowModal() == wx.ID_OK:
+            fx_name = dlg.GetStringSelection()
+            if target_type == 'track':
+                self._exec(f'/tsel {target_id+1}\n/fx {fx_name}')
+            elif target_type == 'buffer':
+                self._exec(f'/bu {target_id}\n/fx {fx_name}')
+            elif target_type == 'deck':
+                self._exec(f'/deck {target_id}\n/fx {fx_name}')
+            else:
+                self._exec(f'/fx {fx_name}')
+        dlg.Destroy()
+
+    # ------------------------------------------------------------------
+    # Search
+    # ------------------------------------------------------------------
 
     def on_search(self, event):
         """Filter tree by expanding matching categories and collapsing others."""
@@ -645,13 +1262,7 @@ class ObjectBrowser(wx.Panel):
         while item.IsOk():
             cat_text = self.tree.GetItemText(item).lower()
             cat_match = query in cat_text
-            child_match = False
-
-            child, c_cookie = self.tree.GetFirstChild(item)
-            while child.IsOk():
-                if query in self.tree.GetItemText(child).lower():
-                    child_match = True
-                child, c_cookie = self.tree.GetNextChild(item, c_cookie)
+            child_match = self._search_children(item, query)
 
             if cat_match or child_match:
                 self.tree.Expand(item)
@@ -659,6 +1270,17 @@ class ObjectBrowser(wx.Panel):
                 self.tree.Collapse(item)
 
             item, cookie = self.tree.GetNextChild(root, cookie)
+
+    def _search_children(self, parent, query: str) -> bool:
+        """Recursively check if any child matches the query."""
+        child, cookie = self.tree.GetFirstChild(parent)
+        while child.IsOk():
+            if query in self.tree.GetItemText(child).lower():
+                return True
+            if self._search_children(child, query):
+                return True
+            child, cookie = self.tree.GetNextChild(parent, cookie)
+        return False
 
     def on_refresh(self, event):
         """Re-read session state and rebuild the tree."""
@@ -939,6 +1561,479 @@ class ActionPanel(wx.Panel):
             self.update_command_preview()
 
 
+class InspectorPanel(wx.Panel):
+    """Detail inspector panel — shows full properties of the selected object.
+
+    When a track, buffer, deck, operator, filter slot, or other object
+    is selected in the ObjectBrowser, this panel displays all its
+    properties in a readable, keyboard-navigable layout.
+    """
+
+    def __init__(self, parent, executor: CommandExecutor,
+                 console_callback=None, state_sync_callback=None):
+        super().__init__(parent)
+        self.executor = executor
+        self.console_cb = console_callback
+        self.state_sync_cb = state_sync_callback
+        self.current_data = None
+
+        self.SetBackgroundColour(Theme.BG_PANEL)
+
+        self.sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Title
+        self.title = wx.StaticText(self, label="Inspector")
+        self.title.SetForegroundColour(Theme.ACCENT)
+        font = self.title.GetFont()
+        font.SetPointSize(12)
+        font.SetWeight(wx.FONTWEIGHT_BOLD)
+        self.title.SetFont(font)
+        self.sizer.Add(self.title, 0, wx.ALL, 10)
+
+        # Subtitle (object type)
+        self.subtitle = wx.StaticText(self, label="Select an object to inspect")
+        self.subtitle.SetForegroundColour(Theme.FG_DIM)
+        self.sizer.Add(self.subtitle, 0, wx.LEFT | wx.BOTTOM, 10)
+
+        # Properties list (scrollable)
+        self.props_panel = wx.ScrolledWindow(self)
+        self.props_panel.SetBackgroundColour(Theme.BG_PANEL)
+        self.props_panel.SetScrollRate(0, 20)
+        self.props_sizer = wx.FlexGridSizer(cols=2, hgap=12, vgap=6)
+        self.props_sizer.AddGrowableCol(1, 1)
+        self.props_panel.SetSizer(self.props_sizer)
+        self.sizer.Add(self.props_panel, 1, wx.EXPAND | wx.ALL, 5)
+
+        # Quick action buttons (contextual)
+        self.action_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.sizer.Add(self.action_sizer, 0, wx.EXPAND | wx.ALL, 10)
+
+        self.SetSizer(self.sizer)
+
+    def inspect(self, data: dict):
+        """Display detail view for the given object data dict."""
+        self.current_data = data
+        obj_type = data.get('type', '')
+
+        # Clear previous
+        self.props_sizer.Clear(True)
+        self.action_sizer.Clear(True)
+
+        if obj_type == 'track':
+            self._inspect_track(data)
+        elif obj_type == 'buffer':
+            self._inspect_buffer(data)
+        elif obj_type == 'working_buffer':
+            self._inspect_working_buffer(data)
+        elif obj_type == 'deck':
+            self._inspect_deck(data)
+        elif obj_type == 'operator':
+            self._inspect_operator(data)
+        elif obj_type == 'filter_slot':
+            self._inspect_filter_slot(data)
+        elif obj_type == 'effect':
+            self._inspect_effect(data)
+        elif obj_type == 'sydef':
+            self._inspect_sydef(data)
+        elif obj_type == 'chain':
+            self._inspect_chain(data)
+        elif obj_type == 'deck_section':
+            self._inspect_deck_section(data)
+        elif obj_type == 'category':
+            self._inspect_category(data)
+        else:
+            self.title.SetLabel("Inspector")
+            self.subtitle.SetLabel(f"Object type: {obj_type}")
+
+        self.props_panel.FitInside()
+        self.Layout()
+
+    def _add_prop(self, label: str, value: str):
+        """Add a property row to the inspector."""
+        lbl = wx.StaticText(self.props_panel, label=label)
+        lbl.SetForegroundColour(Theme.FG_DIM)
+        lbl.SetMinSize((120, -1))
+        val = wx.StaticText(self.props_panel, label=str(value))
+        val.SetForegroundColour(Theme.FG_TEXT)
+        self.props_sizer.Add(lbl, 0, wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
+        self.props_sizer.Add(val, 1, wx.EXPAND)
+
+    def _add_action_btn(self, label: str, command: str):
+        """Add a quick-action button."""
+        btn = wx.Button(self, label=label)
+        btn.Bind(wx.EVT_BUTTON,
+                 lambda e, cmd=command: self._exec_action(cmd))
+        self.action_sizer.Add(btn, 0, wx.RIGHT, 5)
+
+    def _exec_action(self, command: str):
+        """Execute a command and sync state."""
+        if self.console_cb:
+            self.console_cb(f">>> {command}\n", 'command')
+        stdout, stderr, ok = self.executor.execute(command)
+        if self.console_cb:
+            if stdout:
+                self.console_cb(stdout, 'stdout')
+            if stderr:
+                self.console_cb(stderr, 'stderr')
+            self.console_cb(
+                f"[{'OK' if ok else 'ERROR'}]\n\n",
+                'success' if ok else 'error')
+        if self.state_sync_cb:
+            self.state_sync_cb()
+
+    def _inspect_track(self, data):
+        details = data.get('details', {})
+        idx = data.get('index', 0)
+        name = details.get('name', f'track_{idx+1}')
+        self.title.SetLabel(f"Track {idx+1}: {name}")
+        self.subtitle.SetLabel("Track Properties")
+
+        self._add_prop("Name:", name)
+        self._add_prop("Index:", str(idx))
+        dur = details.get('duration', 0)
+        self._add_prop("Duration:", f"{dur:.2f}s")
+        ch = details.get('channels', 0)
+        self._add_prop("Channels:", 'Stereo' if ch == 2 else 'Mono' if ch == 1 else str(ch))
+        self._add_prop("Peak:", f"{details.get('peak_db', -100):.1f} dB")
+        self._add_prop("Gain:", f"{details.get('gain', 1.0):.2f}")
+        self._add_prop("Pan:", f"{details.get('pan', 0.0):.2f}")
+        self._add_prop("Mute:", "Yes" if details.get('mute') else "No")
+        self._add_prop("Solo:", "Yes" if details.get('solo') else "No")
+        fx = details.get('fx_chain', [])
+        self._add_prop("FX Chain:", ', '.join(fx) if fx else "(none)")
+        wp = details.get('write_pos_sec', 0)
+        self._add_prop("Write Pos:", f"{wp:.2f}s")
+
+        self._add_action_btn("Play", f"/pt {idx+1}")
+        self._add_action_btn("Solo", f"/tsolo {idx+1}")
+        self._add_action_btn("Mute", f"/tmute {idx+1}")
+        self._add_action_btn("Bounce", f"/btw {idx+1}")
+
+    def _inspect_buffer(self, data):
+        details = data.get('details', {})
+        idx = data.get('index', 1)
+        self.title.SetLabel(f"Buffer {idx}")
+        self.subtitle.SetLabel("Buffer Properties")
+
+        if details.get('empty'):
+            self._add_prop("Status:", "Empty")
+        else:
+            self._add_prop("Duration:", f"{details.get('duration', 0):.2f}s")
+            ch = details.get('channels', 0)
+            self._add_prop("Channels:", 'Stereo' if ch == 2 else 'Mono')
+            self._add_prop("Peak:", f"{details.get('peak_db', -100):.1f} dB")
+            self._add_prop("Samples:", str(details.get('samples', 0)))
+
+        self._add_action_btn("Play", f"/pb {idx}")
+        self._add_action_btn("To Working", f"/bu {idx}")
+        self._add_action_btn("Clear", f"/clr {idx}")
+
+    def _inspect_working_buffer(self, data):
+        details = data.get('details', {})
+        self.title.SetLabel("Working Buffer")
+        self.subtitle.SetLabel("Working Buffer Properties")
+
+        if details.get('empty'):
+            self._add_prop("Status:", "Empty")
+        else:
+            self._add_prop("Duration:", f"{details.get('duration', 0):.2f}s")
+            ch = details.get('channels', 0)
+            self._add_prop("Channels:", 'Stereo' if ch == 2 else 'Mono')
+            self._add_prop("Peak:", f"{details.get('peak_db', -100):.1f} dB")
+            self._add_prop("Source:", details.get('source', 'unknown'))
+
+        self._add_action_btn("Play", "/p")
+        self._add_action_btn("Clear", "/wbc")
+
+    def _inspect_deck(self, data):
+        details = data.get('details', {})
+        idx = data.get('index', 1)
+        self.title.SetLabel(f"Deck {idx}")
+        self.subtitle.SetLabel("Deck Properties")
+
+        loaded = details.get('loaded', False)
+        self._add_prop("Status:", "Loaded" if loaded else "Empty")
+        if loaded:
+            self._add_prop("Duration:", f"{details.get('duration', 0):.2f}s")
+            fx = details.get('fx_chain', [])
+            self._add_prop("FX Chain:", ', '.join(fx) if fx else "(none)")
+
+        self._add_action_btn("Play", f"/pd {idx}")
+        self._add_action_btn("Select", f"/deck {idx}")
+
+    def _inspect_operator(self, data):
+        idx = data.get('index', 0)
+        details = self.executor.get_operator_details(idx)
+        self.title.SetLabel(f"Operator {idx}")
+        self.subtitle.SetLabel("Operator Properties")
+
+        self._add_prop("Waveform:", details.get('wave', 'sine'))
+        self._add_prop("Frequency:", f"{details.get('freq', 440):.1f} Hz")
+        self._add_prop("Amplitude:", f"{details.get('amp', 0.8):.2f}")
+        self._add_prop("Current:", "Yes" if details.get('is_current') else "No")
+        env = details.get('envelope')
+        if env:
+            self._add_prop("Envelope:",
+                f"A{env['attack']:.3f} D{env['decay']:.3f} "
+                f"S{env['sustain']:.3f} R{env['release']:.3f}")
+
+        self._add_action_btn("Select", f"/op {idx}")
+        self._add_action_btn("Generate", f"/op {idx}")
+
+    def _inspect_filter_slot(self, data):
+        slot = data.get('slot', 0)
+        details = self.executor.get_filter_slot_details(slot)
+        self.title.SetLabel(f"Filter Slot {slot}")
+        self.subtitle.SetLabel("Filter Properties")
+
+        self._add_prop("Type:", details.get('type_name', 'lowpass'))
+        self._add_prop("Cutoff:", f"{details.get('cutoff', 4500):.0f} Hz")
+        self._add_prop("Resonance:", f"{details.get('resonance', 50):.0f}")
+        self._add_prop("Enabled:", "Yes" if details.get('enabled') else "No")
+        self._add_prop("Selected:", "Yes" if details.get('is_selected') else "No")
+
+        self._add_action_btn("Select", f"/fsel {slot}")
+
+    def _inspect_effect(self, data):
+        idx = data.get('index', 0)
+        self.title.SetLabel(f"Effect #{idx}")
+        self.subtitle.SetLabel("Effect in Chain")
+
+        self._add_prop("Position:", str(idx))
+
+        self._add_action_btn("Remove", f"/fxr {idx}")
+        self._add_action_btn("Clear All", "/fxc")
+
+    def _inspect_sydef(self, data):
+        name = data.get('name', '')
+        self.title.SetLabel(f"SyDef: {name}")
+        self.subtitle.SetLabel("Synth Definition Preset")
+
+        self._add_prop("Name:", name)
+        self._add_action_btn("Use", f"/use {name}")
+
+    def _inspect_chain(self, data):
+        name = data.get('name', '')
+        self.title.SetLabel(f"Chain: {name}")
+        self.subtitle.SetLabel("Effect Chain")
+
+        self._add_prop("Name:", name)
+        self._add_action_btn("Apply", f"/chain {name} apply")
+
+    def _inspect_deck_section(self, data):
+        deck = data.get('deck', 0)
+        start = data.get('start', 0)
+        end = data.get('end', 0)
+        self.title.SetLabel(f"Deck {deck} Section")
+        self.subtitle.SetLabel("Accessibility Section Marker")
+
+        self._add_prop("Deck:", str(deck))
+        self._add_prop("Start:", f"{start:.1f}s")
+        self._add_prop("End:", f"{end:.1f}s")
+        self._add_prop("Duration:", f"{end - start:.1f}s")
+
+    def _inspect_category(self, data):
+        cat_id = data.get('id', '')
+        names = {'engine': 'Engine', 'synth': 'Synthesizer',
+                 'filter': 'Filter', 'envelope': 'Envelope',
+                 'tracks': 'Tracks', 'buffers': 'Buffers',
+                 'decks': 'Decks', 'fx': 'Effects',
+                 'preset': 'Presets', 'bank': 'Banks'}
+        self.title.SetLabel(names.get(cat_id, cat_id.title()))
+        self.subtitle.SetLabel("Category")
+
+
+class StepGridPanel(wx.Panel):
+    """Step grid with playback position highlighting and buffer I/O tracking.
+
+    Shows a visual grid representing beats/steps in the current session,
+    highlights the active playback position, and indicates buffer write
+    positions. Fully keyboard-navigable.
+    """
+
+    STEPS_PER_ROW = 16
+    CELL_SIZE = 28
+    CELL_PAD = 2
+
+    # Colors
+    COL_EMPTY = wx.Colour(50, 50, 58)
+    COL_FILLED = wx.Colour(80, 130, 200)
+    COL_PLAYHEAD = wx.Colour(100, 200, 120)
+    COL_WRITE_POS = wx.Colour(255, 200, 100)
+    COL_GRID_BG = wx.Colour(35, 35, 42)
+    COL_BORDER = wx.Colour(60, 60, 70)
+    COL_BEAT_MARKER = wx.Colour(70, 70, 80)
+
+    def __init__(self, parent, executor: CommandExecutor):
+        super().__init__(parent, name="StepGrid")
+        self.executor = executor
+        self.SetBackgroundColour(self.COL_GRID_BG)
+
+        self.total_steps = 32
+        self.playhead_pos = -1  # -1 = not playing
+        self.write_pos = 0
+        self.filled_steps: set = set()  # Steps that contain audio
+        self.track_fills: Dict[int, set] = {}  # Per-track fill data
+
+        self.sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Header
+        hdr_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.header = wx.StaticText(self, label="Step Grid")
+        self.header.SetForegroundColour(Theme.FG_DIM)
+        hdr_sizer.Add(self.header, 1, wx.ALIGN_CENTER_VERTICAL)
+
+        # Step count selector
+        self.step_choice = wx.Choice(self, choices=['16', '32', '64', '128'])
+        self.step_choice.SetSelection(1)  # 32 default
+        self.step_choice.Bind(wx.EVT_CHOICE, self.on_step_count_change)
+        hdr_sizer.Add(wx.StaticText(self, label="Steps:"), 0,
+                       wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+        hdr_sizer.Add(self.step_choice, 0, wx.LEFT, 4)
+
+        self.sizer.Add(hdr_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        # Grid canvas
+        self.canvas = wx.Panel(self, name="StepGridCanvas")
+        self.canvas.SetBackgroundColour(self.COL_GRID_BG)
+        self.canvas.Bind(wx.EVT_PAINT, self.on_paint)
+        self.canvas.Bind(wx.EVT_LEFT_DOWN, self.on_grid_click)
+        self.canvas.SetMinSize((self.STEPS_PER_ROW * (self.CELL_SIZE + self.CELL_PAD) + 40, 80))
+        self.sizer.Add(self.canvas, 1, wx.EXPAND | wx.ALL, 5)
+
+        # Legend
+        legend_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        for color, label in [
+            (self.COL_FILLED, "Audio"),
+            (self.COL_PLAYHEAD, "Playhead"),
+            (self.COL_WRITE_POS, "Write Pos"),
+            (self.COL_EMPTY, "Empty"),
+        ]:
+            dot = wx.Panel(self, size=(10, 10))
+            dot.SetBackgroundColour(color)
+            legend_sizer.Add(dot, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
+            lbl = wx.StaticText(self, label=label)
+            lbl.SetForegroundColour(Theme.FG_DIM)
+            legend_sizer.Add(lbl, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 3)
+        self.sizer.Add(legend_sizer, 0, wx.ALL, 5)
+
+        self.SetSizer(self.sizer)
+
+    def update_from_session(self):
+        """Pull step data from the session and refresh the grid."""
+        state = self.executor.get_engine_state()
+        if not state:
+            return
+
+        sr = state.get('sample_rate', 48000)
+        bpm = state.get('bpm', 128)
+        beat_samples = int(60.0 / bpm * sr)
+
+        # Determine filled steps from working buffer
+        buf_samples = state.get('buffer_samples', 0)
+        if beat_samples > 0 and buf_samples > 0:
+            n_filled = min(buf_samples // beat_samples + 1, self.total_steps)
+            self.filled_steps = set(range(n_filled))
+        else:
+            self.filled_steps = set()
+
+        # Track fill data
+        s = self.executor.session
+        self.track_fills = {}
+        if s:
+            for i, t in enumerate(s.tracks):
+                audio = t.get('audio')
+                if audio is not None and len(audio) > 0:
+                    wp = t.get('write_pos', 0)
+                    if beat_samples > 0:
+                        n = min(wp // beat_samples + 1, self.total_steps)
+                        self.track_fills[i] = set(range(n))
+
+            # Write position of current track
+            if s.tracks:
+                ct = min(getattr(s, 'current_track', 0), len(s.tracks) - 1)
+                wp = s.tracks[ct].get('write_pos', 0)
+                self.write_pos = wp // beat_samples if beat_samples > 0 else 0
+
+        self.canvas.Refresh()
+
+    def on_paint(self, event):
+        """Draw the step grid."""
+        dc = wx.PaintDC(self.canvas)
+        dc.SetBackground(wx.Brush(self.COL_GRID_BG))
+        dc.Clear()
+
+        w, h = self.canvas.GetSize()
+        cols = self.STEPS_PER_ROW
+        rows = max(1, (self.total_steps + cols - 1) // cols)
+        cs = self.CELL_SIZE
+        pad = self.CELL_PAD
+
+        # Left margin for row labels
+        margin_left = 30
+
+        dc.SetFont(wx.Font(8, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL,
+                            wx.FONTWEIGHT_NORMAL))
+
+        for step in range(self.total_steps):
+            row = step // cols
+            col = step % cols
+            x = margin_left + col * (cs + pad)
+            y = row * (cs + pad)
+
+            # Determine cell color
+            if step == self.playhead_pos:
+                color = self.COL_PLAYHEAD
+            elif step == self.write_pos:
+                color = self.COL_WRITE_POS
+            elif step in self.filled_steps:
+                color = self.COL_FILLED
+            else:
+                color = self.COL_EMPTY
+
+            dc.SetBrush(wx.Brush(color))
+            dc.SetPen(wx.Pen(self.COL_BORDER, 1))
+            dc.DrawRoundedRectangle(x, y, cs, cs, 3)
+
+            # Beat markers (every 4 steps)
+            if col % 4 == 0:
+                dc.SetTextForeground(Theme.FG_DIM)
+                dc.DrawText(str(step + 1), x + 2, y + 2)
+
+            # Row labels
+            if col == 0:
+                dc.SetTextForeground(Theme.FG_DIM)
+                dc.DrawText(f"{row+1}", 2, y + (cs // 2) - 5)
+
+    def on_grid_click(self, event):
+        """Handle click on grid cell — set write position."""
+        x, y = event.GetPosition()
+        margin_left = 30
+        cols = self.STEPS_PER_ROW
+        cs = self.CELL_SIZE
+        pad = self.CELL_PAD
+
+        col = (x - margin_left) // (cs + pad)
+        row = y // (cs + pad)
+        step = row * cols + col
+        if 0 <= step < self.total_steps:
+            self.write_pos = step
+            self.canvas.Refresh()
+
+    def on_step_count_change(self, event):
+        """Handle step count selection change."""
+        choices = [16, 32, 64, 128]
+        idx = self.step_choice.GetSelection()
+        if 0 <= idx < len(choices):
+            self.total_steps = choices[idx]
+            self.canvas.Refresh()
+
+    def set_playhead(self, position: int):
+        """Set the playhead position (step index, -1 = stopped)."""
+        self.playhead_pos = position
+        self.canvas.Refresh()
+
+
 class ConsolePanel(wx.Panel):
     """Bottom panel - output console."""
     
@@ -1014,51 +2109,79 @@ class ConsolePanel(wx.Panel):
 # ============================================================================
 
 class MDMAFrame(wx.Frame):
-    """Main application window."""
-    
+    """Main application window.
+
+    Layout (Phase 1):
+    +-----------+---------------------+
+    |  Object   |  Inspector / Action |
+    |  Browser  |  (notebook tabs)    |
+    |  (tree)   |                     |
+    +-----------+---------------------+
+    |  Step Grid  |  Console Output   |
+    +-------------+-------------------+
+    """
+
+    VERSION = "1.0.0"
+
     def __init__(self):
-        super().__init__(None, title="MDMA - Action Panel", size=(1200, 800))
-        
+        super().__init__(None, title="MDMA - Music Design Made Accessible",
+                         size=(1400, 900))
+
         self.SetBackgroundColour(Theme.BG_DARK)
-        
+
         # Initialize executor
         self.executor = CommandExecutor()
-        
+
+        # Auto-refresh timer (500ms interval for live state updates)
+        self.refresh_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.on_auto_refresh, self.refresh_timer)
+
         # Create menu bar
         self.create_menu_bar()
-        
+
         # Create main layout with splitters
         self.create_layout()
-        
+
         # Set up keyboard shortcuts
         self.setup_shortcuts()
-        
-        # Status bar
-        self.CreateStatusBar()
-        self.SetStatusText("MDMA GUI v0.2.0 - Ready")
-        
+
+        # Status bar with multiple fields
+        self.CreateStatusBar(3)
+        self.SetStatusText(f"MDMA GUI v{self.VERSION} - Ready", 0)
+
         # Center on screen
         self.Centre()
-        
+
         # Welcome message
-        self.console.append("MDMA GUI v0.2.0 - Action Panel Client\n", 'info')
-        self.console.append("="*50 + "\n", 'info')
+        self.console.append(f"MDMA GUI v{self.VERSION} - Phase 1 Interface\n", 'info')
+        self.console.append("=" * 55 + "\n", 'info')
 
         # Warn if engine failed to load
         if self.executor.init_error:
-            self.console.append(f"WARNING: MDMA engine failed to load: {self.executor.init_error}\n", 'error')
-            self.console.append("Commands will not execute. Check your installation.\n\n", 'error')
-            self.SetStatusText("MDMA GUI v0.2.0 - ENGINE NOT LOADED")
+            self.console.append(
+                f"WARNING: MDMA engine failed to load: "
+                f"{self.executor.init_error}\n", 'error')
+            self.console.append(
+                "Commands will not execute. Check your installation.\n\n",
+                'error')
+            self.SetStatusText(
+                f"MDMA GUI v{self.VERSION} - ENGINE NOT LOADED", 0)
         else:
-            self.console.append("Select a category from the left panel, choose an action,\n", 'info')
-            self.console.append("set parameters, and click Run (Ctrl+R) to execute.\n\n", 'info')
+            self.console.append(
+                "Browse objects on the left. Select to inspect.\n", 'info')
+            self.console.append(
+                "Right-click for context actions. Ctrl+R to run.\n\n", 'info')
             # Show live engine state on startup
             self.sync_state()
-    
+            # Start auto-refresh timer
+            self.refresh_timer.Start(500)
+
+        self.Bind(wx.EVT_CLOSE, self.on_close)
+
     def create_menu_bar(self):
         """Create the menu bar."""
         menubar = wx.MenuBar()
-        
+
         # File menu
         file_menu = wx.Menu()
         file_menu.Append(wx.ID_NEW, "&New Session\tCtrl+N")
@@ -1067,126 +2190,266 @@ class MDMAFrame(wx.Frame):
         file_menu.AppendSeparator()
         file_menu.Append(wx.ID_EXIT, "E&xit\tAlt+F4")
         menubar.Append(file_menu, "&File")
-        
+
         # View menu
         view_menu = wx.Menu()
-        view_menu.Append(wx.ID_ANY, "&Refresh\tF5")
-        view_menu.Append(wx.ID_ANY, "Focus &Console\tCtrl+L")
-        view_menu.Append(wx.ID_ANY, "Focus &Search\tCtrl+F")
+        self.view_refresh_id = wx.NewIdRef()
+        self.view_console_id = wx.NewIdRef()
+        self.view_search_id = wx.NewIdRef()
+        self.view_inspector_id = wx.NewIdRef()
+        self.view_grid_id = wx.NewIdRef()
+        view_menu.Append(self.view_refresh_id, "&Refresh\tF5")
+        view_menu.Append(self.view_console_id, "Focus &Console\tCtrl+L")
+        view_menu.Append(self.view_search_id, "Focus &Search\tCtrl+F")
+        view_menu.AppendSeparator()
+        view_menu.Append(self.view_inspector_id, "Show &Inspector\tCtrl+I")
+        view_menu.Append(self.view_grid_id, "Show Step &Grid\tCtrl+G")
         menubar.Append(view_menu, "&View")
-        
+
         # Engine menu
         engine_menu = wx.Menu()
-        engine_menu.Append(wx.ID_ANY, "&Version Info")
-        engine_menu.Append(wx.ID_ANY, "&Help / Quick Reference")
+        self.engine_version_id = wx.NewIdRef()
+        self.engine_help_id = wx.NewIdRef()
+        self.engine_output_id = wx.NewIdRef()
+        engine_menu.Append(self.engine_version_id, "&Version Info")
+        engine_menu.Append(self.engine_help_id, "&Help / Quick Reference")
         engine_menu.AppendSeparator()
-        engine_menu.Append(wx.ID_ANY, "Open &Output Folder")
+        engine_menu.Append(self.engine_output_id, "Open &Output Folder")
         menubar.Append(engine_menu, "&Engine")
-        
+
         # Help menu
         help_menu = wx.Menu()
         help_menu.Append(wx.ID_ABOUT, "&About")
         menubar.Append(help_menu, "&Help")
-        
+
         self.SetMenuBar(menubar)
-        
+
         # Bind events
         self.Bind(wx.EVT_MENU, self.on_new_session, id=wx.ID_NEW)
         self.Bind(wx.EVT_MENU, self.on_open_project, id=wx.ID_OPEN)
         self.Bind(wx.EVT_MENU, self.on_save_project, id=wx.ID_SAVE)
         self.Bind(wx.EVT_MENU, self.on_exit, id=wx.ID_EXIT)
         self.Bind(wx.EVT_MENU, self.on_about, id=wx.ID_ABOUT)
-    
+        self.Bind(wx.EVT_MENU,
+            lambda e: self._exec_menu_cmd('/version'), id=self.engine_version_id)
+        self.Bind(wx.EVT_MENU,
+            lambda e: self._exec_menu_cmd('/help'), id=self.engine_help_id)
+
     def create_layout(self):
-        """Create the main layout with splitters."""
-        # Main vertical splitter (top panels / bottom console)
+        """Create the main layout with splitters.
+
+        Layout:
+        main_splitter (horizontal) splits top/bottom
+          top_splitter (vertical) splits left/right
+            left: ObjectBrowser
+            right: notebook with Inspector + ActionPanel tabs
+          bottom_splitter (vertical) splits grid/console
+            left: StepGridPanel
+            right: ConsolePanel
+        """
+        # Main horizontal splitter (top panels / bottom panels)
         self.main_splitter = wx.SplitterWindow(self)
 
-        # Top horizontal splitter (left browser / right action panel)
+        # Top vertical splitter (browser / right notebook)
         self.top_splitter = wx.SplitterWindow(self.main_splitter)
 
-        # Create panels — browser gets executor for live data, action panel
-        # gets a state_sync_callback so it can trigger refresh after commands.
+        # Bottom vertical splitter (step grid / console)
+        self.bottom_splitter = wx.SplitterWindow(self.main_splitter)
+
+        # --- Left panel: Object Browser ---
         self.browser = ObjectBrowser(
-            self.top_splitter, self.on_object_select, self.executor)
-        self.action_panel = ActionPanel(
-            self.top_splitter, self.executor, self.console_append,
+            self.top_splitter, self.on_object_select, self.executor,
+            console_callback=self.console_append)
+
+        # --- Right panel: Notebook with Inspector + Action Panel ---
+        self.right_notebook = wx.Notebook(self.top_splitter,
+                                           name="RightNotebook")
+        self.right_notebook.SetBackgroundColour(Theme.BG_PANEL)
+
+        self.inspector = InspectorPanel(
+            self.right_notebook, self.executor,
+            console_callback=self.console_append,
             state_sync_callback=self.sync_state)
-        self.console = ConsolePanel(self.main_splitter)
+        self.right_notebook.AddPage(self.inspector, "Inspector")
+
+        self.action_panel = ActionPanel(
+            self.right_notebook, self.executor, self.console_append,
+            state_sync_callback=self.sync_state)
+        self.right_notebook.AddPage(self.action_panel, "Actions")
+
+        # --- Bottom left: Step Grid ---
+        self.step_grid = StepGridPanel(self.bottom_splitter, self.executor)
+
+        # --- Bottom right: Console ---
+        self.console = ConsolePanel(self.bottom_splitter)
 
         # Configure splitters
-        self.top_splitter.SplitVertically(self.browser, self.action_panel, 280)
-        self.top_splitter.SetMinimumPaneSize(200)
+        self.top_splitter.SplitVertically(
+            self.browser, self.right_notebook, 300)
+        self.top_splitter.SetMinimumPaneSize(220)
 
-        self.main_splitter.SplitHorizontally(self.top_splitter, self.console, -200)
+        self.bottom_splitter.SplitVertically(
+            self.step_grid, self.console, 500)
+        self.bottom_splitter.SetMinimumPaneSize(200)
+
+        self.main_splitter.SplitHorizontally(
+            self.top_splitter, self.bottom_splitter, -250)
         self.main_splitter.SetMinimumPaneSize(150)
-    
+
     def setup_shortcuts(self):
         """Set up keyboard shortcuts."""
-        accel_entries = [
-            (wx.ACCEL_CTRL, ord('R'), wx.ID_ANY),  # Run
-            (wx.ACCEL_CTRL, ord('L'), wx.ID_ANY),  # Focus console
-            (wx.ACCEL_CTRL, ord('F'), wx.ID_ANY),  # Focus search
-            (wx.ACCEL_NORMAL, wx.WXK_F5, wx.ID_ANY),  # Refresh
-        ]
-        
-        # Create IDs and bind
         self.run_id = wx.NewIdRef()
-        self.console_id = wx.NewIdRef()
-        self.search_id = wx.NewIdRef()
-        self.refresh_id = wx.NewIdRef()
-        
+        self.console_focus_id = wx.NewIdRef()
+        self.search_focus_id = wx.NewIdRef()
+        self.refresh_shortcut_id = wx.NewIdRef()
+        self.inspector_focus_id = wx.NewIdRef()
+
         accel_table = wx.AcceleratorTable([
             (wx.ACCEL_CTRL, ord('R'), self.run_id),
-            (wx.ACCEL_CTRL, ord('L'), self.console_id),
-            (wx.ACCEL_CTRL, ord('F'), self.search_id),
-            (wx.ACCEL_NORMAL, wx.WXK_F5, self.refresh_id),
+            (wx.ACCEL_CTRL, ord('L'), self.console_focus_id),
+            (wx.ACCEL_CTRL, ord('F'), self.search_focus_id),
+            (wx.ACCEL_NORMAL, wx.WXK_F5, self.refresh_shortcut_id),
+            (wx.ACCEL_CTRL, ord('I'), self.inspector_focus_id),
         ])
         self.SetAcceleratorTable(accel_table)
-        
-        self.Bind(wx.EVT_MENU, lambda e: self.action_panel.on_run(e), id=self.run_id)
-        self.Bind(wx.EVT_MENU, lambda e: self.console.console.SetFocus(), id=self.console_id)
-        self.Bind(wx.EVT_MENU, lambda e: self.browser.search_box.SetFocus(), id=self.search_id)
-        self.Bind(wx.EVT_MENU, lambda e: self.browser.on_refresh(e), id=self.refresh_id)
-    
+
+        self.Bind(wx.EVT_MENU,
+            lambda e: self.action_panel.on_run(e), id=self.run_id)
+        self.Bind(wx.EVT_MENU,
+            lambda e: self.console.console.SetFocus(),
+            id=self.console_focus_id)
+        self.Bind(wx.EVT_MENU,
+            lambda e: self.browser.search_box.SetFocus(),
+            id=self.search_focus_id)
+        self.Bind(wx.EVT_MENU,
+            lambda e: self.on_manual_refresh(),
+            id=self.refresh_shortcut_id)
+        self.Bind(wx.EVT_MENU,
+            lambda e: self.right_notebook.SetSelection(0),
+            id=self.inspector_focus_id)
+
     # ------------------------------------------------------------------
     # State synchronisation — called after every command execution
     # ------------------------------------------------------------------
 
     def sync_state(self):
-        """Read engine state and update status bar + browser tree."""
+        """Read engine state and update all GUI panels."""
         state = self.executor.get_engine_state()
         if not state:
             return
 
+        # Status bar field 0: core engine state
         buf_sec = state.get('buffer_seconds', 0)
         status = (
             f"BPM: {state['bpm']:.0f}  |  "
             f"Buffer: {buf_sec:.2f}s  |  "
             f"{state['waveform']} @ {state['frequency']:.0f}Hz  |  "
-            f"Voices: {state['voice_count']} ({state['voice_algorithm']})  |  "
-            f"Filter: {state['filter_type']} {state['filter_cutoff']:.0f}Hz  |  "
-            f"FX: {len(state['effects'])}  |  "
-            f"HQ: {'ON' if state['hq_mode'] else 'OFF'} {state['output_format'].upper()} "
-            f"{state['output_bit_depth']}bit"
+            f"Voices: {state['voice_count']} ({state['voice_algorithm']})"
         )
-        self.SetStatusText(status)
+        self.SetStatusText(status, 0)
+
+        # Status bar field 1: filter + FX
+        filter_status = (
+            f"Filter: {state['filter_type']} {state['filter_cutoff']:.0f}Hz  |  "
+            f"FX: {len(state['effects'])}"
+        )
+        self.SetStatusText(filter_status, 1)
+
+        # Status bar field 2: HQ + tracks
+        hq_status = (
+            f"HQ: {'ON' if state['hq_mode'] else 'OFF'} "
+            f"{state['output_format'].upper()} {state['output_bit_depth']}bit  |  "
+            f"Tracks: {state['track_count']}"
+        )
+        self.SetStatusText(hq_status, 2)
 
         # Rebuild browser tree with fresh data
         self.browser.populate_tree()
+
+        # Update step grid
+        self.step_grid.update_from_session()
+
+    # ------------------------------------------------------------------
+    # Auto-refresh timer
+    # ------------------------------------------------------------------
+
+    def on_auto_refresh(self, event):
+        """Lightweight periodic refresh — updates step grid and status bar
+        without rebuilding the entire tree (that happens on command execution).
+        """
+        state = self.executor.get_engine_state()
+        if not state:
+            return
+
+        # Update status bar only (lightweight)
+        buf_sec = state.get('buffer_seconds', 0)
+        self.SetStatusText(
+            f"BPM: {state['bpm']:.0f}  |  "
+            f"Buffer: {buf_sec:.2f}s  |  "
+            f"{state['waveform']} @ {state['frequency']:.0f}Hz  |  "
+            f"Voices: {state['voice_count']} ({state['voice_algorithm']})",
+            0)
+
+    def on_manual_refresh(self):
+        """Full refresh triggered by F5."""
+        self.sync_state()
+        self.console.append("Refreshed.\n", 'info')
 
     # ------------------------------------------------------------------
     # Callbacks
     # ------------------------------------------------------------------
 
-    def on_object_select(self, obj_type: str, obj_id: str):
-        """Handle object selection from browser."""
-        if obj_type in ('category', 'subcategory'):
-            self.action_panel.set_category(obj_id)
+    def on_object_select(self, data: dict):
+        """Handle object selection from browser.
+
+        Routes selection to both the ActionPanel (for category context)
+        and the InspectorPanel (for detailed view).
+        """
+        obj_type = data.get('type', '')
+        obj_id = data.get('id', '')
+
+        # Update action panel category
+        if obj_type == 'category':
+            # Map new category IDs to action panel categories
+            cat_map = {'tracks': 'engine', 'buffers': 'engine',
+                       'decks': 'engine'}
+            action_cat = cat_map.get(obj_id, obj_id)
+            if action_cat in ACTIONS:
+                self.action_panel.set_category(action_cat)
+        elif obj_type in ('track', 'buffer', 'working_buffer', 'deck'):
+            self.action_panel.set_category('engine')
+        elif obj_type in ('operator', 'envelope_param'):
+            self.action_panel.set_category('synth')
+        elif obj_type == 'filter_slot':
+            self.action_panel.set_category('filter')
+        elif obj_type in ('effect',):
+            self.action_panel.set_category('fx')
+        elif obj_type in ('sydef', 'user_function', 'chain'):
+            self.action_panel.set_category('preset')
+
+        # Update inspector with full object details
+        self.inspector.inspect(data)
+
+        # Switch to inspector tab when an object is selected
+        if obj_type not in ('category', 'group', 'engine_prop'):
+            self.right_notebook.SetSelection(0)
 
     def console_append(self, text: str, style: str = 'stdout'):
-        """Append text to console (callback for action panel)."""
+        """Append text to console (callback for child panels)."""
         self.console.append(text, style)
+
+    def _exec_menu_cmd(self, command: str):
+        """Execute a command from a menu item."""
+        self.console_append(f">>> {command}\n", 'command')
+        stdout, stderr, ok = self.executor.execute(command)
+        if stdout:
+            self.console_append(stdout, 'stdout')
+        if stderr:
+            self.console_append(stderr, 'stderr')
+        self.console_append(
+            f"[{'OK' if ok else 'ERROR'}]\n\n",
+            'success' if ok else 'error')
+        self.sync_state()
 
     # ------------------------------------------------------------------
     # Menu handlers
@@ -1201,46 +2464,44 @@ class MDMAFrame(wx.Frame):
     def on_open_project(self, event):
         """Open a project via file dialog."""
         dlg = wx.FileDialog(self, "Open MDMA Project",
-                            wildcard="MDMA files (*.mdma)|*.mdma|All files (*.*)|*.*",
+                            wildcard="MDMA files (*.mdma)|*.mdma|"
+                                     "All files (*.*)|*.*",
                             style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST)
         if dlg.ShowModal() == wx.ID_OK:
             path = dlg.GetPath()
             name = os.path.splitext(os.path.basename(path))[0]
-            stdout, stderr, ok = self.executor.execute(f"/load {name}")
-            self.console.append(f">>> /load {name}\n", 'command')
-            if stdout:
-                self.console.append(stdout, 'stdout')
-            if stderr:
-                self.console.append(stderr, 'stderr')
-            self.sync_state()
+            self._exec_menu_cmd(f"/load {name}")
         dlg.Destroy()
 
     def on_save_project(self, event):
         """Save the current project via dialog."""
-        dlg = wx.TextEntryDialog(self, "Project name:", "Save Project", "myproject")
+        dlg = wx.TextEntryDialog(self, "Project name:",
+                                  "Save Project", "myproject")
         if dlg.ShowModal() == wx.ID_OK:
             name = dlg.GetValue().strip()
             if name:
-                stdout, stderr, ok = self.executor.execute(f"/save {name}")
-                self.console.append(f">>> /save {name}\n", 'command')
-                if stdout:
-                    self.console.append(stdout, 'stdout')
-                if stderr:
-                    self.console.append(stderr, 'stderr')
+                self._exec_menu_cmd(f"/save {name}")
         dlg.Destroy()
 
     def on_exit(self, event):
         """Handle exit."""
         self.Close()
 
+    def on_close(self, event):
+        """Clean up timers on close."""
+        self.refresh_timer.Stop()
+        event.Skip()
+
     def on_about(self, event):
         """Show about dialog."""
         info = wx.adv.AboutDialogInfo()
         info.SetName("MDMA GUI")
-        info.SetVersion("0.2.0")
-        info.SetDescription("Action Panel Client for MDMA\n\n"
-                           "A thin GUI client over the MDMA CLI.\n"
-                           "Maps GUI actions to existing commands.")
+        info.SetVersion(self.VERSION)
+        info.SetDescription(
+            "Music Design Made Accessible\n\n"
+            "Phase 1: Core Interface & Workflow\n"
+            "Object tree, inspector, step grid, context menus,\n"
+            "selection-based FX, and accessibility markers.")
         info.SetCopyright("(C) 2026")
         wx.adv.AboutBox(info)
 
