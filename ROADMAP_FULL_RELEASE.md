@@ -1,8 +1,9 @@
 # MDMA Full Release Roadmap
 
 **Music Design Made Accessible**
-**Document Version:** 1.0
+**Document Version:** 1.1
 **Baseline:** v52.0 (2026-02-03)
+**Last Updated:** 2026-02-11 (Phase 1 complete, bug sweep done)
 **Target:** v1.0 Full Release
 
 ---
@@ -14,28 +15,30 @@ Phases are ordered by dependency — later phases build on earlier ones.
 Within each phase, features are listed by priority (highest first).
 
 **Status Key:**
+- **[DONE]** — Implemented and tested
 - **[EXISTS]** — Already implemented (may need refinement)
 - **[PARTIAL]** — Foundation exists, significant work remains
 - **[NEW]** — Not yet started
 
 ---
 
-## Phase 1: Core Interface & Workflow
+## Phase 1: Core Interface & Workflow -- COMPLETE
 
 > **Goal:** Make the GUI a real production surface, not just a command launcher.
 > **Depends on:** v52 GUI MVP
 > **Delivers:** A navigable, visual workspace for all MDMA objects.
+> **Completed:** 2026-02-11
 
 | # | Feature | Status | Description |
 |---|---------|--------|-------------|
-| 1.1 | Object tree view | **[NEW]** | Hierarchical browser showing tracks, decks, buffers, chains, and composite objects with live state |
-| 1.2 | Dynamic object list | **[PARTIAL]** | Object browser already exists in GUI MVP; needs live updates when engine state changes |
-| 1.3 | Preview views | **[NEW]** | Compact inline previews for tracks (duration, peak, channel count), decks (position, BPM), and composite objects |
-| 1.4 | Expanded detail views | **[NEW]** | Full-panel inspector when an object is selected — shows all parameters, FX chain, routing |
-| 1.5 | Step grid highlighting | **[NEW]** | Visual step grid that highlights active position during playback, with buffer I/O tracking indicators |
-| 1.6 | Context menus | **[NEW]** | Right-click context menus on objects for generation, destructive editing, FX application, and routing |
-| 1.7 | Selection-based FX | **[PARTIAL]** | Apply effects to selections, track buses, and song sections — FX system exists, needs selection targeting |
-| 1.8 | Accessibility markers | **[NEW]** | Labeled section markers for deck regions — screen-reader-friendly navigation anchors for all deck sections |
+| 1.1 | Object tree view | **[DONE]** | 10-category hierarchical tree: Engine, Synthesizer, Filter, Envelope, Tracks, Buffers, Decks, Effects, Presets, Banks |
+| 1.2 | Dynamic object list | **[DONE]** | Rich tree data with inline metadata; auto-refresh timer (500ms); full rebuild after every command |
+| 1.3 | Preview views | **[DONE]** | Inline previews: `Track 1: Drums [2.50s, stereo, peak: -3.2dB] [SOLO]` for all object types |
+| 1.4 | Expanded detail views | **[DONE]** | InspectorPanel with property grid, contextual action buttons, tabbed alongside ActionPanel |
+| 1.5 | Step grid highlighting | **[DONE]** | StepGridPanel with beat grid, playhead/write-pos indicators, 16/32/64/128 steps, color legend |
+| 1.6 | Context menus | **[DONE]** | Right-click on tracks, buffers, decks, effects, operators, presets, chains, categories |
+| 1.7 | Selection-based FX | **[DONE]** | FX picker dialog targeting specific objects (track/buffer/deck/working/global) |
+| 1.8 | Accessibility markers | **[DONE]** | Deck section markers (intro/body/outro) as navigable child nodes with timestamps |
 
 ### Milestone Deliverable
 A GUI where users can browse every object in their session, inspect its state, right-click to act on it, and see step-by-step playback position — all keyboard-navigable and screen-reader compatible.
@@ -62,6 +65,19 @@ A GUI where users can browse every object in their session, inspect its state, r
 
 ### Milestone Deliverable
 A fully visual synth-design experience — users can build patches from scratch, import wavetables, use physical models, and hear the results immediately.
+
+### Phase 2 Readiness Notes (from system audit 2026-02-11)
+
+**Existing foundation in `monolith.py`:**
+- Operator dict supports: `wave`, `freq`, `amp`, `phase`, `pw`, `even_harmonics`, `odd_harmonics`, `even_weight`, `decay`, `inharmonicity`, `partials`, `decay_curve`
+- Physical modeling waveforms already partially exist (`physical`, `physical2` wave types)
+- Band-limited oscillators implemented (`hq_oscillators` flag)
+- 5 modulation algorithm types: FM, TFM, AM, RM, PM
+
+**Known issues to resolve before starting Phase 2:**
+- `session.sydefs` does not exist on Session object — SyDefs stored in `sydef_cmds` module globals. Consider migrating to `session.sydefs` for Phase 2 patch builder.
+- `session.current_track` does not exist — use `session.current_track_index` or `session.get_current_track()`
+- Deck data lives in `dj_mode.py`, not `session.decks` dict — architectural decision needed for Phase 2
 
 ---
 
@@ -254,7 +270,7 @@ These phase groups can be developed concurrently:
 
 | Phase | New Features | Partial/Existing | Total |
 |-------|-------------|------------------|-------|
-| 1. Core Interface | 6 | 2 | 8 |
+| 1. Core Interface | 8 DONE | 0 | 8 |
 | 2. Monolith & Synthesis | 6 | 3 | 9 |
 | 3. Modulation & Convolution | 5 | 1 | 6 |
 | 4. Generative Systems | 2 | 3 | 5 |

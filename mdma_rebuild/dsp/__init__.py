@@ -16,4 +16,20 @@ Modules:
 BUILD ID: dsp_v14.2
 """
 
-__all__ = ["scaling", "monolith", "envelopes", "effects", "pattern", "playback"]
+__all__ = [
+    "scaling",
+    "monolith",
+    "envelopes",
+    "effects",
+    "pattern",
+    "playback",
+    "advanced_ops",
+    "dj_mode",
+    "enhancement",
+    "generators",
+    "granular",
+    "performance",
+    "stems",
+    "streaming",
+    "visualization",
+]

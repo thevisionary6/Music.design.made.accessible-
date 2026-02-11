@@ -341,8 +341,10 @@ class CommandExecutor:
             try:
                 from mdma_rebuild.commands.sydef_cmds import load_factory_presets
                 load_factory_presets(self.session)
-            except (ImportError, AttributeError):
-                pass
+            except (ImportError, AttributeError) as e:
+                print(f"Note: Factory presets not loaded: {e}")
+            except Exception as e:
+                print(f"Warning: Error loading factory presets: {e}")
 
             self.init_error = None
 
@@ -397,37 +399,73 @@ class CommandExecutor:
         if not s:
             return {}
 
-        op_idx = s.current_operator
-        current_op = s.engine.operators.get(op_idx, {}) if hasattr(s, 'engine') else {}
-        filt_slot = s.selected_filter
+        op_idx = getattr(s, 'current_operator', 0)
+        current_op = {}
+        if hasattr(s, 'engine') and hasattr(s.engine, 'operators'):
+            current_op = s.engine.operators.get(op_idx, {})
+        filt_slot = getattr(s, 'selected_filter', 0)
         buf_len = len(s.working_buffer) if s.working_buffer is not None else 0
 
+        # Defensive access for filter attributes
+        filter_types = getattr(s, 'filter_types', {})
+        filter_names = getattr(s, 'filter_type_names', {})
+        filter_cutoffs = getattr(s, 'filter_cutoffs', {})
+        filter_resonances = getattr(s, 'filter_resonances', {})
+
         return {
-            'bpm': s.bpm,
-            'sample_rate': s.sample_rate,
+            'bpm': getattr(s, 'bpm', 128),
+            'sample_rate': getattr(s, 'sample_rate', 48000),
             'buffer_samples': buf_len,
             'buffer_seconds': buf_len / s.sample_rate if buf_len else 0,
             'current_operator': op_idx,
-            'waveform': current_op.get('wave', '—'),
+            'waveform': current_op.get('wave', '---'),
             'frequency': current_op.get('freq', 0),
             'amplitude': current_op.get('amp', 0),
-            'voice_count': s.voice_count,
-            'voice_algorithm': s.voice_algorithm,
-            'detune': s.dt,
-            'filter_type': s.filter_type_names.get(
-                s.filter_types.get(filt_slot, 0), 'lowpass'),
-            'filter_cutoff': s.filter_cutoffs.get(filt_slot, 4500.0),
-            'filter_resonance': s.filter_resonances.get(filt_slot, 50.0),
-            'attack': s.attack,
-            'decay': s.decay,
-            'sustain': s.sustain,
-            'release': s.release,
-            'hq_mode': s.hq_mode,
-            'output_format': s.output_format,
-            'output_bit_depth': s.output_bit_depth,
-            'track_count': len(s.tracks),
-            'effects': list(s.effects),
+            'voice_count': getattr(s, 'voice_count', 1),
+            'voice_algorithm': getattr(s, 'voice_algorithm', 0),
+            'detune': getattr(s, 'dt', 0),
+            'filter_type': filter_names.get(
+                filter_types.get(filt_slot, 0), 'lowpass'),
+            'filter_cutoff': filter_cutoffs.get(filt_slot, 4500.0),
+            'filter_resonance': filter_resonances.get(filt_slot, 50.0),
+            'attack': getattr(s, 'attack', 0.01),
+            'decay': getattr(s, 'decay', 0.1),
+            'sustain': getattr(s, 'sustain', 0.8),
+            'release': getattr(s, 'release', 0.1),
+            'hq_mode': getattr(s, 'hq_mode', False),
+            'output_format': getattr(s, 'output_format', 'wav'),
+            'output_bit_depth': getattr(s, 'output_bit_depth', 16),
+            'track_count': len(getattr(s, 'tracks', [])),
+            'effects': list(getattr(s, 'effects', [])),
         }
+
+    def _get_sydefs(self) -> dict:
+        """Get SyDef definitions from wherever they live.
+
+        SyDefs may be stored in session.sydefs, or in the sydef_cmds
+        module-level dict, or on the engine preset_bank.
+        """
+        s = self.session
+        if not s:
+            return {}
+        # Prefer session attribute
+        if hasattr(s, 'sydefs') and s.sydefs:
+            return s.sydefs
+        # Fall back to sydef_cmds module globals
+        try:
+            from mdma_rebuild.commands import sydef_cmds
+            sydefs = getattr(sydef_cmds, '_SYDEFS', None)
+            if sydefs:
+                return sydefs
+            sydefs = getattr(sydef_cmds, 'SYDEFS', None)
+            if sydefs:
+                return sydefs
+        except (ImportError, AttributeError):
+            pass
+        # Fall back to engine preset bank
+        if hasattr(s, 'engine') and hasattr(s.engine, 'preset_bank'):
+            return {str(k): v for k, v in s.engine.preset_bank.items()}
+        return {}
 
     def get_dynamic_tree_data(self) -> Dict[str, List[str]]:
         """Return lists of live objects for the browser tree."""
@@ -436,37 +474,38 @@ class CommandExecutor:
             return {}
 
         # Tracks
-        tracks = [t.get('name', f'track_{i+1}') for i, t in enumerate(s.tracks)]
+        tracks_list = getattr(s, 'tracks', [])
+        tracks = [t.get('name', f'track_{i+1}') for i, t in enumerate(tracks_list)]
 
         # Filled buffers
-        filled = sorted(k for k, v in s.buffers.items()
+        buffers_dict = getattr(s, 'buffers', {})
+        filled = sorted(k for k, v in buffers_dict.items()
                         if v is not None and len(v) > 0)
         buffers = [f"Buffer {i}" for i in filled] if filled else ["(empty)"]
 
         # Decks
-        decks = [f"Deck {i}" for i in sorted(s.decks.keys())] if s.decks else []
+        decks_dict = getattr(s, 'decks', {})
+        decks = [f"Deck {i}" for i in sorted(decks_dict.keys())] if decks_dict else []
 
         # Effects chain
-        effects = list(s.effects) if s.effects else ["(none)"]
+        effects_list = getattr(s, 'effects', [])
+        effects = list(effects_list) if effects_list else ["(none)"]
 
         # Presets / sydefs
-        presets = []
-        if hasattr(s, 'sydefs') and s.sydefs:
-            presets = sorted(s.sydefs.keys())
-        elif hasattr(s.engine, 'preset_bank') and s.engine.preset_bank:
-            presets = [f"Preset {k}" for k in sorted(s.engine.preset_bank.keys())]
-        if not presets:
-            presets = ["(none)"]
+        sydefs = self._get_sydefs()
+        presets = sorted(sydefs.keys()) if sydefs else ["(none)"]
 
         # User functions
-        funcs = sorted(s.user_functions.keys()) if s.user_functions else []
+        user_funcs = getattr(s, 'user_functions', {})
+        funcs = sorted(user_funcs.keys()) if user_funcs else []
 
         # Chains
-        chains = sorted(s.chains.keys()) if s.chains else []
+        chains_dict = getattr(s, 'chains', {})
+        chains = sorted(chains_dict.keys()) if chains_dict else []
 
         # Operators
         operators = []
-        if hasattr(s.engine, 'operators'):
+        if hasattr(s, 'engine') and hasattr(s.engine, 'operators'):
             for idx in sorted(s.engine.operators.keys()):
                 op = s.engine.operators[idx]
                 wave = op.get('wave', 'sine')
@@ -492,9 +531,10 @@ class CommandExecutor:
         """Return detailed info for a single track."""
         import numpy as np
         s = self.session
-        if not s or index >= len(s.tracks):
+        tracks = getattr(s, 'tracks', []) if s else []
+        if not tracks or index >= len(tracks):
             return {}
-        t = s.tracks[index]
+        t = tracks[index]
         audio = t.get('audio')
         duration = 0.0
         peak_db = -100.0
@@ -527,7 +567,7 @@ class CommandExecutor:
         s = self.session
         if not s:
             return {}
-        audio = s.buffers.get(index)
+        audio = getattr(s, 'buffers', {}).get(index)
         if audio is None or len(audio) == 0:
             return {'index': index, 'empty': True, 'duration': 0, 'channels': 0,
                     'peak_db': -100.0}
@@ -571,11 +611,11 @@ class CommandExecutor:
 
     def get_deck_details(self, index: int) -> Dict[str, Any]:
         """Return detailed info for a single deck."""
-        import numpy as np
         s = self.session
-        if not s or index not in s.decks:
+        decks = getattr(s, 'decks', {}) if s else {}
+        if not decks or index not in decks:
             return {'index': index, 'loaded': False}
-        dk = s.decks[index]
+        dk = decks[index]
         audio = dk.get('buffer')
         duration = 0.0
         if audio is not None and len(audio) > 0:
@@ -591,22 +631,23 @@ class CommandExecutor:
     def get_operator_details(self, index: int) -> Dict[str, Any]:
         """Return detailed info for a single operator."""
         s = self.session
-        if not s or not hasattr(s.engine, 'operators'):
+        if not s or not hasattr(s, 'engine') or not hasattr(s.engine, 'operators'):
             return {}
         op = s.engine.operators.get(index, {})
         env = None
-        if hasattr(s, 'operator_envelopes') and index in s.operator_envelopes:
-            e = s.operator_envelopes[index]
-            env = {'attack': e.get('attack', s.attack),
-                   'decay': e.get('decay', s.decay),
-                   'sustain': e.get('sustain', s.sustain),
-                   'release': e.get('release', s.release)}
+        op_envs = getattr(s, 'operator_envelopes', {})
+        if op_envs and index in op_envs:
+            e = op_envs[index]
+            env = {'attack': e.get('attack', getattr(s, 'attack', 0.01)),
+                   'decay': e.get('decay', getattr(s, 'decay', 0.1)),
+                   'sustain': e.get('sustain', getattr(s, 'sustain', 0.8)),
+                   'release': e.get('release', getattr(s, 'release', 0.1))}
         return {
             'index': index,
             'wave': op.get('wave', 'sine'),
             'freq': op.get('freq', 440.0),
             'amp': op.get('amp', 0.8),
-            'is_current': index == s.current_operator,
+            'is_current': index == getattr(s, 'current_operator', 0),
             'envelope': env,
         }
 
@@ -615,14 +656,19 @@ class CommandExecutor:
         s = self.session
         if not s:
             return {}
-        type_idx = s.filter_types.get(slot, 0)
+        filter_types = getattr(s, 'filter_types', {})
+        filter_names = getattr(s, 'filter_type_names', {})
+        filter_cutoffs = getattr(s, 'filter_cutoffs', {})
+        filter_resonances = getattr(s, 'filter_resonances', {})
+        filter_enabled = getattr(s, 'filter_enabled', {})
+        type_idx = filter_types.get(slot, 0)
         return {
             'slot': slot,
-            'type_name': s.filter_type_names.get(type_idx, 'lowpass'),
-            'cutoff': s.filter_cutoffs.get(slot, 4500.0),
-            'resonance': s.filter_resonances.get(slot, 50.0),
-            'enabled': s.filter_enabled.get(slot, slot == 0),
-            'is_selected': slot == s.selected_filter,
+            'type_name': filter_names.get(type_idx, 'lowpass'),
+            'cutoff': filter_cutoffs.get(slot, 4500.0),
+            'resonance': filter_resonances.get(slot, 50.0),
+            'enabled': filter_enabled.get(slot, slot == 0),
+            'is_selected': slot == getattr(s, 'selected_filter', 0),
         }
 
     def get_all_filter_slots(self) -> List[Dict[str, Any]]:
@@ -639,15 +685,16 @@ class CommandExecutor:
 
     def get_rich_tree_data(self) -> Dict[str, Any]:
         """Return enriched tree data with inline previews for all objects."""
-        import numpy as np
         s = self.session
         if not s:
             return {}
 
         # Tracks with previews
         tracks = []
-        for i, t in enumerate(s.tracks):
+        for i, t in enumerate(getattr(s, 'tracks', [])):
             info = self.get_track_details(i)
+            if not info:
+                continue
             ch_str = 'stereo' if info.get('channels', 0) == 2 else 'mono'
             if info.get('has_audio'):
                 preview = (f"{info['name']}  [{info['duration']:.2f}s, {ch_str}, "
@@ -663,7 +710,8 @@ class CommandExecutor:
 
         # Buffers with previews
         buffers = []
-        filled = sorted(k for k, v in s.buffers.items()
+        buffers_dict = getattr(s, 'buffers', {})
+        filled = sorted(k for k, v in buffers_dict.items()
                         if v is not None and len(v) > 0)
         for idx in filled:
             info = self.get_buffer_details(idx)
@@ -683,7 +731,8 @@ class CommandExecutor:
 
         # Decks with previews
         decks = []
-        for dk_id in sorted(s.decks.keys()):
+        decks_dict = getattr(s, 'decks', {})
+        for dk_id in sorted(decks_dict.keys()):
             info = self.get_deck_details(dk_id)
             if info.get('loaded'):
                 preview = f"Deck {dk_id}  [{info['duration']:.2f}s loaded]"
@@ -694,7 +743,7 @@ class CommandExecutor:
 
         # Operators with previews
         operators = []
-        if hasattr(s.engine, 'operators'):
+        if hasattr(s, 'engine') and hasattr(s.engine, 'operators'):
             for idx in sorted(s.engine.operators.keys()):
                 info = self.get_operator_details(idx)
                 current = ' *' if info.get('is_current') else ''
@@ -716,39 +765,37 @@ class CommandExecutor:
 
         # Effects
         effects = []
-        for i, fx in enumerate(s.effects):
+        for i, fx in enumerate(getattr(s, 'effects', [])):
             fx_name = fx[0] if isinstance(fx, (list, tuple)) else str(fx)
             effects.append({'label': fx_name, 'index': i, 'type': 'effect'})
 
-        # Presets
+        # Presets (SyDefs from wherever they live)
         presets = []
-        if hasattr(s, 'sydefs') and s.sydefs:
-            for name in sorted(s.sydefs.keys()):
-                presets.append({'label': name, 'name': name, 'type': 'sydef'})
-        elif hasattr(s.engine, 'preset_bank') and s.engine.preset_bank:
-            for k in sorted(s.engine.preset_bank.keys()):
-                presets.append({'label': f"Preset {k}", 'name': str(k),
-                                'type': 'preset'})
+        sydefs = self._get_sydefs()
+        for name in sorted(sydefs.keys()):
+            presets.append({'label': name, 'name': name, 'type': 'sydef'})
 
         # User functions
         funcs = []
-        if s.user_functions:
-            for name in sorted(s.user_functions.keys()):
+        user_funcs = getattr(s, 'user_functions', {})
+        if user_funcs:
+            for name in sorted(user_funcs.keys()):
                 funcs.append({'label': f"fn: {name}", 'name': name,
                               'type': 'user_function'})
 
         # Chains
         chains = []
-        if s.chains:
-            for name in sorted(s.chains.keys()):
-                ch = s.chains[name]
+        chains_dict = getattr(s, 'chains', {})
+        if chains_dict:
+            for name in sorted(chains_dict.keys()):
+                ch = chains_dict[name]
                 n = len(ch) if isinstance(ch, list) else 0
                 chains.append({'label': f"chain: {name} ({n} fx)",
                                 'name': name, 'type': 'chain'})
 
         # Deck section markers (accessibility)
         deck_sections = []
-        for dk_id in sorted(s.decks.keys()):
+        for dk_id in sorted(decks_dict.keys()):
             info = self.get_deck_details(dk_id)
             if info.get('loaded') and info['duration'] > 0:
                 dur = info['duration']
@@ -1066,20 +1113,21 @@ class ObjectBrowser(wx.Panel):
 
         if obj_type == 'track':
             idx = data.get('index', 0)
-            menu.Append(wx.ID_ANY, f"Play Track {idx+1}").Id
-            m_play = menu.FindItemByPosition(0).GetId()
-            menu.Append(wx.ID_ANY, "Solo")
-            m_solo = menu.FindItemByPosition(1).GetId()
-            menu.Append(wx.ID_ANY, "Mute")
-            m_mute = menu.FindItemByPosition(2).GetId()
+            m_play = wx.NewIdRef()
+            m_solo = wx.NewIdRef()
+            m_mute = wx.NewIdRef()
+            m_fx = wx.NewIdRef()
+            m_bounce = wx.NewIdRef()
+            m_clear = wx.NewIdRef()
+
+            menu.Append(m_play, f"Play Track {idx+1}")
+            menu.Append(m_solo, "Solo")
+            menu.Append(m_mute, "Mute")
             menu.AppendSeparator()
-            menu.Append(wx.ID_ANY, "Apply Effect...")
-            m_fx = menu.FindItemByPosition(4).GetId()
-            menu.Append(wx.ID_ANY, "Bounce to Working Buffer")
-            m_bounce = menu.FindItemByPosition(5).GetId()
+            menu.Append(m_fx, "Apply Effect...")
+            menu.Append(m_bounce, "Bounce to Working Buffer")
             menu.AppendSeparator()
-            menu.Append(wx.ID_ANY, "Clear Track")
-            m_clear = menu.FindItemByPosition(7).GetId()
+            menu.Append(m_clear, "Clear Track")
 
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/pt {i+1}'), id=m_play)
@@ -1494,7 +1542,10 @@ class ActionPanel(wx.Panel):
                     values[param.name] = ctrl.GetValue()
                 elif param.param_type == 'enum':
                     idx = ctrl.GetSelection()
-                    values[param.name] = param.choices[idx] if idx >= 0 else param.default
+                    if 0 <= idx < len(param.choices):
+                        values[param.name] = param.choices[idx]
+                    else:
+                        values[param.name] = param.default
                 else:
                     values[param.name] = ctrl.GetValue()
         
@@ -1509,8 +1560,10 @@ class ActionPanel(wx.Panel):
         try:
             return self.current_action.command_template.format(**values)
         except KeyError as e:
-            self.console_callback(f"Warning: missing parameter {e} in command template\n", 'warning')
-            return self.current_action.command_template
+            self.console_callback(
+                f"Error: missing parameter {e} in command template\n",
+                'error')
+            return ""
     
     def update_command_preview(self):
         """Update the command preview text."""
@@ -1941,7 +1994,8 @@ class StepGridPanel(wx.Panel):
         s = self.executor.session
         self.track_fills = {}
         if s:
-            for i, t in enumerate(s.tracks):
+            tracks = getattr(s, 'tracks', [])
+            for i, t in enumerate(tracks):
                 audio = t.get('audio')
                 if audio is not None and len(audio) > 0:
                     wp = t.get('write_pos', 0)
@@ -1950,9 +2004,12 @@ class StepGridPanel(wx.Panel):
                         self.track_fills[i] = set(range(n))
 
             # Write position of current track
-            if s.tracks:
-                ct = min(getattr(s, 'current_track', 0), len(s.tracks) - 1)
-                wp = s.tracks[ct].get('write_pos', 0)
+            if tracks:
+                ct_idx = getattr(s, 'current_track_index',
+                         getattr(s, 'current_track', 0))
+                ct = min(ct_idx, len(tracks) - 1)
+                ct = max(ct, 0)
+                wp = tracks[ct].get('write_pos', 0)
                 self.write_pos = wp // beat_samples if beat_samples > 0 else 0
 
         self.canvas.Refresh()
