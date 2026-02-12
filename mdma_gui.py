@@ -46,6 +46,7 @@ import os
 # wxPython import guard — give a clear message instead of a traceback
 try:
     import wx
+    import wx.adv
     import wx.lib.agw.aui as aui
 except ImportError:
     print("MDMA GUI requires wxPython.")
@@ -1671,12 +1672,20 @@ class CommandExecutor:
         # Modulation routings
         routings = []
         if hasattr(s, 'engine') and hasattr(s.engine, 'algorithms'):
-            for i, (algo_type, src, tgt, amt) in enumerate(s.engine.algorithms):
-                routings.append({
-                    'label': f"{algo_type}: Op{src} → Op{tgt} ({amt:.1f})",
-                    'index': i, 'type': 'routing',
-                    'algo_type': algo_type, 'src': src, 'tgt': tgt, 'amt': amt,
-                })
+            for i, entry in enumerate(s.engine.algorithms):
+                try:
+                    algo_type, src, tgt, amt = entry
+                    routings.append({
+                        'label': f"{algo_type}: Op{src} → Op{tgt} ({amt:.1f})",
+                        'index': i, 'type': 'routing',
+                        'algo_type': algo_type, 'src': src, 'tgt': tgt,
+                        'amt': amt,
+                    })
+                except (ValueError, TypeError):
+                    routings.append({
+                        'label': f"Routing {i}: {entry}",
+                        'index': i, 'type': 'routing',
+                    })
 
         return {
             'tracks': tracks,
@@ -2209,10 +2218,12 @@ class ObjectBrowser(wx.Panel):
             idx = data.get('index', 1)
             m_play = wx.NewIdRef()
             m_to_work = wx.NewIdRef()
+            m_to_track = wx.NewIdRef()
             m_fx = wx.NewIdRef()
             m_clear = wx.NewIdRef()
             menu.Append(m_play, f"Play Buffer {idx}")
-            menu.Append(m_to_work, "Copy to Working Buffer")
+            menu.Append(m_to_work, "Load to Working Buffer")
+            menu.Append(m_to_track, "Write to Current Track")
             menu.AppendSeparator()
             menu.Append(m_fx, "Apply Effect...")
             menu.AppendSeparator()
@@ -2221,7 +2232,9 @@ class ObjectBrowser(wx.Panel):
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/pb {i}'), id=m_play)
             self.Bind(wx.EVT_MENU,
-                lambda e, i=idx: self._exec(f'/bu {i}'), id=m_to_work)
+                lambda e, i=idx: self._exec(f'/w {i}'), id=m_to_work)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/w {i}\n/ta'), id=m_to_track)
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._show_fx_picker('buffer', i), id=m_fx)
             self.Bind(wx.EVT_MENU,
@@ -2232,15 +2245,24 @@ class ObjectBrowser(wx.Panel):
         # ==============================================================
         elif obj_type == 'working_buffer':
             m_play = wx.NewIdRef()
+            m_to_track = wx.NewIdRef()
+            m_to_buf = wx.NewIdRef()
             m_fx = wx.NewIdRef()
             m_clear = wx.NewIdRef()
             menu.Append(m_play, "Play Working Buffer")
+            menu.AppendSeparator()
+            menu.Append(m_to_track, "Commit to Current Track")
+            menu.Append(m_to_buf, "Commit to Buffer")
             menu.AppendSeparator()
             menu.Append(m_fx, "Apply Effect...")
             menu.AppendSeparator()
             menu.Append(m_clear, "Clear Working Buffer")
 
             self.Bind(wx.EVT_MENU, lambda e: self._exec('/p'), id=m_play)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/ta'), id=m_to_track)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/a'), id=m_to_buf)
             self.Bind(wx.EVT_MENU,
                 lambda e: self._show_fx_picker('working', 0), id=m_fx)
             self.Bind(wx.EVT_MENU, lambda e: self._exec('/wbc'), id=m_clear)
@@ -2264,7 +2286,10 @@ class ObjectBrowser(wx.Panel):
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._show_fx_picker('deck', i), id=m_fx)
             self.Bind(wx.EVT_MENU,
-                lambda e, i=idx: self._exec(f'/deck {i} clear'), id=m_clear)
+                lambda e, i=idx: self._show_placeholder(
+                    "Clear Deck",
+                    f"Use /deck {i} load to reload, or unload audio manually."),
+                id=m_clear)
 
         # ==============================================================
         # Deck Section
@@ -2273,22 +2298,15 @@ class ObjectBrowser(wx.Panel):
             dk = data.get('deck', 1)
             start = data.get('start', 0)
             end = data.get('end', 0)
-            m_jump = wx.NewIdRef()
+            m_select = wx.NewIdRef()
             m_play = wx.NewIdRef()
-            m_loop = wx.NewIdRef()
-            menu.Append(m_jump, f"Jump to {start:.2f}s")
-            menu.Append(m_play, "Play Section")
-            menu.Append(m_loop, "Loop Section")
+            menu.Append(m_select, f"Select Deck {dk}")
+            menu.Append(m_play, f"Play Deck {dk}")
 
             self.Bind(wx.EVT_MENU,
-                lambda e, d=dk, s=start: self._exec(f'/deck {d} seek {s}'),
-                id=m_jump)
+                lambda e, d=dk: self._exec(f'/deck {d}'), id=m_select)
             self.Bind(wx.EVT_MENU,
-                lambda e, d=dk, s=start, en=end: self._exec(
-                    f'/deck {d} seek {s}\n/pd {d}'), id=m_play)
-            self.Bind(wx.EVT_MENU,
-                lambda e, d=dk, s=start, en=end: self._exec(
-                    f'/deck {d} loop {s} {en}'), id=m_loop)
+                lambda e, d=dk: self._exec(f'/pd {d}'), id=m_play)
 
         # ==============================================================
         # Effect
@@ -2362,7 +2380,10 @@ class ObjectBrowser(wx.Panel):
                     "Resonance", "Enter resonance (0-1):", "0.5",
                     f'/fs {s}\n/res {{}}'), id=m_res)
             self.Bind(wx.EVT_MENU,
-                lambda e, s=slot: self._exec(f'/fs {s}\n/sfc'), id=m_clear)
+                lambda e, s=slot: self._show_placeholder(
+                    "Clear Filter",
+                    f"Filter slot {s} — use /fs {s} then /ft lp to reset type."),
+                id=m_clear)
 
         # ==============================================================
         # Routing (modulation)
@@ -2373,7 +2394,7 @@ class ObjectBrowser(wx.Panel):
             m_clear = wx.NewIdRef()
             menu.Append(m_edit, f"Edit Routing {idx}...")
             menu.AppendSeparator()
-            menu.Append(m_clear, "Remove Routing")
+            menu.Append(m_clear, "Clear All Routings")
 
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._show_placeholder(
@@ -2381,7 +2402,7 @@ class ObjectBrowser(wx.Panel):
                     f"Routing {i} editing — use /route command for full control."),
                 id=m_edit)
             self.Bind(wx.EVT_MENU,
-                lambda e, i=idx: self._exec(f'/rt clear {i}'), id=m_clear)
+                lambda e: self._exec('/rt clear'), id=m_clear)
 
         # ==============================================================
         # Wavetable
@@ -2398,7 +2419,7 @@ class ObjectBrowser(wx.Panel):
                 lambda e, n=name: self._exec(f'/wm wavetable\n/wt use {n}'),
                 id=m_use)
             self.Bind(wx.EVT_MENU,
-                lambda e, n=name: self._exec(f'/wt delete {n}'), id=m_del)
+                lambda e, n=name: self._exec(f'/wt del {n}'), id=m_del)
 
         # ==============================================================
         # Compound Wave
@@ -2415,7 +2436,7 @@ class ObjectBrowser(wx.Panel):
                 lambda e, n=name: self._exec(f'/wm compound\n/compound use {n}'),
                 id=m_use)
             self.Bind(wx.EVT_MENU,
-                lambda e, n=name: self._exec(f'/compound delete {n}'),
+                lambda e, n=name: self._exec(f'/compound del {n}'),
                 id=m_del)
 
         # ==============================================================
@@ -2426,13 +2447,8 @@ class ObjectBrowser(wx.Panel):
             m_use = wx.NewIdRef()
             m_del = wx.NewIdRef()
             menu.Append(m_use, f"Use Preset: {name}")
-            menu.AppendSeparator()
-            menu.Append(m_del, "Delete Preset")
             self.Bind(wx.EVT_MENU,
                 lambda e, n=name: self._exec(f'/use {n}'), id=m_use)
-            self.Bind(wx.EVT_MENU,
-                lambda e, n=name: self._exec(f'/preset delete {n}'),
-                id=m_del)
 
         # ==============================================================
         # Chain
@@ -2442,13 +2458,8 @@ class ObjectBrowser(wx.Panel):
             m_apply = wx.NewIdRef()
             m_del = wx.NewIdRef()
             menu.Append(m_apply, f"Apply Chain: {name}")
-            menu.AppendSeparator()
-            menu.Append(m_del, "Delete Chain")
             self.Bind(wx.EVT_MENU,
-                lambda e, n=name: self._exec(f'/chain {n} apply'), id=m_apply)
-            self.Bind(wx.EVT_MENU,
-                lambda e, n=name: self._exec(f'/chain {n} delete'),
-                id=m_del)
+                lambda e, n=name: self._exec(f'/chain load {n}'), id=m_apply)
 
         # ==============================================================
         # User Function
@@ -2470,7 +2481,9 @@ class ObjectBrowser(wx.Panel):
                     "Edit Function",
                     f"Function '{n}' — use /fn to redefine."), id=m_edit)
             self.Bind(wx.EVT_MENU,
-                lambda e, n=name: self._exec(f'/userdata delete {n}'),
+                lambda e, n=name: self._show_placeholder(
+                    "Delete Function",
+                    f"Function '{n}' — use /fn to redefine or overwrite."),
                 id=m_del)
 
         # ==============================================================
@@ -2479,21 +2492,17 @@ class ObjectBrowser(wx.Panel):
         elif obj_type == 'preset_slot':
             slot = data.get('slot', 0)
             m_load = wx.NewIdRef()
-            m_save = wx.NewIdRef()
-            m_del = wx.NewIdRef()
+            m_info = wx.NewIdRef()
             menu.Append(m_load, f"Load Slot {slot}")
-            menu.Append(m_save, f"Save to Slot {slot}...")
-            menu.AppendSeparator()
-            menu.Append(m_del, "Clear Slot")
+            menu.Append(m_info, "Show Slot Info")
 
             self.Bind(wx.EVT_MENU,
-                lambda e, s=slot: self._exec(f'/bk load {s}'), id=m_load)
+                lambda e, s=slot: self._show_placeholder(
+                    "Load Preset Slot",
+                    f"Slot {s} — use /preset <name> to load a saved preset."),
+                id=m_load)
             self.Bind(wx.EVT_MENU,
-                lambda e, s=slot: self._show_value_editor(
-                    "Save Preset", "Enter preset name:", f"slot_{s}",
-                    f'/bk save {s} {{}}'), id=m_save)
-            self.Bind(wx.EVT_MENU,
-                lambda e, s=slot: self._exec(f'/bk delete {s}'), id=m_del)
+                lambda e: self._exec('/bk'), id=m_info)
 
         # ==============================================================
         # IR Bank Entry (convolution)
@@ -2501,16 +2510,14 @@ class ObjectBrowser(wx.Panel):
         elif obj_type == 'ir_bank_entry':
             name = data.get('name', '')
             m_use = wx.NewIdRef()
-            m_del = wx.NewIdRef()
+            m_info = wx.NewIdRef()
             menu.Append(m_use, f"Use IR: {name}")
-            menu.AppendSeparator()
-            menu.Append(m_del, "Remove from Bank")
+            menu.Append(m_info, "IR Bank Info")
 
             self.Bind(wx.EVT_MENU,
                 lambda e, n=name: self._exec(f'/conv use {n}'), id=m_use)
             self.Bind(wx.EVT_MENU,
-                lambda e, n=name: self._exec(f'/conv bank remove {n}'),
-                id=m_del)
+                lambda e: self._exec('/conv bank'), id=m_info)
 
         # ==============================================================
         # LFO Shape (impulse LFO)
@@ -2520,27 +2527,27 @@ class ObjectBrowser(wx.Panel):
             m_apply_op = wx.NewIdRef()
             m_apply_filt = wx.NewIdRef()
             m_info = wx.NewIdRef()
-            m_del = wx.NewIdRef()
+            m_clear = wx.NewIdRef()
             menu.Append(m_apply_op, "Apply to Operator...")
             menu.Append(m_apply_filt, "Apply to Filter...")
             menu.AppendSeparator()
             menu.Append(m_info, "Info")
-            menu.Append(m_del, f"Delete: {name}")
+            menu.Append(m_clear, "Clear LFO Modulation")
 
             self.Bind(wx.EVT_MENU,
                 lambda e, n=name: self._show_value_editor(
                     "Apply LFO", "Operator index:", "0",
-                    f'/impulselfo apply {n} {{}} 4.0'), id=m_apply_op)
+                    f'/impulselfo load {n}\n/impulselfo apply {{}} 4.0'),
+                id=m_apply_op)
             self.Bind(wx.EVT_MENU,
                 lambda e, n=name: self._show_value_editor(
                     "Apply to Filter", "Filter rate (Hz):", "2.0",
-                    f'/impulselfo filter {n} {{}}'), id=m_apply_filt)
+                    f'/impulselfo load {n}\n/impulselfo filter {{}}'),
+                id=m_apply_filt)
             self.Bind(wx.EVT_MENU,
-                lambda e, n=name: self._exec(f'/impulselfo info {n}'),
-                id=m_info)
+                lambda e: self._exec('/impulselfo info'), id=m_info)
             self.Bind(wx.EVT_MENU,
-                lambda e, n=name: self._exec(f'/impulselfo clear {n}'),
-                id=m_del)
+                lambda e: self._exec('/impulselfo clear'), id=m_clear)
 
         # ==============================================================
         # Impulse Envelope Shape
@@ -2550,24 +2557,21 @@ class ObjectBrowser(wx.Panel):
             m_apply_buf = wx.NewIdRef()
             m_apply_op = wx.NewIdRef()
             m_info = wx.NewIdRef()
-            m_del = wx.NewIdRef()
             menu.Append(m_apply_buf, "Apply to Working Buffer")
             menu.Append(m_apply_op, "Apply to Operator...")
             menu.AppendSeparator()
             menu.Append(m_info, "Info")
-            menu.Append(m_del, f"Delete: {name}")
 
             self.Bind(wx.EVT_MENU,
-                lambda e, n=name: self._exec(f'/impenv apply {n}'),
-                id=m_apply_buf)
+                lambda e, n=name: self._exec(
+                    f'/impenv load {n}\n/impenv apply'), id=m_apply_buf)
             self.Bind(wx.EVT_MENU,
                 lambda e, n=name: self._show_value_editor(
                     "Apply Envelope", "Operator index:", "0",
-                    f'/impenv operator {n} {{}}'), id=m_apply_op)
+                    f'/impenv load {n}\n/impenv operator {{}}'),
+                id=m_apply_op)
             self.Bind(wx.EVT_MENU,
-                lambda e, n=name: self._exec(f'/impenv info {n}'), id=m_info)
-            self.Bind(wx.EVT_MENU,
-                lambda e, n=name: self._exec(f'/impenv clear {n}'), id=m_del)
+                lambda e: self._exec('/impenv info'), id=m_info)
 
         # ==============================================================
         # Convolution Property
@@ -2661,24 +2665,33 @@ class ObjectBrowser(wx.Panel):
         # HQ Property
         # ==============================================================
         elif obj_type == 'hq_prop':
-            m_toggle = wx.NewIdRef()
+            m_on = wx.NewIdRef()
+            m_off = wx.NewIdRef()
             m_dc = wx.NewIdRef()
-            m_sat = wx.NewIdRef()
-            m_osc = wx.NewIdRef()
-            menu.Append(m_toggle, "Toggle HQ Mode")
+            m_osc_smooth = wx.NewIdRef()
+            m_osc_fast = wx.NewIdRef()
+            m_info = wx.NewIdRef()
+            menu.Append(m_on, "Enable HQ Mode")
+            menu.Append(m_off, "Disable HQ Mode")
             menu.AppendSeparator()
             menu.Append(m_dc, "Toggle DC Removal")
-            menu.Append(m_sat, "Toggle Saturation")
-            menu.Append(m_osc, "Toggle HQ Oscillators")
+            menu.Append(m_osc_smooth, "HQ Oscillators: Smooth")
+            menu.Append(m_osc_fast, "HQ Oscillators: Fast")
+            menu.AppendSeparator()
+            menu.Append(m_info, "HQ Info")
 
             self.Bind(wx.EVT_MENU,
-                lambda e: self._exec('/hq toggle'), id=m_toggle)
+                lambda e: self._exec('/hq on'), id=m_on)
             self.Bind(wx.EVT_MENU,
-                lambda e: self._exec('/hq dc toggle'), id=m_dc)
+                lambda e: self._exec('/hq off'), id=m_off)
             self.Bind(wx.EVT_MENU,
-                lambda e: self._exec('/hq saturation toggle'), id=m_sat)
+                lambda e: self._exec('/hq dc'), id=m_dc)
             self.Bind(wx.EVT_MENU,
-                lambda e: self._exec('/hq osc toggle'), id=m_osc)
+                lambda e: self._exec('/hq osc smooth'), id=m_osc_smooth)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/hq osc fast'), id=m_osc_fast)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/hq'), id=m_info)
 
         # ==============================================================
         # Engine Property
@@ -2705,7 +2718,7 @@ class ObjectBrowser(wx.Panel):
                 m_new = wx.NewIdRef()
                 menu.Append(m_new, "Add New Track")
                 self.Bind(wx.EVT_MENU,
-                    lambda e: self._exec('/new track'), id=m_new)
+                    lambda e: self._exec('/tn'), id=m_new)
 
             elif cat_id == 'fx':
                 m_add = wx.NewIdRef()
@@ -2720,10 +2733,12 @@ class ObjectBrowser(wx.Panel):
             elif cat_id == 'synth':
                 m_add_op = wx.NewIdRef()
                 m_wave = wx.NewIdRef()
-                menu.Append(m_add_op, "Add Operator")
+                menu.Append(m_add_op, "Set Operator Count...")
                 menu.Append(m_wave, "Set Waveform...")
                 self.Bind(wx.EVT_MENU,
-                    lambda e: self._exec('/mod +1'), id=m_add_op)
+                    lambda e: self._show_value_editor(
+                        "Operators", "Number of operators:", "4",
+                        '/mod {}'), id=m_add_op)
                 self.Bind(wx.EVT_MENU,
                     lambda e: self._show_waveform_picker(None), id=m_wave)
 
@@ -2770,12 +2785,17 @@ class ObjectBrowser(wx.Panel):
                     id=m_reset)
 
             elif cat_id == 'hq':
-                m_toggle = wx.NewIdRef()
+                m_on = wx.NewIdRef()
+                m_off = wx.NewIdRef()
                 m_info = wx.NewIdRef()
-                menu.Append(m_toggle, "Toggle HQ Mode")
+                menu.Append(m_on, "Enable HQ Mode")
+                menu.Append(m_off, "Disable HQ Mode")
+                menu.AppendSeparator()
                 menu.Append(m_info, "HQ Info")
                 self.Bind(wx.EVT_MENU,
-                    lambda e: self._exec('/hq toggle'), id=m_toggle)
+                    lambda e: self._exec('/hq on'), id=m_on)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/hq off'), id=m_off)
                 self.Bind(wx.EVT_MENU,
                     lambda e: self._exec('/hq'), id=m_info)
 
@@ -2917,16 +2937,16 @@ class ObjectBrowser(wx.Panel):
                     lambda e: self._show_sr_picker(), id=m_sr)
 
             elif cat_id == 'buffers':
-                m_new = wx.NewIdRef()
-                menu.Append(m_new, "New Buffer from Working")
+                m_commit = wx.NewIdRef()
+                menu.Append(m_commit, "Commit Working to Buffer")
                 self.Bind(wx.EVT_MENU,
-                    lambda e: self._exec('/bs'), id=m_new)
+                    lambda e: self._exec('/a'), id=m_commit)
 
             elif cat_id == 'decks':
                 m_new = wx.NewIdRef()
-                menu.Append(m_new, "Create Deck")
+                menu.Append(m_new, "Add Deck")
                 self.Bind(wx.EVT_MENU,
-                    lambda e: self._exec('/deck new'), id=m_new)
+                    lambda e: self._exec('/deck+'), id=m_new)
 
             elif cat_id == 'preset':
                 m_save = wx.NewIdRef()
@@ -2946,31 +2966,39 @@ class ObjectBrowser(wx.Panel):
             elif cat_id == 'bank':
                 m_save = wx.NewIdRef()
                 m_info = wx.NewIdRef()
-                menu.Append(m_save, "Save to Bank Slot...")
+                menu.Append(m_save, "Save Routing Bank...")
                 menu.Append(m_info, "Bank Info")
                 self.Bind(wx.EVT_MENU,
                     lambda e: self._show_value_editor(
-                        "Bank Slot", "Enter slot number:", "1",
+                        "Save Bank", "Enter bank name:", "my_bank",
                         '/bk save {}'), id=m_save)
                 self.Bind(wx.EVT_MENU,
-                    lambda e: self._exec('/bk'), id=m_info)
+                    lambda e: self._exec('/bk list'), id=m_info)
 
         if menu.GetMenuItemCount() > 0:
             self.PopupMenu(menu)
         menu.Destroy()
 
     def _exec(self, command: str):
-        """Execute a command via the executor and log to console."""
+        """Execute one or more newline-separated commands via the executor."""
+        commands = [c.strip() for c in command.split('\n') if c.strip()]
+        last_ok = True
+        for cmd in commands:
+            if self.console_cb:
+                self.console_cb(f">>> {cmd}\n", 'command')
+            stdout, stderr, ok = self.executor.execute(cmd)
+            last_ok = ok
+            if self.console_cb:
+                if stdout:
+                    self.console_cb(stdout, 'stdout')
+                if stderr:
+                    self.console_cb(stderr, 'stderr')
+                status = "OK" if ok else "ERROR"
+                self.console_cb(f"[{status}]\n", 'success' if ok else 'error')
+            if not ok:
+                break
         if self.console_cb:
-            self.console_cb(f">>> {command}\n", 'command')
-        stdout, stderr, ok = self.executor.execute(command)
-        if self.console_cb:
-            if stdout:
-                self.console_cb(stdout, 'stdout')
-            if stderr:
-                self.console_cb(stderr, 'stderr')
-            status = "OK" if ok else "ERROR"
-            self.console_cb(f"[{status}]\n\n", 'success' if ok else 'error')
+            self.console_cb("\n", 'stdout')
         self.populate_tree()
 
     def _show_fx_picker(self, target_type: str, target_id: int):
@@ -3087,14 +3115,11 @@ class ObjectBrowser(wx.Panel):
             dlg1.Destroy()
 
     def _show_sr_picker(self):
-        """Show a picker for sample rate."""
-        rates = ['22050', '44100', '48000', '88200', '96000']
-        dlg = wx.SingleChoiceDialog(self, "Select sample rate:",
-                                     "Sample Rate", rates)
-        if dlg.ShowModal() == wx.ID_OK:
-            sr = dlg.GetStringSelection()
-            self._exec(f'/sr {sr}')
-        dlg.Destroy()
+        """Show a placeholder for sample rate setting."""
+        self._show_placeholder(
+            "Sample Rate",
+            "Sample rate is set at session creation.\n"
+            "Use the console: set sample_rate <rate>")
 
     def _show_envelope_preset_picker(self):
         """Show presets for common envelope shapes."""
@@ -3146,7 +3171,7 @@ class ObjectBrowser(wx.Panel):
                                      "Transform Descriptor", descriptors)
         if dlg.ShowModal() == wx.ID_OK:
             desc = dlg.GetStringSelection()
-            self._exec(f'/irtransform descriptor {desc}')
+            self._exec(f'/irtransform {desc}')
         dlg.Destroy()
 
     # ------------------------------------------------------------------
@@ -3650,7 +3675,7 @@ class InspectorPanel(wx.Panel):
             self._add_prop("Samples:", str(details.get('samples', 0)))
 
         self._add_action_btn("Play", f"/pb {idx}")
-        self._add_action_btn("To Working", f"/bu {idx}")
+        self._add_action_btn("To Working", f"/w {idx}")
         self._add_action_btn("Clear", f"/clr {idx}")
 
     def _inspect_working_buffer(self, data):
@@ -3764,7 +3789,7 @@ class InspectorPanel(wx.Panel):
         self.subtitle.SetLabel("Effect Chain")
 
         self._add_prop("Name:", name)
-        self._add_action_btn("Apply", f"/chain {name} apply")
+        self._add_action_btn("Apply", f"/chain load {name}")
 
     def _inspect_deck_section(self, data):
         deck = data.get('deck', 0)
@@ -3965,9 +3990,12 @@ class InspectorPanel(wx.Panel):
             except Exception:
                 self._add_prop("Status:", "Not available")
             if cat_id == 'ir_transform':
-                from mdma_rebuild.dsp.convolution import list_descriptors
-                descs = list_descriptors()
-                self._add_prop("Descriptors:", f"{len(descs)} available")
+                try:
+                    from mdma_rebuild.dsp.convolution import list_descriptors
+                    descs = list_descriptors()
+                    self._add_prop("Descriptors:", f"{len(descs)} available")
+                except Exception:
+                    self._add_prop("Descriptors:", "Module not available")
 
 
 class StepGridPanel(wx.Panel):
@@ -4383,6 +4411,8 @@ class PatchBuilderPanel(wx.Panel):
             return
 
         engine = self.executor.session.engine
+        if not hasattr(engine, 'operators') or not hasattr(engine, 'algorithms'):
+            return
 
         # Populate operators
         for idx in sorted(engine.operators.keys()):
@@ -4489,6 +4519,12 @@ class RoutingPanel(wx.Panel):
             return
 
         engine = self.executor.session.engine
+        if not hasattr(engine, 'operators') or not hasattr(engine, 'algorithms'):
+            gc.SetFont(gc.CreateFont(wx.Font(12, wx.FONTFAMILY_DEFAULT,
+                        wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL), Theme.FG_DIM))
+            gc.DrawText("Engine not initialized", 20, h // 2)
+            return
+
         ops = sorted(engine.operators.keys())
 
         if not ops:
@@ -4629,9 +4665,11 @@ class OscillatorListPanel(wx.Panel):
 
     def _on_add_op(self, event):
         """Add a new operator."""
-        if not self.executor.session:
+        if not self.executor.session or not hasattr(self.executor.session, 'engine'):
             return
         engine = self.executor.session.engine
+        if not hasattr(engine, 'operators'):
+            return
         # Find next available index
         existing = set(engine.operators.keys())
         new_idx = 1
@@ -4656,6 +4694,9 @@ class OscillatorListPanel(wx.Panel):
             return
 
         engine = self.executor.session.engine
+        if not hasattr(engine, 'operators'):
+            return
+
         filter_sel = self.wave_filter.GetStringSelection()
 
         # Category mapping
@@ -4984,29 +5025,37 @@ class MDMAFrame(wx.Frame):
             return
 
         # Status bar field 0: core engine state
-        buf_sec = state.get('buffer_seconds', 0)
-        status = (
-            f"BPM: {state['bpm']:.0f}  |  "
-            f"Buffer: {buf_sec:.2f}s  |  "
-            f"{state['waveform']} @ {state['frequency']:.0f}Hz  |  "
-            f"Voices: {state['voice_count']} ({state['voice_algorithm']})"
-        )
-        self.SetStatusText(status, 0)
+        try:
+            buf_sec = state.get('buffer_seconds', 0)
+            status = (
+                f"BPM: {state.get('bpm', 128):.0f}  |  "
+                f"Buffer: {buf_sec:.2f}s  |  "
+                f"{state.get('waveform', '---')} @ "
+                f"{state.get('frequency', 440):.0f}Hz  |  "
+                f"Voices: {state.get('voice_count', 1)} "
+                f"({state.get('voice_algorithm', 0)})"
+            )
+            self.SetStatusText(status, 0)
 
-        # Status bar field 1: filter + FX
-        filter_status = (
-            f"Filter: {state['filter_type']} {state['filter_cutoff']:.0f}Hz  |  "
-            f"FX: {len(state['effects'])}"
-        )
-        self.SetStatusText(filter_status, 1)
+            # Status bar field 1: filter + FX
+            fx_list = state.get('effects', [])
+            filter_status = (
+                f"Filter: {state.get('filter_type', 'lp')} "
+                f"{state.get('filter_cutoff', 4500):.0f}Hz  |  "
+                f"FX: {len(fx_list)}"
+            )
+            self.SetStatusText(filter_status, 1)
 
-        # Status bar field 2: HQ + tracks
-        hq_status = (
-            f"HQ: {'ON' if state['hq_mode'] else 'OFF'} "
-            f"{state['output_format'].upper()} {state['output_bit_depth']}bit  |  "
-            f"Tracks: {state['track_count']}"
-        )
-        self.SetStatusText(hq_status, 2)
+            # Status bar field 2: HQ + tracks
+            hq_status = (
+                f"HQ: {'ON' if state.get('hq_mode') else 'OFF'} "
+                f"{state.get('output_format', 'wav').upper()} "
+                f"{state.get('output_bit_depth', 16)}bit  |  "
+                f"Tracks: {state.get('track_count', 0)}"
+            )
+            self.SetStatusText(hq_status, 2)
+        except Exception:
+            pass  # Silently handle missing state keys
 
         # Rebuild browser tree with fresh data
         self.browser.populate_tree()
@@ -5032,13 +5081,17 @@ class MDMAFrame(wx.Frame):
             return
 
         # Update status bar only (lightweight)
-        buf_sec = state.get('buffer_seconds', 0)
-        self.SetStatusText(
-            f"BPM: {state['bpm']:.0f}  |  "
-            f"Buffer: {buf_sec:.2f}s  |  "
-            f"{state['waveform']} @ {state['frequency']:.0f}Hz  |  "
-            f"Voices: {state['voice_count']} ({state['voice_algorithm']})",
-            0)
+        try:
+            buf_sec = state.get('buffer_seconds', 0)
+            self.SetStatusText(
+                f"BPM: {state.get('bpm', 128):.0f}  |  "
+                f"Buffer: {buf_sec:.2f}s  |  "
+                f"{state.get('waveform', '---')} @ "
+                f"{state.get('frequency', 440):.0f}Hz  |  "
+                f"Voices: {state.get('voice_count', 1)} "
+                f"({state.get('voice_algorithm', 0)})", 0)
+        except Exception:
+            pass
 
     def on_manual_refresh(self):
         """Full refresh triggered by F5."""
