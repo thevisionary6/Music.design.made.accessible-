@@ -32,4 +32,8 @@ __all__ = [
     "stems",
     "streaming",
     "visualization",
+    "music_theory",
+    "beat_gen",
+    "loop_gen",
+    "transforms",
 ]
