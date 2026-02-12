@@ -100,7 +100,7 @@ class ActionDef:
     description: str = ""
 
 
-# Actions organized by object type
+# Actions organized by object type — FULL ENGINE PARITY
 ACTIONS: Dict[str, List[ActionDef]] = {
     'engine': [
         ActionDef(
@@ -149,6 +149,25 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             description='Set the tempo in beats per minute'
         ),
         ActionDef(
+            name='noise',
+            label='Generate Noise',
+            command_template='/noise {type} {duration}',
+            params=[
+                ActionParam('type', 'Type', 'enum', 'white', choices=['white', 'pink']),
+                ActionParam('duration', 'Duration (beats)', 'float', 1.0, min_val=0.1, max_val=32),
+            ],
+            description='Generate white or pink noise'
+        ),
+        ActionDef(
+            name='ns',
+            label='Note Sequence',
+            command_template='/ns {notes}',
+            params=[
+                ActionParam('notes', 'Notes (e.g. C4 D4 E4)', 'string', 'C4 E4 G4'),
+            ],
+            description='Generate a note sequence'
+        ),
+        ActionDef(
             name='version',
             label='Show Version',
             command_template='/version',
@@ -162,8 +181,14 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             label='Set Waveform',
             command_template='/wm {waveform}',
             params=[
-                ActionParam('waveform', 'Waveform', 'enum', 'sine', 
-                           choices=['sine', 'saw', 'square', 'triangle', 'noise']),
+                ActionParam('waveform', 'Waveform', 'enum', 'sine',
+                           choices=['sine', 'triangle', 'saw', 'pulse',
+                                    'noise', 'pink',
+                                    'physical', 'physical2',
+                                    'supersaw', 'additive', 'formant', 'harmonic',
+                                    'waveguide_string', 'waveguide_tube',
+                                    'waveguide_membrane', 'waveguide_plate',
+                                    'wavetable', 'compound']),
             ],
             description='Set the oscillator waveform'
         ),
@@ -186,8 +211,45 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             description='Set oscillator amplitude'
         ),
         ActionDef(
+            name='pw',
+            label='Pulse Width',
+            command_template='/pw {width}',
+            params=[
+                ActionParam('width', 'Pulse Width (0-1)', 'float', 0.5, min_val=0.01, max_val=0.99),
+            ],
+            description='Set pulse wave width (0.5 = square)'
+        ),
+        ActionDef(
+            name='phys_params',
+            label='Physical Model',
+            command_template='/phys {even} {odd} {weight} {decay}',
+            params=[
+                ActionParam('even', 'Even Harmonics', 'int', 8, min_val=0, max_val=32),
+                ActionParam('odd', 'Odd Harmonics', 'int', 4, min_val=0, max_val=32),
+                ActionParam('weight', 'Even Weight', 'float', 1.0, min_val=0, max_val=5),
+                ActionParam('decay', 'Harmonic Decay', 'float', 0.7, min_val=0.1, max_val=1),
+            ],
+            description='Configure physical model harmonic parameters'
+        ),
+        ActionDef(
+            name='opinfo',
+            label='Operator Info',
+            command_template='/opinfo all',
+            params=[],
+            description='Show detailed info for all operators'
+        ),
+        ActionDef(
+            name='waveinfo',
+            label='Wave Type Info',
+            command_template='/waveinfo',
+            params=[],
+            description='List all available wave types and their parameters'
+        ),
+    ],
+    'voice': [
+        ActionDef(
             name='voices',
-            label='Set Voice Count',
+            label='Voice Count',
             command_template='/vc {count}',
             params=[
                 ActionParam('count', 'Voices', 'int', 1, min_val=1, max_val=16),
@@ -195,13 +257,59 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             description='Set number of voices for unison'
         ),
         ActionDef(
-            name='detune',
-            label='Set Detune',
-            command_template='/dt {cents}',
+            name='va',
+            label='Voice Algorithm',
+            command_template='/va {algorithm}',
             params=[
-                ActionParam('cents', 'Detune (cents)', 'float', 0, min_val=0, max_val=100),
+                ActionParam('algorithm', 'Algorithm', 'enum', 'stack',
+                           choices=['stack', 'unison', 'wide']),
             ],
-            description='Set voice detuning in cents'
+            description='Set voice algorithm (stack=classic, unison=phase-random, wide=auto-stereo)'
+        ),
+        ActionDef(
+            name='detune',
+            label='Detune',
+            command_template='/dt {hz}',
+            params=[
+                ActionParam('hz', 'Detune (Hz)', 'float', 0, min_val=0, max_val=100),
+            ],
+            description='Set voice detuning in Hz'
+        ),
+        ActionDef(
+            name='stereo',
+            label='Stereo Spread',
+            command_template='/stereo {amount}',
+            params=[
+                ActionParam('amount', 'Spread (0-100)', 'float', 0, min_val=0, max_val=100),
+            ],
+            description='Set stereo spread width'
+        ),
+        ActionDef(
+            name='vphase',
+            label='Phase Spread',
+            command_template='/vphase {radians}',
+            params=[
+                ActionParam('radians', 'Phase (radians)', 'float', 0, min_val=0, max_val=6.28),
+            ],
+            description='Set per-voice phase offset'
+        ),
+        ActionDef(
+            name='rand',
+            label='Random Variation',
+            command_template='/rand {amount}',
+            params=[
+                ActionParam('amount', 'Random (0-100)', 'float', 0, min_val=0, max_val=100),
+            ],
+            description='Set amplitude/phase randomization'
+        ),
+        ActionDef(
+            name='vmod',
+            label='Voice Mod Scale',
+            command_template='/vmod {amount}',
+            params=[
+                ActionParam('amount', 'Mod Scale (0-100)', 'float', 0, min_val=0, max_val=100),
+            ],
+            description='Set per-voice modulation scaling'
         ),
     ],
     'filter': [
@@ -211,9 +319,19 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             command_template='/ft {filter_type}',
             params=[
                 ActionParam('filter_type', 'Filter Type', 'enum', 'lowpass',
-                           choices=['lowpass', 'highpass', 'bandpass', 'notch', 'moog', 'acid']),
+                           choices=['lowpass', 'highpass', 'bandpass', 'notch',
+                                    'peak', 'ringmod', 'allpass',
+                                    'comb_ff', 'comb_fb', 'comb_both',
+                                    'analog', 'acid',
+                                    'formant_a', 'formant_e', 'formant_i',
+                                    'formant_o', 'formant_u',
+                                    'lowshelf', 'highshelf',
+                                    'moog', 'svf_lp', 'svf_hp', 'svf_bp',
+                                    'bitcrush', 'downsample',
+                                    'dc_block', 'tilt',
+                                    'resonant', 'vocal', 'telephone']),
             ],
-            description='Set filter type'
+            description='Set filter type (30 types available)'
         ),
         ActionDef(
             name='cutoff',
@@ -232,6 +350,69 @@ ACTIONS: Dict[str, List[ActionDef]] = {
                 ActionParam('amount', 'Resonance (0-100)', 'float', 50.0, min_val=0, max_val=100),
             ],
             description='Set filter resonance'
+        ),
+        ActionDef(
+            name='fcount',
+            label='Filter Slot Count',
+            command_template='/fcount {count}',
+            params=[
+                ActionParam('count', 'Slots (1-8)', 'int', 1, min_val=1, max_val=8),
+            ],
+            description='Set number of active filter slots'
+        ),
+        ActionDef(
+            name='fsel',
+            label='Select Filter Slot',
+            command_template='/fs {slot}',
+            params=[
+                ActionParam('slot', 'Slot (0-7)', 'int', 0, min_val=0, max_val=7),
+            ],
+            description='Select active filter slot'
+        ),
+        ActionDef(
+            name='fenable',
+            label='Toggle Filter Enable',
+            command_template='/fen toggle',
+            params=[],
+            description='Toggle current filter slot on/off'
+        ),
+    ],
+    'filter_envelope': [
+        ActionDef(
+            name='fatk',
+            label='Filter Attack',
+            command_template='/fatk {time}',
+            params=[
+                ActionParam('time', 'Attack (sec)', 'float', 0.01, min_val=0, max_val=10),
+            ],
+            description='Set filter envelope attack'
+        ),
+        ActionDef(
+            name='fdec',
+            label='Filter Decay',
+            command_template='/fdec {time}',
+            params=[
+                ActionParam('time', 'Decay (sec)', 'float', 0.1, min_val=0, max_val=10),
+            ],
+            description='Set filter envelope decay'
+        ),
+        ActionDef(
+            name='fsus',
+            label='Filter Sustain',
+            command_template='/fsus {level}',
+            params=[
+                ActionParam('level', 'Sustain (0-1)', 'float', 0.8, min_val=0, max_val=1),
+            ],
+            description='Set filter envelope sustain level'
+        ),
+        ActionDef(
+            name='frel',
+            label='Filter Release',
+            command_template='/frel {time}',
+            params=[
+                ActionParam('time', 'Release (sec)', 'float', 0.1, min_val=0, max_val=10),
+            ],
+            description='Set filter envelope release'
         ),
     ],
     'envelope': [
@@ -271,6 +452,270 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             ],
             description='Set envelope release time'
         ),
+        ActionDef(
+            name='env_preset',
+            label='Envelope Preset',
+            command_template='/env {preset}',
+            params=[
+                ActionParam('preset', 'Preset', 'enum', 'pluck',
+                           choices=['pluck', 'pad', 'organ', 'perc', 'slow', 'fast', 'string', 'brass']),
+            ],
+            description='Load an envelope preset'
+        ),
+        ActionDef(
+            name='venv',
+            label='Per-Op Envelope Mode',
+            command_template='/venv {level}',
+            params=[
+                ActionParam('level', 'Level', 'enum', '1',
+                           choices=['1', '2']),
+            ],
+            description='Set envelope editing level (1=global, 2=per-operator)'
+        ),
+    ],
+    'hq': [
+        ActionDef(
+            name='hq_toggle',
+            label='Toggle HQ Mode',
+            command_template='/hq {state}',
+            params=[
+                ActionParam('state', 'State', 'enum', 'on', choices=['on', 'off']),
+            ],
+            description='Enable/disable high-quality mode'
+        ),
+        ActionDef(
+            name='hq_osc',
+            label='HQ Oscillators',
+            command_template='/hq osc {state}',
+            params=[
+                ActionParam('state', 'State', 'enum', 'on', choices=['on', 'off']),
+            ],
+            description='Toggle band-limited oscillators'
+        ),
+        ActionDef(
+            name='hq_dc',
+            label='DC Removal',
+            command_template='/hq dc {state}',
+            params=[
+                ActionParam('state', 'State', 'enum', 'on', choices=['on', 'off']),
+            ],
+            description='Toggle DC offset removal'
+        ),
+        ActionDef(
+            name='hq_sat',
+            label='Saturation',
+            command_template='/hq sat {drive}',
+            params=[
+                ActionParam('drive', 'Drive', 'float', 1.0, min_val=0, max_val=5),
+            ],
+            description='Set saturation drive amount'
+        ),
+        ActionDef(
+            name='hq_limit',
+            label='Limiter',
+            command_template='/hq limit {threshold}',
+            params=[
+                ActionParam('threshold', 'Threshold (dB)', 'float', -1.0, min_val=-20, max_val=0),
+            ],
+            description='Set limiter threshold'
+        ),
+    ],
+    'key': [
+        ActionDef(
+            name='key_set',
+            label='Set Key/Scale',
+            command_template='/key {note} {scale}',
+            params=[
+                ActionParam('note', 'Root Note', 'enum', 'C',
+                           choices=['C', 'C#', 'D', 'D#', 'E', 'F',
+                                    'F#', 'G', 'G#', 'A', 'A#', 'B']),
+                ActionParam('scale', 'Scale', 'enum', 'major',
+                           choices=['major', 'minor', 'dorian', 'phrygian',
+                                    'lydian', 'mixolydian', 'locrian',
+                                    'pentatonic', 'blues', 'harmonic', 'melodic']),
+            ],
+            description='Set musical key and scale'
+        ),
+    ],
+    'modulation': [
+        ActionDef(
+            name='fm',
+            label='Add FM Routing',
+            command_template='/fm {source} {target} {amount}',
+            params=[
+                ActionParam('source', 'Source Op', 'int', 2, min_val=1, max_val=16),
+                ActionParam('target', 'Target Op', 'int', 1, min_val=1, max_val=16),
+                ActionParam('amount', 'Amount (0-100)', 'float', 50, min_val=0, max_val=100),
+            ],
+            description='Add FM modulation routing'
+        ),
+        ActionDef(
+            name='am',
+            label='Add AM Routing',
+            command_template='/am {source} {target} {amount}',
+            params=[
+                ActionParam('source', 'Source Op', 'int', 2, min_val=1, max_val=16),
+                ActionParam('target', 'Target Op', 'int', 1, min_val=1, max_val=16),
+                ActionParam('amount', 'Amount (0-100)', 'float', 50, min_val=0, max_val=100),
+            ],
+            description='Add AM modulation routing'
+        ),
+        ActionDef(
+            name='rm',
+            label='Add RM Routing',
+            command_template='/rm {source} {target} {amount}',
+            params=[
+                ActionParam('source', 'Source Op', 'int', 2, min_val=1, max_val=16),
+                ActionParam('target', 'Target Op', 'int', 1, min_val=1, max_val=16),
+                ActionParam('amount', 'Amount (0-100)', 'float', 50, min_val=0, max_val=100),
+            ],
+            description='Add ring modulation routing'
+        ),
+        ActionDef(
+            name='pm',
+            label='Add PM Routing',
+            command_template='/pm {source} {target} {amount}',
+            params=[
+                ActionParam('source', 'Source Op', 'int', 2, min_val=1, max_val=16),
+                ActionParam('target', 'Target Op', 'int', 1, min_val=1, max_val=16),
+                ActionParam('amount', 'Amount (0-100)', 'float', 50, min_val=0, max_val=100),
+            ],
+            description='Add phase modulation routing'
+        ),
+        ActionDef(
+            name='clearalg',
+            label='Clear All Routings',
+            command_template='/clearalg',
+            params=[],
+            description='Clear all modulation routings'
+        ),
+        ActionDef(
+            name='ar_interval',
+            label='Interval LFO',
+            command_template='/audiorate interval {op} lfo {rate} {depth} {wave}',
+            params=[
+                ActionParam('op', 'Operator', 'int', 1, min_val=1, max_val=16),
+                ActionParam('rate', 'Rate (Hz)', 'float', 5.0, min_val=0.1, max_val=100),
+                ActionParam('depth', 'Depth (semitones)', 'float', 1.0, min_val=0, max_val=24),
+                ActionParam('wave', 'LFO Shape', 'enum', 'sine',
+                           choices=['sine', 'triangle', 'saw', 'square']),
+            ],
+            description='Set audio-rate interval LFO modulation'
+        ),
+        ActionDef(
+            name='ar_filter',
+            label='Filter LFO',
+            command_template='/audiorate filter lfo {rate} {depth}',
+            params=[
+                ActionParam('rate', 'Rate (Hz)', 'float', 2.0, min_val=0.1, max_val=100),
+                ActionParam('depth', 'Depth (octaves)', 'float', 1.0, min_val=0, max_val=8),
+            ],
+            description='Set audio-rate filter cutoff LFO'
+        ),
+        ActionDef(
+            name='ar_clear',
+            label='Clear Audio-Rate Mod',
+            command_template='/audiorate clear',
+            params=[],
+            description='Clear all audio-rate modulation sources'
+        ),
+    ],
+    'wavetable': [
+        ActionDef(
+            name='wt_load',
+            label='Load Wavetable',
+            command_template='/wt load {name} {path}',
+            params=[
+                ActionParam('name', 'Name', 'string', 'my_table'),
+                ActionParam('path', 'File Path (.wav)', 'string', ''),
+            ],
+            description='Load a wavetable from .wav file (Serum format)'
+        ),
+        ActionDef(
+            name='wt_use',
+            label='Use Wavetable',
+            command_template='/wt use {name}',
+            params=[
+                ActionParam('name', 'Wavetable Name', 'string', ''),
+            ],
+            description='Set current operator to use a loaded wavetable'
+        ),
+        ActionDef(
+            name='wt_frame',
+            label='Set Frame Position',
+            command_template='/wt frame {pos}',
+            params=[
+                ActionParam('pos', 'Position (0-1)', 'float', 0.0, min_val=0, max_val=1),
+            ],
+            description='Set wavetable frame position'
+        ),
+        ActionDef(
+            name='wt_del',
+            label='Delete Wavetable',
+            command_template='/wt del {name}',
+            params=[
+                ActionParam('name', 'Wavetable Name', 'string', ''),
+            ],
+            description='Delete a loaded wavetable'
+        ),
+        ActionDef(
+            name='wt_list',
+            label='List Wavetables',
+            command_template='/wt',
+            params=[],
+            description='List all loaded wavetables'
+        ),
+    ],
+    'compound': [
+        ActionDef(
+            name='comp_new',
+            label='New Compound',
+            command_template='/compound new {name}',
+            params=[
+                ActionParam('name', 'Name', 'string', 'my_compound'),
+            ],
+            description='Create a new compound wave definition'
+        ),
+        ActionDef(
+            name='comp_add',
+            label='Add Layer',
+            command_template='/compound add {name} {wave} {detune} {amp}',
+            params=[
+                ActionParam('name', 'Compound Name', 'string', ''),
+                ActionParam('wave', 'Layer Wave', 'enum', 'sine',
+                           choices=['sine', 'triangle', 'saw', 'pulse']),
+                ActionParam('detune', 'Detune (semitones)', 'float', 0.0, min_val=-24, max_val=24),
+                ActionParam('amp', 'Layer Amp', 'float', 1.0, min_val=0, max_val=2),
+            ],
+            description='Add a layer to a compound wave'
+        ),
+        ActionDef(
+            name='comp_use',
+            label='Use Compound',
+            command_template='/compound use {name}',
+            params=[
+                ActionParam('name', 'Compound Name', 'string', ''),
+            ],
+            description='Set current operator to use a compound wave'
+        ),
+        ActionDef(
+            name='comp_morph',
+            label='Set Morph',
+            command_template='/compound morph {pos}',
+            params=[
+                ActionParam('pos', 'Morph (0-1)', 'float', 0.0, min_val=0, max_val=1),
+            ],
+            description='Set morph position between two layers'
+        ),
+        ActionDef(
+            name='comp_del',
+            label='Delete Compound',
+            command_template='/compound del {name}',
+            params=[
+                ActionParam('name', 'Compound Name', 'string', ''),
+            ],
+            description='Delete a compound wave definition'
+        ),
     ],
     'fx': [
         ActionDef(
@@ -279,7 +724,7 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             command_template='/fx {effect}',
             params=[
                 ActionParam('effect', 'Effect', 'enum', 'reverb',
-                           choices=['reverb', 'delay', 'chorus', 'distortion', 'phaser', 
+                           choices=['reverb', 'delay', 'chorus', 'distortion', 'phaser',
                                    'flanger', 'compressor', 'eq', 'bitcrush']),
             ],
             description='Add an effect to the chain'
@@ -295,37 +740,88 @@ ACTIONS: Dict[str, List[ActionDef]] = {
     'preset': [
         ActionDef(
             name='use_preset',
-            label='Use Preset',
+            label='Use SyDef Preset',
             command_template='/use {name}',
             params=[
                 ActionParam('name', 'Preset Name', 'string', 'saw'),
             ],
-            description='Load and use a synth preset'
+            description='Load and use a synth definition preset'
         ),
         ActionDef(
             name='list_presets',
-            label='List Presets',
+            label='List SyDef Presets',
             command_template='/sydef list',
             params=[],
-            description='List all available presets'
+            description='List all available synth definitions'
+        ),
+        ActionDef(
+            name='preset_save',
+            label='Save Engine Preset',
+            command_template='/preset save {slot} {name}',
+            params=[
+                ActionParam('slot', 'Slot (0-127)', 'int', 0, min_val=0, max_val=127),
+                ActionParam('name', 'Name', 'string', 'my_preset'),
+            ],
+            description='Save current engine state to preset bank slot'
+        ),
+        ActionDef(
+            name='preset_load',
+            label='Load Engine Preset',
+            command_template='/preset load {slot}',
+            params=[
+                ActionParam('slot', 'Slot (0-127)', 'int', 0, min_val=0, max_val=127),
+            ],
+            description='Load engine state from preset bank slot'
+        ),
+        ActionDef(
+            name='preset_list',
+            label='List Engine Presets',
+            command_template='/preset',
+            params=[],
+            description='List all saved engine preset bank slots'
+        ),
+        ActionDef(
+            name='preset_del',
+            label='Delete Engine Preset',
+            command_template='/preset del {slot}',
+            params=[
+                ActionParam('slot', 'Slot (0-127)', 'int', 0, min_val=0, max_val=127),
+            ],
+            description='Delete preset from bank slot'
         ),
     ],
     'bank': [
         ActionDef(
             name='bank_select',
-            label='Select Bank',
-            command_template='/bank {number}',
+            label='Select Routing Bank',
+            command_template='/bk {name}',
             params=[
-                ActionParam('number', 'Bank Number', 'int', 1, min_val=1, max_val=8),
+                ActionParam('name', 'Bank Name', 'string', 'classic_fm'),
             ],
-            description='Select a sound bank'
+            description='Select a routing/algorithm bank'
         ),
         ActionDef(
             name='bank_list',
             label='List Banks',
-            command_template='/banks',
+            command_template='/bk list',
             params=[],
-            description='List all available banks'
+            description='List all available routing banks'
+        ),
+        ActionDef(
+            name='algo_list',
+            label='List Algorithms',
+            command_template='/al list',
+            params=[],
+            description='List algorithms in current bank'
+        ),
+        ActionDef(
+            name='algo_load',
+            label='Load Algorithm',
+            command_template='/al {index}',
+            params=[
+                ActionParam('index', 'Algorithm Index', 'int', 0, min_val=0, max_val=31),
+            ],
+            description='Load an algorithm from current bank'
         ),
     ],
 }
@@ -452,6 +948,25 @@ class CommandExecutor:
             'output_bit_depth': getattr(s, 'output_bit_depth', 16),
             'track_count': len(getattr(s, 'tracks', [])),
             'effects': list(getattr(s, 'effects', [])),
+            # Voice params
+            'stereo_spread': getattr(s, 'stereo_spread', 0),
+            'phase_spread': getattr(s, 'phase_spread', 0),
+            'rand': getattr(s, 'rand', 0),
+            'v_mod': getattr(s, 'v_mod', 0),
+            # Filter envelope
+            'filter_attack': getattr(s, 'filter_attack', 0.01),
+            'filter_decay': getattr(s, 'filter_decay', 0.1),
+            'filter_sustain': getattr(s, 'filter_sustain', 0.8),
+            'filter_release': getattr(s, 'filter_release', 0.1),
+            'filter_count': getattr(s, 'filter_count', 1),
+            # HQ sub-params
+            'hq_oscillators': getattr(s, 'hq_oscillators', False),
+            'hq_dc_removal': getattr(s, 'hq_dc_removal', False),
+            'hq_saturation': getattr(s, 'hq_saturation', 0),
+            'hq_limiter': getattr(s, 'hq_limiter', 0),
+            # Key / scale
+            'key_note': getattr(s, 'key_note', 'C'),
+            'key_scale': getattr(s, 'key_scale', 'major'),
         }
 
     def _get_sydefs(self) -> dict:
@@ -657,13 +1172,63 @@ class CommandExecutor:
                    'decay': e.get('decay', getattr(s, 'decay', 0.1)),
                    'sustain': e.get('sustain', getattr(s, 'sustain', 0.8)),
                    'release': e.get('release', getattr(s, 'release', 0.1))}
+        wave = op.get('wave', 'sine')
+        # Collect wave-specific params
+        wave_params = {}
+        if wave == 'pulse':
+            wave_params['pw'] = op.get('pw', 0.5)
+        elif wave in ('physical', 'physical2'):
+            wave_params['even_harmonics'] = op.get('even_harmonics', 8)
+            wave_params['odd_harmonics'] = op.get('odd_harmonics', 4)
+            wave_params['even_weight'] = op.get('even_weight', 1.0)
+            wave_params['decay'] = op.get('decay', 0.7)
+            wave_params['inharmonicity'] = op.get('inharmonicity', 0.01)
+            wave_params['partials'] = op.get('partials', 12)
+        elif wave == 'supersaw':
+            wave_params['num_saws'] = op.get('num_saws', 7)
+            wave_params['detune_spread'] = op.get('detune_spread', 0.5)
+            wave_params['mix'] = op.get('mix', 0.75)
+        elif wave == 'additive':
+            wave_params['num_harmonics'] = op.get('num_harmonics', 16)
+            wave_params['rolloff'] = op.get('rolloff', 1.0)
+        elif wave == 'formant':
+            wave_params['vowel'] = op.get('vowel', 'a')
+        elif wave == 'harmonic':
+            wave_params['odd_level'] = op.get('odd_level', 1.0)
+            wave_params['even_level'] = op.get('even_level', 1.0)
+            wave_params['odd_decay'] = op.get('odd_decay', 0.7)
+            wave_params['even_decay'] = op.get('even_decay', 0.7)
+            wave_params['num_harmonics'] = op.get('num_harmonics', 16)
+        elif wave == 'waveguide_string':
+            wave_params['damping'] = op.get('damping', 0.996)
+            wave_params['brightness'] = op.get('brightness', 0.5)
+            wave_params['position'] = op.get('position', 0.5)
+        elif wave == 'waveguide_tube':
+            wave_params['damping'] = op.get('damping', 0.996)
+            wave_params['reflection'] = op.get('reflection', 0.98)
+            wave_params['bore_shape'] = op.get('bore_shape', 'cylindrical')
+        elif wave == 'waveguide_membrane':
+            wave_params['tension'] = op.get('tension', 0.5)
+            wave_params['damping'] = op.get('damping', 0.996)
+            wave_params['strike_pos'] = op.get('strike_pos', 0.5)
+        elif wave == 'waveguide_plate':
+            wave_params['thickness'] = op.get('thickness', 0.5)
+            wave_params['damping'] = op.get('damping', 0.996)
+            wave_params['material'] = op.get('material', 'steel')
+        elif wave == 'wavetable':
+            wave_params['wavetable_name'] = op.get('wavetable_name', '')
+            wave_params['frame_pos'] = op.get('frame_pos', 0.0)
+        elif wave == 'compound':
+            wave_params['compound_name'] = op.get('compound_name', '')
+            wave_params['morph'] = op.get('morph', 0.0)
         return {
             'index': index,
-            'wave': op.get('wave', 'sine'),
+            'wave': wave,
             'freq': op.get('freq', 440.0),
             'amp': op.get('amp', 0.8),
             'is_current': index == getattr(s, 'current_operator', 0),
             'envelope': env,
+            'wave_params': wave_params,
         }
 
     def get_filter_slot_details(self, slot: int) -> Dict[str, Any]:
@@ -826,6 +1391,34 @@ class CommandExecutor:
                                      'deck': dk_id, 'start': dur - 2, 'end': dur})
                 deck_sections.extend(sections)
 
+        # Wavetables
+        wavetables = []
+        if hasattr(s, 'engine') and hasattr(s.engine, 'wavetables'):
+            for name in sorted(s.engine.wavetables.keys()):
+                wt = s.engine.wavetables[name]
+                frames = len(wt) if hasattr(wt, '__len__') else 0
+                wavetables.append({'label': f"{name} ({frames} frames)",
+                                   'name': name, 'type': 'wavetable'})
+
+        # Compound waves
+        compounds = []
+        if hasattr(s, 'engine') and hasattr(s.engine, 'compound_waves'):
+            for name in sorted(s.engine.compound_waves.keys()):
+                cw = s.engine.compound_waves[name]
+                layers = len(cw.get('layers', [])) if isinstance(cw, dict) else 0
+                compounds.append({'label': f"{name} ({layers} layers)",
+                                  'name': name, 'type': 'compound'})
+
+        # Modulation routings
+        routings = []
+        if hasattr(s, 'engine') and hasattr(s.engine, 'algorithms'):
+            for i, (algo_type, src, tgt, amt) in enumerate(s.engine.algorithms):
+                routings.append({
+                    'label': f"{algo_type}: Op{src} → Op{tgt} ({amt:.1f})",
+                    'index': i, 'type': 'routing',
+                    'algo_type': algo_type, 'src': src, 'tgt': tgt, 'amt': amt,
+                })
+
         return {
             'tracks': tracks,
             'buffers': buffers,
@@ -839,6 +1432,9 @@ class CommandExecutor:
             'user_functions': funcs,
             'chains': chains,
             'deck_sections': deck_sections,
+            'wavetables': wavetables,
+            'compounds': compounds,
+            'routings': routings,
         }
 
 
@@ -859,16 +1455,23 @@ class ObjectBrowser(wx.Panel):
 
     # Top-level categories — each is its own branch in the tree.
     CATEGORIES = [
-        ('engine',   'Engine'),
-        ('synth',    'Synthesizer'),
-        ('filter',   'Filter'),
-        ('envelope', 'Envelope'),
-        ('tracks',   'Tracks'),
-        ('buffers',  'Buffers'),
-        ('decks',    'Decks'),
-        ('fx',       'Effects'),
-        ('preset',   'Presets'),
-        ('bank',     'Banks'),
+        ('engine',          'Engine'),
+        ('synth',           'Synthesizer'),
+        ('voice',           'Voice'),
+        ('filter',          'Filter'),
+        ('filter_envelope', 'Filter Envelope'),
+        ('envelope',        'Envelope'),
+        ('hq',              'HQ Mode'),
+        ('key',             'Key / Scale'),
+        ('modulation',      'Modulation'),
+        ('wavetable',       'Wavetables'),
+        ('compound',        'Compound Waves'),
+        ('tracks',          'Tracks'),
+        ('buffers',         'Buffers'),
+        ('decks',           'Decks'),
+        ('fx',              'Effects'),
+        ('preset',          'Presets'),
+        ('bank',            'Banks'),
     ]
 
     def __init__(self, parent, on_select_callback, executor: CommandExecutor,
@@ -967,6 +1570,30 @@ class ObjectBrowser(wx.Panel):
                                          'slot': fi['slot'],
                                          'id': 'filter'})
 
+        # ---- Voice ----
+        if state:
+            vc = state.get('voice_count', 1)
+            va = state.get('voice_algorithm', 0)
+            va_name = {0: 'stack', 1: 'unison', 2: 'wide'}.get(va, str(va))
+            voice_lbl = f"Voice  ({vc} voices, {va_name})"
+        else:
+            voice_lbl = "Voice"
+        voice_cat = self.tree.AppendItem(root, voice_lbl)
+        self.tree.SetItemData(voice_cat, {'type': 'category', 'id': 'voice'})
+        self.category_items['voice'] = voice_cat
+        if state:
+            for lbl_v in [
+                f"Voices: {state.get('voice_count', 1)}",
+                f"Algorithm: {va_name}",
+                f"Detune: {state.get('detune', 0):.2f} Hz",
+                f"Stereo Spread: {state.get('stereo_spread', 0):.0f}",
+                f"Phase Spread: {state.get('phase_spread', 0):.2f} rad",
+                f"Random: {state.get('rand', 0):.0f}",
+                f"V-Mod: {state.get('v_mod', 0):.0f}",
+            ]:
+                sub = self.tree.AppendItem(voice_cat, lbl_v)
+                self.tree.SetItemData(sub, {'type': 'voice_prop', 'id': 'voice'})
+
         # ---- Envelope ----
         if state:
             env_lbl = (f"Envelope  (A{state.get('attack',0):.2f} "
@@ -984,6 +1611,78 @@ class ObjectBrowser(wx.Panel):
                     f"{param.capitalize()}: {state.get(param, 0):.3f}")
                 self.tree.SetItemData(sub, {'type': 'envelope_param',
                                              'param': param, 'id': 'envelope'})
+
+        # ---- Filter Envelope ----
+        if state:
+            fenv_lbl = (f"Filter Envelope  (A{state.get('filter_attack',0.01):.2f} "
+                        f"D{state.get('filter_decay',0.1):.2f} "
+                        f"S{state.get('filter_sustain',0.8):.2f} "
+                        f"R{state.get('filter_release',0.1):.2f})")
+        else:
+            fenv_lbl = "Filter Envelope"
+        fenv = self.tree.AppendItem(root, fenv_lbl)
+        self.tree.SetItemData(fenv, {'type': 'category', 'id': 'filter_envelope'})
+        self.category_items['filter_envelope'] = fenv
+        if state:
+            for p, k in [('Attack', 'filter_attack'), ('Decay', 'filter_decay'),
+                         ('Sustain', 'filter_sustain'), ('Release', 'filter_release')]:
+                sub = self.tree.AppendItem(fenv, f"{p}: {state.get(k, 0):.3f}")
+                self.tree.SetItemData(sub, {'type': 'fenv_param', 'param': k,
+                                             'id': 'filter_envelope'})
+
+        # ---- HQ Mode ----
+        hq_on = state.get('hq_mode', False) if state else False
+        hq_cat = self.tree.AppendItem(root, f"HQ Mode  ({'ON' if hq_on else 'OFF'})")
+        self.tree.SetItemData(hq_cat, {'type': 'category', 'id': 'hq'})
+        self.category_items['hq'] = hq_cat
+        if state:
+            for lbl_h in [
+                f"HQ Mode: {'ON' if hq_on else 'OFF'}",
+                f"Oscillators: {'ON' if state.get('hq_oscillators') else 'OFF'}",
+                f"DC Removal: {'ON' if state.get('hq_dc_removal') else 'OFF'}",
+                f"Saturation: {state.get('hq_saturation', 0)}",
+                f"Limiter: {state.get('hq_limiter', 0)}",
+            ]:
+                sub = self.tree.AppendItem(hq_cat, lbl_h)
+                self.tree.SetItemData(sub, {'type': 'hq_prop', 'id': 'hq'})
+
+        # ---- Key / Scale ----
+        key_n = state.get('key_note', 'C') if state else 'C'
+        key_s = state.get('key_scale', 'major') if state else 'major'
+        key_cat = self.tree.AppendItem(root, f"Key / Scale  ({key_n} {key_s})")
+        self.tree.SetItemData(key_cat, {'type': 'category', 'id': 'key'})
+        self.category_items['key'] = key_cat
+
+        # ---- Modulation ----
+        routing_items = rich.get('routings', [])
+        mod_cat = self.tree.AppendItem(root,
+            f"Modulation  ({len(routing_items)} routings)")
+        self.tree.SetItemData(mod_cat, {'type': 'category', 'id': 'modulation'})
+        self.category_items['modulation'] = mod_cat
+        for ri in routing_items:
+            sub = self.tree.AppendItem(mod_cat, ri['label'])
+            self.tree.SetItemData(sub, {'type': 'routing', 'index': ri['index'],
+                                         'id': 'modulation'})
+
+        # ---- Wavetables ----
+        wt_items = rich.get('wavetables', [])
+        wt_cat = self.tree.AppendItem(root, f"Wavetables  ({len(wt_items)})")
+        self.tree.SetItemData(wt_cat, {'type': 'category', 'id': 'wavetable'})
+        self.category_items['wavetable'] = wt_cat
+        for wi in wt_items:
+            sub = self.tree.AppendItem(wt_cat, wi['label'])
+            self.tree.SetItemData(sub, {'type': 'wavetable', 'name': wi['name'],
+                                         'id': 'wavetable'})
+
+        # ---- Compound Waves ----
+        cw_items = rich.get('compounds', [])
+        cw_cat = self.tree.AppendItem(root, f"Compound Waves  ({len(cw_items)})")
+        self.tree.SetItemData(cw_cat, {'type': 'category', 'id': 'compound'})
+        self.category_items['compound'] = cw_cat
+        for ci_item in cw_items:
+            sub = self.tree.AppendItem(cw_cat, ci_item['label'])
+            self.tree.SetItemData(sub, {'type': 'compound', 'name': ci_item['name'],
+                                         'id': 'compound'})
 
         # ---- Tracks ----
         track_items = rich.get('tracks', [])
@@ -1091,6 +1790,19 @@ class ObjectBrowser(wx.Panel):
         bank_cat = self.tree.AppendItem(root, "Banks")
         self.tree.SetItemData(bank_cat, {'type': 'category', 'id': 'bank'})
         self.category_items['bank'] = bank_cat
+        # Preset bank slots
+        s = self.executor.session
+        if s and hasattr(s, 'engine') and hasattr(s.engine, 'preset_bank'):
+            pb = s.engine.preset_bank
+            if pb:
+                pb_grp = self.tree.AppendItem(bank_cat,
+                    f"Preset Bank ({len(pb)} saved)")
+                self.tree.SetItemData(pb_grp, {'type': 'group', 'id': 'bank'})
+                for slot_num in sorted(pb.keys()):
+                    name = pb[slot_num].get('name', f'slot_{slot_num}') if isinstance(pb[slot_num], dict) else f'slot_{slot_num}'
+                    sub = self.tree.AppendItem(pb_grp, f"Slot {slot_num}: {name}")
+                    self.tree.SetItemData(sub, {'type': 'preset_slot',
+                                                 'slot': slot_num, 'id': 'bank'})
 
         self.tree.ExpandAll()
 
@@ -1707,6 +2419,12 @@ class InspectorPanel(wx.Panel):
             self._inspect_chain(data)
         elif obj_type == 'deck_section':
             self._inspect_deck_section(data)
+        elif obj_type == 'routing':
+            self._inspect_routing(data)
+        elif obj_type == 'wavetable':
+            self._inspect_wavetable(data)
+        elif obj_type == 'compound':
+            self._inspect_compound(data)
         elif obj_type == 'category':
             self._inspect_category(data)
         else:
@@ -1832,10 +2550,11 @@ class InspectorPanel(wx.Panel):
     def _inspect_operator(self, data):
         idx = data.get('index', 0)
         details = self.executor.get_operator_details(idx)
-        self.title.SetLabel(f"Operator {idx}")
+        wave = details.get('wave', 'sine')
+        self.title.SetLabel(f"Operator {idx}: {wave}")
         self.subtitle.SetLabel("Operator Properties")
 
-        self._add_prop("Waveform:", details.get('wave', 'sine'))
+        self._add_prop("Waveform:", wave)
         self._add_prop("Frequency:", f"{details.get('freq', 440):.1f} Hz")
         self._add_prop("Amplitude:", f"{details.get('amp', 0.8):.2f}")
         self._add_prop("Current:", "Yes" if details.get('is_current') else "No")
@@ -1845,8 +2564,18 @@ class InspectorPanel(wx.Panel):
                 f"A{env['attack']:.3f} D{env['decay']:.3f} "
                 f"S{env['sustain']:.3f} R{env['release']:.3f}")
 
+        # Wave-specific parameters
+        wp = details.get('wave_params', {})
+        if wp:
+            self._add_prop("", "--- Wave Parameters ---")
+            for k, v in wp.items():
+                if isinstance(v, float):
+                    self._add_prop(f"{k}:", f"{v:.4f}")
+                else:
+                    self._add_prop(f"{k}:", str(v))
+
         self._add_action_btn("Select", f"/op {idx}")
-        self._add_action_btn("Generate", f"/op {idx}")
+        self._add_action_btn("Generate", f"/tone 440 1")
 
     def _inspect_filter_slot(self, data):
         slot = data.get('slot', 0)
@@ -1860,7 +2589,17 @@ class InspectorPanel(wx.Panel):
         self._add_prop("Enabled:", "Yes" if details.get('enabled') else "No")
         self._add_prop("Selected:", "Yes" if details.get('is_selected') else "No")
 
-        self._add_action_btn("Select", f"/fsel {slot}")
+        # Filter envelope (from engine state)
+        state = self.executor.get_engine_state()
+        if state:
+            self._add_prop("", "--- Filter Envelope ---")
+            self._add_prop("F.Attack:", f"{state.get('filter_attack', 0.01):.3f}s")
+            self._add_prop("F.Decay:", f"{state.get('filter_decay', 0.1):.3f}s")
+            self._add_prop("F.Sustain:", f"{state.get('filter_sustain', 0.8):.3f}")
+            self._add_prop("F.Release:", f"{state.get('filter_release', 0.1):.3f}s")
+
+        self._add_action_btn("Select", f"/fs {slot}")
+        self._add_action_btn("Toggle", "/fen toggle")
 
     def _inspect_effect(self, data):
         idx = data.get('index', 0)
@@ -1900,15 +2639,97 @@ class InspectorPanel(wx.Panel):
         self._add_prop("End:", f"{end:.1f}s")
         self._add_prop("Duration:", f"{end - start:.1f}s")
 
+    def _inspect_routing(self, data):
+        idx = data.get('index', 0)
+        self.title.SetLabel(f"Routing #{idx}")
+        self.subtitle.SetLabel("Modulation Routing")
+
+        self._add_prop("Type:", data.get('algo_type', ''))
+        self._add_prop("Source:", f"Op {data.get('src', 0)}")
+        self._add_prop("Target:", f"Op {data.get('tgt', 0)}")
+        self._add_prop("Amount:", f"{data.get('amt', 0):.3f}")
+
+        self._add_action_btn("Clear All", "/clearalg")
+
+    def _inspect_wavetable(self, data):
+        name = data.get('name', '')
+        self.title.SetLabel(f"Wavetable: {name}")
+        self.subtitle.SetLabel("Loaded Wavetable")
+
+        self._add_prop("Name:", name)
+        s = self.executor.session
+        if s and hasattr(s, 'engine') and hasattr(s.engine, 'wavetables'):
+            wt = s.engine.wavetables.get(name)
+            if wt is not None and hasattr(wt, '__len__'):
+                self._add_prop("Frames:", str(len(wt)))
+
+        self._add_action_btn("Use", f"/wt use {name}")
+        self._add_action_btn("Delete", f"/wt del {name}")
+
+    def _inspect_compound(self, data):
+        name = data.get('name', '')
+        self.title.SetLabel(f"Compound: {name}")
+        self.subtitle.SetLabel("Compound Wave")
+
+        self._add_prop("Name:", name)
+        s = self.executor.session
+        if s and hasattr(s, 'engine') and hasattr(s.engine, 'compound_waves'):
+            cw = s.engine.compound_waves.get(name)
+            if isinstance(cw, dict):
+                layers = cw.get('layers', [])
+                self._add_prop("Layers:", str(len(layers)))
+                for i, layer in enumerate(layers):
+                    wave_l = layer.get('wave', 'sine') if isinstance(layer, dict) else str(layer)
+                    self._add_prop(f"  Layer {i}:", wave_l)
+
+        self._add_action_btn("Use", f"/compound use {name}")
+        self._add_action_btn("Delete", f"/compound del {name}")
+
     def _inspect_category(self, data):
         cat_id = data.get('id', '')
         names = {'engine': 'Engine', 'synth': 'Synthesizer',
-                 'filter': 'Filter', 'envelope': 'Envelope',
+                 'voice': 'Voice', 'filter': 'Filter',
+                 'filter_envelope': 'Filter Envelope',
+                 'envelope': 'Envelope', 'hq': 'HQ Mode',
+                 'key': 'Key / Scale', 'modulation': 'Modulation',
+                 'wavetable': 'Wavetables', 'compound': 'Compound Waves',
                  'tracks': 'Tracks', 'buffers': 'Buffers',
                  'decks': 'Decks', 'fx': 'Effects',
                  'preset': 'Presets', 'bank': 'Banks'}
         self.title.SetLabel(names.get(cat_id, cat_id.title()))
         self.subtitle.SetLabel("Category")
+
+        # Show summary for new categories
+        state = self.executor.get_engine_state()
+        if not state:
+            return
+
+        if cat_id == 'voice':
+            vc = state.get('voice_count', 1)
+            va = state.get('voice_algorithm', 0)
+            va_name = {0: 'stack', 1: 'unison', 2: 'wide'}.get(va, str(va))
+            self._add_prop("Voices:", str(vc))
+            self._add_prop("Algorithm:", va_name)
+            self._add_prop("Detune:", f"{state.get('detune', 0):.2f} Hz")
+            self._add_prop("Stereo:", f"{state.get('stereo_spread', 0):.0f}")
+            self._add_prop("Phase:", f"{state.get('phase_spread', 0):.2f} rad")
+            self._add_prop("Random:", f"{state.get('rand', 0):.0f}")
+            self._add_prop("V-Mod:", f"{state.get('v_mod', 0):.0f}")
+        elif cat_id == 'hq':
+            self._add_prop("HQ Mode:", "ON" if state.get('hq_mode') else "OFF")
+            self._add_prop("Oscillators:", "ON" if state.get('hq_oscillators') else "OFF")
+            self._add_prop("DC Removal:", "ON" if state.get('hq_dc_removal') else "OFF")
+            self._add_prop("Saturation:", str(state.get('hq_saturation', 0)))
+            self._add_prop("Limiter:", str(state.get('hq_limiter', 0)))
+            self._add_action_btn("Toggle HQ", "/hq on")
+        elif cat_id == 'key':
+            self._add_prop("Note:", state.get('key_note', 'C'))
+            self._add_prop("Scale:", state.get('key_scale', 'major'))
+        elif cat_id == 'filter_envelope':
+            self._add_prop("Attack:", f"{state.get('filter_attack', 0.01):.3f}s")
+            self._add_prop("Decay:", f"{state.get('filter_decay', 0.1):.3f}s")
+            self._add_prop("Sustain:", f"{state.get('filter_sustain', 0.8):.3f}")
+            self._add_prop("Release:", f"{state.get('filter_release', 0.1):.3f}s")
 
 
 class StepGridPanel(wx.Panel):
@@ -2339,19 +3160,43 @@ class PatchBuilderPanel(wx.Panel):
             params = []
             if wave == 'pulse':
                 params.append(f"pw={op.get('pw', 0.5):.2f}")
+            elif wave in ('physical', 'physical2'):
+                params.append(f"even={op.get('even_harmonics', 8)}")
+                params.append(f"odd={op.get('odd_harmonics', 4)}")
+                params.append(f"wt={op.get('even_weight', 1.0):.1f}")
+                params.append(f"dec={op.get('decay', 0.7):.2f}")
+                if wave == 'physical2':
+                    params.append(f"inh={op.get('inharmonicity', 0.01):.3f}")
+                    params.append(f"parts={op.get('partials', 12)}")
             elif wave == 'supersaw':
                 params.append(f"saws={op.get('num_saws', 7)}")
                 params.append(f"spread={op.get('detune_spread', 0.5):.2f}")
-            elif wave == 'harmonic':
-                params.append(f"odd={op.get('odd_level', 1.0):.1f}")
-                params.append(f"even={op.get('even_level', 1.0):.1f}")
+                params.append(f"mix={op.get('mix', 0.75):.2f}")
             elif wave == 'additive':
                 params.append(f"nharm={op.get('num_harmonics', 16)}")
                 params.append(f"rolloff={op.get('rolloff', 1.0):.1f}")
             elif wave == 'formant':
                 params.append(f"vowel={op.get('vowel', 'a')}")
-            elif wave.startswith('waveguide_'):
+            elif wave == 'harmonic':
+                params.append(f"odd={op.get('odd_level', 1.0):.1f}")
+                params.append(f"even={op.get('even_level', 1.0):.1f}")
+                params.append(f"nharm={op.get('num_harmonics', 16)}")
+            elif wave == 'waveguide_string':
                 params.append(f"damp={op.get('damping', 0.996):.3f}")
+                params.append(f"bright={op.get('brightness', 0.5):.2f}")
+                params.append(f"pos={op.get('position', 0.5):.2f}")
+            elif wave == 'waveguide_tube':
+                params.append(f"damp={op.get('damping', 0.996):.3f}")
+                params.append(f"refl={op.get('reflection', 0.98):.2f}")
+                params.append(f"bore={op.get('bore_shape', 'cylindrical')}")
+            elif wave == 'waveguide_membrane':
+                params.append(f"tens={op.get('tension', 0.5):.2f}")
+                params.append(f"damp={op.get('damping', 0.996):.3f}")
+                params.append(f"strike={op.get('strike_pos', 0.5):.2f}")
+            elif wave == 'waveguide_plate':
+                params.append(f"thick={op.get('thickness', 0.5):.2f}")
+                params.append(f"damp={op.get('damping', 0.996):.3f}")
+                params.append(f"mat={op.get('material', 'steel')}")
             elif wave == 'wavetable':
                 params.append(f"table={op.get('wavetable_name', '')}")
                 params.append(f"frame={op.get('frame_pos', 0.0):.2f}")
@@ -2989,9 +3834,23 @@ class MDMAFrame(wx.Frame):
             self.action_panel.set_category('synth')
         elif obj_type == 'filter_slot':
             self.action_panel.set_category('filter')
+        elif obj_type in ('fenv_param',):
+            self.action_panel.set_category('filter_envelope')
+        elif obj_type in ('voice_prop',):
+            self.action_panel.set_category('voice')
+        elif obj_type in ('hq_prop',):
+            self.action_panel.set_category('hq')
+        elif obj_type in ('routing',):
+            self.action_panel.set_category('modulation')
+        elif obj_type == 'wavetable':
+            self.action_panel.set_category('wavetable')
+        elif obj_type == 'compound':
+            self.action_panel.set_category('compound')
         elif obj_type in ('effect',):
             self.action_panel.set_category('fx')
         elif obj_type in ('sydef', 'user_function', 'chain'):
+            self.action_panel.set_category('preset')
+        elif obj_type in ('preset_slot',):
             self.action_panel.set_category('preset')
 
         # Update inspector with full object details
@@ -3067,8 +3926,10 @@ class MDMAFrame(wx.Frame):
         info.SetDescription(
             "Music Design Made Accessible\n\n"
             "Phase 1: Core Interface & Workflow\n"
-            "Object tree, inspector, step grid, context menus,\n"
-            "selection-based FX, and accessibility markers.")
+            "Phase 2: Monolith Engine & Synthesis Expansion\n\n"
+            "Object tree, inspector, step grid, patch builder,\n"
+            "routing visualization, 18 wave types, 30 filters,\n"
+            "wavetable/compound support, full engine parity.")
         info.SetCopyright("(C) 2026")
         wx.adv.AboutBox(info)
 
