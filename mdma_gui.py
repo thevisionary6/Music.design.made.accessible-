@@ -734,15 +734,42 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             command_template='/fx {effect}',
             params=[
                 ActionParam('effect', 'Effect', 'enum', 'reverb',
-                           choices=['reverb', 'delay', 'chorus', 'distortion', 'phaser',
-                                   'flanger', 'compressor', 'eq', 'bitcrush']),
+                           choices=[
+                               'reverb', 'r2', 'r3', 'r4', 'r5',
+                               'hall', 'room', 'plate', 'spring', 'shimmer', 'reverse',
+                               'delay', 'pingpong', 'slapback', 'tape',
+                               'saturate', 's2', 'fuzz', 's5',
+                               'vamp', 'v1', 'v3', 'od', 'crunch', 'dual',
+                               'fold', 'rect',
+                               'compress', 'c2', 'limiter', 'expander', 'softclip',
+                               'fc_punch', 'fc_glue', 'fc_loud', 'fc_ott',
+                               'gate', 'g1', 'g3',
+                               'bitcrush', 'chorus', 'flanger', 'phaser', 'halftime',
+                               'cloud', 'scatter', 'grstretch', 'grfreeze',
+                               'lp', 'hp', 'bp', 'telephone',
+                               'pitchup', 'pitchdown', 'octave_up', 'octave_down',
+                               'harmonizer', 'h3', 'hchord',
+                               'stereo_wide', 'stereo_narrow',
+                               'normalize', 'lufs', 'dc', 'fadein', 'fadeout',
+                           ]),
             ],
             description='Add an effect to the chain'
         ),
         ActionDef(
+            name='fx_params',
+            label='Set FX Parameter',
+            command_template='/fxp {index} {param} {value}',
+            params=[
+                ActionParam('index', 'FX Index', 'int', '0'),
+                ActionParam('param', 'Parameter', 'string', 'amount'),
+                ActionParam('value', 'Value (0-100)', 'float', '50'),
+            ],
+            description='Set a parameter on an applied effect'
+        ),
+        ActionDef(
             name='fx_clear',
             label='Clear Effects',
-            command_template='/fxc',
+            command_template='/fx clear',
             params=[],
             description='Clear all effects'
         ),
@@ -1208,6 +1235,9 @@ class CommandExecutor:
             'output_bit_depth': getattr(s, 'output_bit_depth', 16),
             'track_count': len(getattr(s, 'tracks', [])),
             'effects': list(getattr(s, 'effects', [])),
+            'effect_params': list(getattr(s, 'effect_params', [])),
+            'selected_effect': getattr(s, 'selected_effect', -1),
+            'effects_bypassed': getattr(s, 'effects_bypassed', False),
             # Voice params
             'stereo_spread': getattr(s, 'stereo_spread', 0),
             'phase_spread': getattr(s, 'phase_spread', 0),
@@ -1603,11 +1633,24 @@ class CommandExecutor:
             filter_items.append({'label': preview, 'slot': f['slot'],
                                  'type': 'filter_slot', 'details': f})
 
-        # Effects
+        # Effects — include parameters and amount in display
         effects = []
+        fx_params_list = getattr(s, 'effect_params', [])
         for i, fx in enumerate(getattr(s, 'effects', [])):
             fx_name = fx[0] if isinstance(fx, (list, tuple)) else str(fx)
-            effects.append({'label': fx_name, 'index': i, 'type': 'effect'})
+            params = fx_params_list[i] if i < len(fx_params_list) else {}
+            amt = params.get('amount', 50.0)
+            # Build a readable label showing name + amount
+            extra_params = {k: v for k, v in params.items() if k != 'amount'}
+            if extra_params:
+                param_str = ', '.join(f'{k}={v:.1f}' for k, v in extra_params.items())
+                label = f"{fx_name}  ({amt:.0f}%)  [{param_str}]"
+            else:
+                label = f"{fx_name}  ({amt:.0f}%)"
+            effects.append({
+                'label': label, 'index': i, 'type': 'effect',
+                'name': fx_name, 'params': dict(params),
+            })
 
         # Presets (SyDefs from wherever they live)
         presets = []
@@ -2083,8 +2126,11 @@ class ObjectBrowser(wx.Panel):
         self.category_items['fx'] = fx_cat
         for ei in fx_items:
             sub = self.tree.AppendItem(fx_cat, ei['label'])
-            self.tree.SetItemData(sub, {'type': 'effect', 'index': ei.get('index', 0),
-                                         'id': 'fx'})
+            self.tree.SetItemData(sub, {
+                'type': 'effect', 'index': ei.get('index', 0),
+                'id': 'fx', 'name': ei.get('name', ''),
+                'params': ei.get('params', {}),
+            })
 
         # ---- Presets (SyDefs, Functions, Chains) ----
         preset_items = rich.get('presets', [])
@@ -2313,16 +2359,40 @@ class ObjectBrowser(wx.Panel):
         # ==============================================================
         elif obj_type == 'effect':
             idx = data.get('index', 0)
+            fx_name = data.get('name', f'effect_{idx}')
+            fx_params = data.get('params', {})
+            m_select = wx.NewIdRef()
+            m_amount = wx.NewIdRef()
+            m_params = wx.NewIdRef()
+            m_bypass = wx.NewIdRef()
             m_remove = wx.NewIdRef()
             m_clear_all = wx.NewIdRef()
-            menu.Append(m_remove, "Remove This Effect")
+            menu.Append(m_select, f"Select: {fx_name}")
             menu.AppendSeparator()
+            menu.Append(m_amount, "Set Amount (Wet/Dry)...")
+            menu.Append(m_params, "Edit Parameters...")
+            menu.AppendSeparator()
+            menu.Append(m_bypass, "Toggle Bypass")
+            menu.AppendSeparator()
+            menu.Append(m_remove, "Remove This Effect")
             menu.Append(m_clear_all, "Clear All Effects")
 
             self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/fxs {i}'), id=m_select)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_value_editor(
+                    "Effect Amount", "Wet/dry amount (0-100):",
+                    str(int(fx_params.get('amount', 50))),
+                    f'/fxp {i} {{}}'), id=m_amount)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx, n=fx_name, p=fx_params:
+                    self._show_fx_param_editor(i, n, p), id=m_params)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/bypass'), id=m_bypass)
+            self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/fxr {i}'), id=m_remove)
             self.Bind(wx.EVT_MENU,
-                lambda e: self._exec('/fxc'), id=m_clear_all)
+                lambda e: self._exec('/fx clear'), id=m_clear_all)
 
         # ==============================================================
         # Operator
@@ -2722,13 +2792,36 @@ class ObjectBrowser(wx.Panel):
 
             elif cat_id == 'fx':
                 m_add = wx.NewIdRef()
+                m_bypass = wx.NewIdRef()
+                m_wet = wx.NewIdRef()
+                m_half = wx.NewIdRef()
+                m_dry = wx.NewIdRef()
+                m_apply = wx.NewIdRef()
                 m_clear = wx.NewIdRef()
                 menu.Append(m_add, "Add Effect...")
+                menu.AppendSeparator()
+                menu.Append(m_bypass, "Toggle Bypass")
+                menu.Append(m_wet, "All Wet (100%)")
+                menu.Append(m_half, "All Half (50%)")
+                menu.Append(m_dry, "All Dry (0%)")
+                menu.AppendSeparator()
+                menu.Append(m_apply, "Apply Chain to Working Buffer")
+                menu.AppendSeparator()
                 menu.Append(m_clear, "Clear All Effects")
                 self.Bind(wx.EVT_MENU,
                     lambda e: self._show_fx_picker('global', 0), id=m_add)
                 self.Bind(wx.EVT_MENU,
-                    lambda e: self._exec('/fxc'), id=m_clear)
+                    lambda e: self._exec('/bypass'), id=m_bypass)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/wet'), id=m_wet)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/half'), id=m_half)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/dry'), id=m_dry)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/fxa'), id=m_apply)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/fx clear'), id=m_clear)
 
             elif cat_id == 'synth':
                 m_add_op = wx.NewIdRef()
@@ -3001,23 +3094,192 @@ class ObjectBrowser(wx.Panel):
             self.console_cb("\n", 'stdout')
         self.populate_tree()
 
+    # ------------------------------------------------------------------
+    # Categorised effect catalogue (aliases → canonical names)
+    # ------------------------------------------------------------------
+    _FX_CATALOGUE = {
+        'Reverb': [
+            ('reverb', 'reverb_small', 'Small Room Reverb'),
+            ('r2', 'reverb_large', 'Large Hall Reverb'),
+            ('r3', 'reverb_plate', 'Plate Reverb'),
+            ('r4', 'reverb_spring', 'Spring Reverb'),
+            ('r5', 'reverb_cathedral', 'Cathedral Reverb'),
+        ],
+        'Convolution Reverb': [
+            ('hall', 'conv_hall', 'Hall IR'),
+            ('cr2', 'conv_hall_long', 'Long Hall IR'),
+            ('room', 'conv_room', 'Room IR'),
+            ('plate', 'conv_plate', 'Plate IR'),
+            ('spring', 'conv_spring', 'Spring IR'),
+            ('shimmer', 'conv_shimmer', 'Shimmer IR'),
+            ('reverse', 'conv_reverse', 'Reverse IR'),
+        ],
+        'Delay': [
+            ('delay', 'delay_simple', 'Simple Delay'),
+            ('pingpong', 'delay_pingpong', 'Ping Pong Delay'),
+            ('d3', 'delay_multitap', 'Multi-Tap Delay'),
+            ('slapback', 'delay_slapback', 'Slapback Delay'),
+            ('tape', 'delay_tape', 'Tape Delay'),
+        ],
+        'Saturation': [
+            ('saturate', 'saturate_soft', 'Soft Saturation'),
+            ('s2', 'saturate_hard', 'Hard Saturation'),
+            ('s3', 'saturate_overdrive', 'Overdrive Saturation'),
+            ('fuzz', 'saturate_fuzz', 'Fuzz Saturation'),
+            ('s5', 'saturate_tube', 'Tube Saturation'),
+        ],
+        'Vamp / Overdrive': [
+            ('v1', 'vamp_light', 'Light Vamp'),
+            ('vamp', 'vamp_medium', 'Medium Vamp'),
+            ('v3', 'vamp_heavy', 'Heavy Vamp'),
+            ('v4', 'vamp_fuzz', 'Fuzz Vamp'),
+            ('od', 'overdrive_classic', 'Classic Overdrive'),
+            ('o1', 'overdrive_soft', 'Soft Overdrive'),
+            ('crunch', 'overdrive_crunch', 'Crunch Overdrive'),
+            ('dual', 'dual_od_warm', 'Dual OD Warm'),
+            ('do2', 'dual_od_bright', 'Dual OD Bright'),
+            ('do3', 'dual_od_heavy', 'Dual OD Heavy'),
+        ],
+        'Waveshaping': [
+            ('fold', 'waveshape_fold', 'Wave Fold'),
+            ('rect', 'waveshape_rectify', 'Wave Rectify'),
+            ('ws3', 'waveshape_sine', 'Sine Shaper'),
+        ],
+        'Dynamics': [
+            ('compress', 'compress_mild', 'Mild Compressor'),
+            ('c2', 'compress_hard', 'Hard Compressor'),
+            ('limiter', 'compress_limiter', 'Limiter'),
+            ('expander', 'compress_expander', 'Expander'),
+            ('softclip', 'compress_softclipper', 'Soft Clipper'),
+        ],
+        'Forever Compression': [
+            ('fc_punch', 'fc_punch', 'FC Punch'),
+            ('fc_glue', 'fc_glue', 'FC Glue'),
+            ('fc_loud', 'fc_loud', 'FC Loud'),
+            ('fc_soft', 'fc_soft', 'FC Soft'),
+            ('fc_ott', 'fc_ott', 'FC OTT'),
+        ],
+        'Gate': [
+            ('g1', 'gate1', 'Gate — Tight'),
+            ('gate', 'gate2', 'Gate — Standard'),
+            ('g3', 'gate3', 'Gate — Medium'),
+            ('g4', 'gate4', 'Gate — Loose'),
+            ('g5', 'gate5', 'Gate — Open'),
+        ],
+        'Giga Gate': [
+            ('gg_half', 'gg_half', 'GG Half'),
+            ('gg_quarter', 'gg_quarter', 'GG Quarter'),
+            ('gg_tresillo', 'gg_tresillo', 'GG Tresillo'),
+            ('gg_glitch', 'gg_glitch', 'GG Glitch'),
+            ('gg_stutter', 'gg_stutter', 'GG Stutter'),
+            ('gg_halftime', 'gg_halftime', 'GG Halftime'),
+            ('gg_tape_stop', 'gg_tape_stop', 'GG Tape Stop'),
+        ],
+        'Lo-fi': [
+            ('bitcrush', 'lofi_bitcrush', 'Bitcrush'),
+            ('chorus', 'lofi_chorus', 'LoFi Chorus'),
+            ('flanger', 'lofi_flanger', 'LoFi Flanger'),
+            ('phaser', 'lofi_phaser', 'LoFi Phaser'),
+            ('l5', 'lofi_filter', 'LoFi Filter'),
+            ('halftime', 'lofi_halftime', 'LoFi Halftime'),
+        ],
+        'Vocoder': [
+            ('vocoder_synth', 'vocoder_synth', 'Vocoder Synth'),
+            ('vocoder_noise', 'vocoder_noise', 'Vocoder Noise'),
+            ('vocoder_chord', 'vocoder_chord', 'Vocoder Chord'),
+        ],
+        'Spectral': [
+            ('spc_freeze', 'spc_freeze', 'Spectral Freeze'),
+            ('spc_blur', 'spc_blur', 'Spectral Blur'),
+            ('spc_shift_up', 'spc_shift_up', 'Spectral Shift Up'),
+            ('spc_shift_down', 'spc_shift_down', 'Spectral Shift Down'),
+        ],
+        'Filter': [
+            ('lp', 'filter_lowpass', 'Low Pass'),
+            ('lp1', 'filter_lowpass_soft', 'Low Pass Soft'),
+            ('lp3', 'filter_lowpass_hard', 'Low Pass Hard'),
+            ('hp', 'filter_highpass', 'High Pass'),
+            ('hp1', 'filter_highpass_soft', 'High Pass Soft'),
+            ('hp3', 'filter_highpass_hard', 'High Pass Hard'),
+            ('bp', 'filter_bandpass', 'Band Pass'),
+            ('telephone', 'filter_bandpass_narrow', 'Telephone (Narrow BP)'),
+        ],
+        'Pitch Shift': [
+            ('pu2', 'pitch_up_2', 'Pitch +2 semitones'),
+            ('pu5', 'pitch_up_5', 'Pitch +5 semitones'),
+            ('pu7', 'pitch_up_7', 'Pitch +7 semitones'),
+            ('octave_up', 'pitch_up_12', 'Octave Up'),
+            ('pd2', 'pitch_down_2', 'Pitch -2 semitones'),
+            ('pd5', 'pitch_down_5', 'Pitch -5 semitones'),
+            ('pd7', 'pitch_down_7', 'Pitch -7 semitones'),
+            ('octave_down', 'pitch_down_12', 'Octave Down'),
+        ],
+        'Harmonizer': [
+            ('h3', 'harmonizer_3rd', 'Harmonize 3rd'),
+            ('h5', 'harmonizer_5th', 'Harmonize 5th'),
+            ('h8', 'harmonizer_octave', 'Harmonize Octave'),
+            ('hchord', 'harmonizer_chord', 'Harmonize Chord'),
+        ],
+        'Granular': [
+            ('cloud', 'granular_cloud', 'Granular Cloud'),
+            ('scatter', 'granular_scatter', 'Granular Scatter'),
+            ('grstretch', 'granular_stretch', 'Granular Stretch'),
+            ('grfreeze', 'granular_freeze', 'Granular Freeze'),
+            ('grshimmer', 'granular_shimmer', 'Granular Shimmer'),
+            ('grrev', 'granular_reverse', 'Granular Reverse'),
+            ('grstutter', 'granular_stutter', 'Granular Stutter'),
+        ],
+        'LFO': [
+            ('lfo_filter_slow', 'lfo_filter_slow', 'LFO Filter Slow'),
+            ('lfo_filter_fast', 'lfo_filter_fast', 'LFO Filter Fast'),
+            ('lfo_tremolo', 'lfo_tremolo', 'LFO Tremolo'),
+            ('lfo_vibrato', 'lfo_vibrato', 'LFO Vibrato'),
+        ],
+        'Stereo': [
+            ('stereo_wide', 'stereo_wide', 'Stereo Widen'),
+            ('stereo_narrow', 'stereo_narrow', 'Stereo Narrow'),
+        ],
+        'Utility': [
+            ('normalize', 'util_normalize', 'Normalize (Peak)'),
+            ('lufs', 'util_normalize_rms', 'Normalize (RMS/LUFS)'),
+            ('declip', 'util_declip', 'Declip'),
+            ('declick', 'util_declick', 'Declick'),
+            ('smooth', 'util_smooth', 'Smooth / Warmth'),
+            ('muffle', 'util_smooth_heavy', 'Heavy Smooth / Muffle'),
+            ('dc', 'util_dc_remove', 'DC Offset Remove'),
+            ('fadein', 'util_fade_in', 'Fade In'),
+            ('fadeout', 'util_fade_out', 'Fade Out'),
+            ('fades', 'util_fade_both', 'Fade In + Out'),
+        ],
+    }
+
     def _show_fx_picker(self, target_type: str, target_id: int):
-        """Show a dialog to pick an effect and apply it to a target."""
-        effects = ['reverb', 'delay', 'chorus', 'distortion', 'phaser',
-                    'flanger', 'compressor', 'eq', 'bitcrush', 'normalize',
-                    'compress', 'saturate', 'stereo_wide', 'granular']
-        dlg = wx.SingleChoiceDialog(self, "Select an effect to apply:",
-                                     "Apply Effect", effects)
+        """Show a categorised dialog to pick an effect and apply it."""
+        # Build flat list for display: "Category: Description  (alias)"
+        choices = []
+        alias_map = {}   # display string → alias
+        for cat, entries in self._FX_CATALOGUE.items():
+            for alias, canonical, desc in entries:
+                label = f"{cat}:  {desc}  ({alias})"
+                choices.append(label)
+                alias_map[label] = alias
+
+        dlg = wx.SingleChoiceDialog(
+            self, "Select an effect to apply:\n"
+            "Effects are listed as  Category: Description (shortcut code)",
+            "Apply Effect — Full Catalogue", choices)
+        dlg.SetSize((520, 540))
+
         if dlg.ShowModal() == wx.ID_OK:
-            fx_name = dlg.GetStringSelection()
+            fx_alias = alias_map[dlg.GetStringSelection()]
             if target_type == 'track':
-                self._exec(f'/tsel {target_id+1}\n/fx {fx_name}')
+                self._exec(f'/tsel {target_id+1}\n/fx {fx_alias}')
             elif target_type == 'buffer':
-                self._exec(f'/bu {target_id}\n/fx {fx_name}')
+                self._exec(f'/bu {target_id}\n/fx {fx_alias}')
             elif target_type == 'deck':
-                self._exec(f'/deck {target_id}\n/fx {fx_name}')
+                self._exec(f'/deck {target_id}\n/fx {fx_alias}')
             else:
-                self._exec(f'/fx {fx_name}')
+                self._exec(f'/fx {fx_alias}')
         dlg.Destroy()
 
     # ------------------------------------------------------------------
@@ -3039,6 +3301,184 @@ class ObjectBrowser(wx.Panel):
             val = dlg.GetValue().strip()
             if val:
                 self._exec(cmd_template.format(val))
+        dlg.Destroy()
+
+    # ------------------------------------------------------------------
+    # Known DSP parameter ranges (mirrors effects.py _get_param_range)
+    # ------------------------------------------------------------------
+    _PARAM_RANGES = {
+        'amount': (0, 100, 'Wet/dry mix %'),
+        'wet': (0, 100, 'Wet level %'),
+        'dry': (0, 100, 'Dry level %'),
+        'drive': (0, 100, 'Drive amount'),
+        'gain': (0, 100, 'Output gain %'),
+        'mix': (0, 100, 'Mix %'),
+        'blend': (0, 100, 'Blend %'),
+        'output': (0, 100, 'Output level %'),
+        'threshold': (0, 100, 'Threshold'),
+        'ratio': (0, 100, 'Ratio'),
+        'makeup': (0, 100, 'Makeup gain'),
+        'depth': (0, 100, 'Depth'),
+        'low_amount': (0, 100, 'Low band amount'),
+        'mid_amount': (0, 100, 'Mid band amount'),
+        'high_amount': (0, 100, 'High band amount'),
+        'upward': (0, 100, 'Upward compression'),
+        'downward': (0, 100, 'Downward compression'),
+        'feedback': (0, 100, 'Feedback %'),
+        'decay': (0, 100, 'Decay'),
+        'attack': (0.1, 100, 'Attack ms'),
+        'release': (0.1, 100, 'Release ms'),
+        'post_filter': (20, 20000, 'Post-filter cutoff Hz'),
+        'pre_filter': (20, 20000, 'Pre-filter cutoff Hz'),
+        'high_cut': (20, 20000, 'High cut Hz'),
+        'low_cut': (20, 20000, 'Low cut Hz'),
+        'crossover': (20, 20000, 'Crossover frequency Hz'),
+        'delay_time': (0, 2000, 'Delay time ms'),
+        'pre_delay': (0, 200, 'Pre-delay ms'),
+        'stretch': (0.1, 4.0, 'Stretch factor'),
+        'semitones': (-24, 24, 'Semitones'),
+        'position': (0, 1.0, 'Position 0-1'),
+        'steps': (1, 64, 'Steps'),
+        'lfo_rate': (0.01, 20, 'LFO rate Hz'),
+    }
+
+    # Per-effect editable parameters (canonical_name → list of param keys)
+    _FX_DSP_PARAMS = {
+        # Convolution reverbs
+        'conv_hall': ['amount', 'wet', 'dry', 'stretch', 'pre_delay', 'high_cut', 'low_cut'],
+        'conv_hall_long': ['amount', 'wet', 'dry', 'stretch', 'pre_delay', 'high_cut', 'low_cut'],
+        'conv_room': ['amount', 'wet', 'dry', 'stretch', 'pre_delay', 'high_cut', 'low_cut'],
+        'conv_plate': ['amount', 'wet', 'dry', 'stretch', 'pre_delay', 'high_cut', 'low_cut'],
+        'conv_spring': ['amount', 'wet', 'dry', 'stretch', 'pre_delay', 'high_cut', 'low_cut'],
+        'conv_shimmer': ['amount', 'wet', 'dry', 'stretch', 'pre_delay', 'high_cut', 'low_cut'],
+        'conv_reverse': ['amount', 'wet', 'dry', 'stretch', 'pre_delay', 'high_cut', 'low_cut'],
+        # Vamp / overdrive
+        'vamp_light': ['amount', 'drive', 'post_filter', 'gain', 'mix'],
+        'vamp_medium': ['amount', 'drive', 'post_filter', 'gain', 'mix'],
+        'vamp_heavy': ['amount', 'drive', 'post_filter', 'pre_filter', 'gain', 'mix'],
+        'vamp_fuzz': ['amount', 'drive', 'post_filter', 'gain', 'mix'],
+        'overdrive_soft': ['amount', 'drive', 'post_filter', 'gain', 'mix'],
+        'overdrive_classic': ['amount', 'drive', 'post_filter', 'pre_filter', 'gain', 'mix'],
+        'overdrive_crunch': ['amount', 'drive', 'post_filter', 'gain', 'mix'],
+        'waveshape_fold': ['amount', 'drive', 'gain', 'mix'],
+        'waveshape_rectify': ['amount', 'drive', 'post_filter', 'mix'],
+        'waveshape_sine': ['amount', 'drive', 'post_filter', 'mix'],
+        # Dual overdrive
+        'dual_od_warm': ['amount', 'drive_low', 'drive_high', 'crossover', 'blend', 'gain'],
+        'dual_od_bright': ['amount', 'drive_low', 'drive_high', 'crossover', 'blend', 'gain'],
+        'dual_od_heavy': ['amount', 'drive_low', 'drive_high', 'crossover', 'blend', 'gain'],
+        # Dynamics
+        'compress_mild': ['amount', 'threshold', 'ratio', 'makeup'],
+        'compress_hard': ['amount', 'threshold', 'ratio', 'makeup'],
+        'compress_limiter': ['amount', 'threshold', 'ratio', 'makeup'],
+        # Forever compression
+        'fc_punch': ['amount', 'depth', 'low_amount', 'mid_amount', 'high_amount', 'upward', 'downward', 'mix', 'output'],
+        'fc_glue': ['amount', 'depth', 'low_amount', 'mid_amount', 'high_amount', 'upward', 'downward', 'mix', 'output'],
+        'fc_loud': ['amount', 'depth', 'low_amount', 'mid_amount', 'high_amount', 'upward', 'downward', 'mix', 'output'],
+        'fc_soft': ['amount', 'depth', 'low_amount', 'mid_amount', 'high_amount', 'upward', 'downward', 'mix', 'output'],
+        'fc_ott': ['amount', 'depth', 'low_amount', 'mid_amount', 'high_amount', 'upward', 'downward', 'mix', 'output'],
+        # Gate
+        'gate1': ['amount', 'threshold', 'attack', 'release'],
+        'gate2': ['amount', 'threshold', 'attack', 'release'],
+        'gate3': ['amount', 'threshold', 'attack', 'release'],
+        'gate4': ['amount', 'threshold', 'attack', 'release'],
+        'gate5': ['amount', 'threshold', 'attack', 'release'],
+        # Giga gate
+        'gg_half': ['amount', 'steps', 'attack', 'release', 'mix'],
+        'gg_quarter': ['amount', 'steps', 'attack', 'release', 'mix'],
+        'gg_tresillo': ['amount', 'steps', 'attack', 'release', 'mix'],
+        'gg_glitch': ['amount', 'steps', 'attack', 'release', 'mix'],
+        'gg_stutter': ['amount', 'steps', 'attack', 'release', 'mix'],
+        'gg_halftime': ['amount', 'steps', 'attack', 'release', 'mix'],
+        'gg_tape_stop': ['amount', 'steps', 'attack', 'release', 'mix'],
+        # Spectral
+        'spc_freeze': ['amount', 'position'],
+        'spc_blur': ['amount'],
+        'spc_shift_up': ['amount', 'semitones'],
+        'spc_shift_down': ['amount', 'semitones'],
+        # Basic reverbs
+        'reverb_small': ['amount', 'decay', 'wet'],
+        'reverb_large': ['amount', 'decay', 'wet'],
+        'reverb_plate': ['amount', 'decay', 'wet'],
+        'reverb_spring': ['amount', 'decay', 'wet'],
+        'reverb_cathedral': ['amount', 'decay', 'wet'],
+        # Delays
+        'delay_simple': ['amount', 'delay_time', 'feedback', 'wet'],
+        'delay_pingpong': ['amount', 'delay_time', 'feedback', 'wet'],
+        'delay_multitap': ['amount', 'delay_time', 'feedback', 'wet'],
+        'delay_slapback': ['amount', 'delay_time', 'feedback', 'wet'],
+        'delay_tape': ['amount', 'delay_time', 'feedback', 'wet'],
+        # Saturations
+        'saturate_soft': ['amount', 'drive'],
+        'saturate_hard': ['amount', 'drive'],
+        'saturate_overdrive': ['amount', 'drive'],
+        'saturate_fuzz': ['amount', 'drive'],
+        'saturate_tube': ['amount', 'drive'],
+    }
+
+    def _show_fx_param_editor(self, fx_index: int, fx_name: str,
+                               current_params: dict):
+        """Show a multi-parameter editor dialog for an effect's DSP params."""
+        known_params = self._FX_DSP_PARAMS.get(fx_name, ['amount'])
+        if isinstance(known_params, list) and not known_params:
+            known_params = ['amount']
+
+        dlg = wx.Dialog(self, title=f"Parameters — {fx_name}",
+                        style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        panel = wx.Panel(dlg)
+        sizer = wx.FlexGridSizer(cols=3, hgap=8, vgap=6)
+        sizer.AddGrowableCol(1, 1)
+
+        controls = {}
+        for param_key in known_params:
+            lo, hi, desc = self._PARAM_RANGES.get(param_key, (0, 100, param_key))
+            current_val = current_params.get(param_key, (lo + hi) / 2)
+
+            label = wx.StaticText(panel, label=f"{param_key}:")
+            label.SetToolTip(desc)
+
+            # Use slider + spin for numeric ranges
+            slider = wx.Slider(panel, value=int(current_val), minValue=int(lo),
+                               maxValue=int(hi),
+                               style=wx.SL_HORIZONTAL)
+            spin = wx.SpinCtrlDouble(panel, value=str(current_val),
+                                      min=float(lo), max=float(hi),
+                                      inc=0.1 if hi <= 4 else 1.0)
+            spin.SetValue(current_val)
+            spin.SetMinSize(wx.Size(80, -1))
+
+            # Sync slider ↔ spin
+            def _on_slider(evt, sp=spin):
+                sp.SetValue(evt.GetInt())
+            def _on_spin(evt, sl=slider):
+                sl.SetValue(int(evt.GetValue()))
+            slider.Bind(wx.EVT_SLIDER, _on_slider)
+            spin.Bind(wx.EVT_SPINCTRLDOUBLE, _on_spin)
+
+            sizer.Add(label, 0, wx.ALIGN_CENTER_VERTICAL)
+            sizer.Add(slider, 1, wx.EXPAND)
+            sizer.Add(spin, 0, wx.ALIGN_CENTER_VERTICAL)
+            controls[param_key] = spin
+
+        panel.SetSizer(sizer)
+
+        btn_sizer = dlg.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        main_sizer.Add(panel, 1, wx.ALL | wx.EXPAND, 10)
+        main_sizer.Add(btn_sizer, 0, wx.ALL | wx.EXPAND, 5)
+        dlg.SetSizer(main_sizer)
+        dlg.SetSize((440, min(80 + len(known_params) * 45, 600)))
+        dlg.CenterOnParent()
+
+        if dlg.ShowModal() == wx.ID_OK:
+            cmds = []
+            for param_key, spin_ctrl in controls.items():
+                val = spin_ctrl.GetValue()
+                if param_key == 'amount':
+                    cmds.append(f'/fxp {fx_index} {val:.1f}')
+                else:
+                    cmds.append(f'/fxp {fx_index} {param_key} {val:.1f}')
+            self._exec('\n'.join(cmds))
         dlg.Destroy()
 
     def _show_waveform_picker(self, op_index):
@@ -3608,6 +4048,20 @@ class InspectorPanel(wx.Panel):
         self.props_sizer.Add(lbl, 0, wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
         self.props_sizer.Add(val, 1, wx.EXPAND)
 
+    def _add_separator(self, label: str = ''):
+        """Add a visual separator line with optional section label."""
+        line = wx.StaticLine(self.props_panel)
+        self.props_sizer.Add(line, 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 3)
+        if label:
+            hdr = wx.StaticText(self.props_panel, label=label)
+            hdr.SetForegroundColour(Theme.ACCENT)
+            f = hdr.GetFont()
+            f.SetWeight(wx.FONTWEIGHT_BOLD)
+            hdr.SetFont(f)
+            self.props_sizer.Add(hdr, 0, wx.BOTTOM, 2)
+        else:
+            self.props_sizer.AddSpacer(0)
+
     def _add_action_btn(self, label: str, command: str):
         """Add a quick-action button."""
         btn = wx.Button(self, label=label)
@@ -3767,13 +4221,39 @@ class InspectorPanel(wx.Panel):
 
     def _inspect_effect(self, data):
         idx = data.get('index', 0)
-        self.title.SetLabel(f"Effect #{idx}")
+        fx_name = data.get('name', f'effect_{idx}')
+        fx_params = data.get('params', {})
+
+        self.title.SetLabel(f"FX #{idx}: {fx_name}")
         self.subtitle.SetLabel("Effect in Chain")
 
+        # Core info
+        self._add_prop("Effect:", fx_name)
         self._add_prop("Position:", str(idx))
+        amt = fx_params.get('amount', 50.0)
+        self._add_prop("Amount:", f"{amt:.0f}%")
 
+        # Show all DSP parameters
+        extra = {k: v for k, v in fx_params.items() if k != 'amount'}
+        if extra:
+            self._add_separator("DSP Parameters")
+            for k, v in sorted(extra.items()):
+                self._add_prop(f"  {k}:", f"{v:.2f}")
+
+        # Indicate what DSP params are available (even if not yet set)
+        known = ObjectBrowser._FX_DSP_PARAMS.get(fx_name, [])
+        unset = [p for p in known if p not in fx_params and p != 'amount']
+        if unset:
+            self._add_separator("Available Parameters")
+            self._add_prop("  (editable):", ', '.join(unset))
+
+        # Actions
+        self._add_separator("Actions")
+        self._add_action_btn("Set Amount", f"/fxp {idx} 50")
+        self._add_action_btn("Select", f"/fxs {idx}")
+        self._add_action_btn("Bypass", "/bypass")
         self._add_action_btn("Remove", f"/fxr {idx}")
-        self._add_action_btn("Clear All", "/fxc")
+        self._add_action_btn("Clear All", "/fx clear")
 
     def _inspect_sydef(self, data):
         name = data.get('name', '')
@@ -3944,6 +4424,33 @@ class InspectorPanel(wx.Panel):
             self._add_prop("Saturation:", str(state.get('hq_saturation', 0)))
             self._add_prop("Limiter:", str(state.get('hq_limiter', 0)))
             self._add_action_btn("Toggle HQ", "/hq on")
+        elif cat_id == 'fx':
+            fx_list = state.get('effects', [])
+            n = len(fx_list)
+            self._add_prop("Active Effects:", str(n))
+            s = self.executor.session
+            if s:
+                bypassed = getattr(s, 'effects_bypassed', False)
+                self._add_prop("Bypass:", "ON" if bypassed else "OFF")
+                sel = getattr(s, 'selected_effect', -1)
+                if sel >= 0 and sel < n:
+                    sel_name = fx_list[sel] if isinstance(fx_list[sel], str) else fx_list[sel][0]
+                    self._add_prop("Selected:", f"#{sel} — {sel_name}")
+                # List all effects in chain
+                params_list = getattr(s, 'effect_params', [])
+                if n > 0:
+                    self._add_separator("Effect Chain")
+                    for i, fx in enumerate(fx_list):
+                        fx_name = fx if isinstance(fx, str) else fx[0]
+                        p = params_list[i] if i < len(params_list) else {}
+                        amt = p.get('amount', 50.0)
+                        self._add_prop(f"  #{i}:", f"{fx_name} ({amt:.0f}%)")
+            self._add_separator("Actions")
+            self._add_action_btn("Bypass Toggle", "/bypass")
+            self._add_action_btn("All Wet (100%)", "/wet")
+            self._add_action_btn("All Half (50%)", "/half")
+            self._add_action_btn("All Dry (0%)", "/dry")
+            self._add_action_btn("Clear All", "/fx clear")
         elif cat_id == 'key':
             self._add_prop("Note:", state.get('key_note', 'C'))
             self._add_prop("Scale:", state.get('key_scale', 'major'))
@@ -5080,7 +5587,7 @@ class MDMAFrame(wx.Frame):
         if not state:
             return
 
-        # Update status bar only (lightweight)
+        # Update status bar (lightweight — fields 0 and 1)
         try:
             buf_sec = state.get('buffer_seconds', 0)
             self.SetStatusText(
@@ -5090,6 +5597,11 @@ class MDMAFrame(wx.Frame):
                 f"{state.get('frequency', 440):.0f}Hz  |  "
                 f"Voices: {state.get('voice_count', 1)} "
                 f"({state.get('voice_algorithm', 0)})", 0)
+            fx_list = state.get('effects', [])
+            self.SetStatusText(
+                f"Filter: {state.get('filter_type', 'lp')} "
+                f"{state.get('filter_cutoff', 4500):.0f}Hz  |  "
+                f"FX: {len(fx_list)}", 1)
         except Exception:
             pass
 
