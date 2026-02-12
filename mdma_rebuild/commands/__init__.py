@@ -11,7 +11,7 @@ BUILD ID: commands_v14.4
 
 __all__ = [
     "general_cmds",
-    "synth_cmds", 
+    "synth_cmds",
     "fx_cmds",
     "render_cmds",
     "pattern_cmds",
@@ -19,4 +19,17 @@ __all__ = [
     "buffer_cmds",
     "param_cmds",
     "hq_cmds",
+    "advanced_cmds",
+    "adv_cmds",
+    "ai_cmds",
+    "audiorate_cmds",
+    "dj_cmds",
+    "dsl_cmds",
+    "generator_cmds",
+    "math_cmds",
+    "pack_cmds",
+    "perf_cmds",
+    "stub_cmds",
+    "sydef_cmds",
+    "working_cmds",
 ]

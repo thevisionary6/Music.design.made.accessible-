@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
 """
-MDMA GUI - Phase 1: Core Interface & Workflow
-==============================================
+MDMA GUI - Phase 2: Monolith Engine & Synthesis Expansion
+==========================================================
 
 Full-featured wxPython interface for the MDMA audio engine.
 
 Phase 1 features:
-- Hierarchical object tree with live previews (tracks, buffers, decks,
-  operators, filters, effects, presets, chains)
+- Hierarchical object tree with live previews
 - Inspector panel with full object detail views
 - Step grid with playback position and buffer I/O tracking
-- Context menus for generation, FX, and destructive editing
-- Selection-based FX targeting (apply FX to tracks, buses, sections)
-- Accessibility section markers for deck regions
-- Auto-refresh timer for live state synchronization
-- Tabbed right panel (Inspector + Action Panel)
+- Context menus, selection-based FX, accessibility markers
 
-Version: 1.0.0
+Phase 2 features:
+- Monolith Patch Builder panel (operators, routing, inline editing)
+- Carrier/Modulator routing visualization (signal flow diagram)
+- Oscillator list view with category filter and quick-edit controls
+- Full parameter exposure for all Phase 2 wave types
+- Extended wave types: supersaw, additive, formant, harmonic,
+  waveguide (string/tube/membrane/plate), wavetable, compound
+
+Version: 2.0.0
 Author: Based on spec by Cyrus
 Date: 2026-02-11
 
@@ -26,13 +29,25 @@ Requirements:
 Usage:
     python mdma_gui.py
 
-BUILD ID: mdma_gui_v1.0.0_phase1
+BUILD ID: mdma_gui_v2.0.0_phase2
 """
 
-import wx
-import wx.lib.agw.aui as aui
 import sys
 import os
+
+# wxPython import guard — give a clear message instead of a traceback
+try:
+    import wx
+    import wx.lib.agw.aui as aui
+except ImportError:
+    print("MDMA GUI requires wxPython.")
+    print("Install with:  pip install wxPython")
+    print("\nAlternatives:")
+    print("  python run_mdma.py --repl   (terminal, no extra deps)")
+    print("  python run_mdma.py --tui    (pip install textual)")
+    print("  python run_mdma.py          (auto-detect best interface)")
+    sys.exit(1)
+
 import io
 from contextlib import redirect_stdout, redirect_stderr
 from typing import Dict, List, Any, Optional, Callable
@@ -341,8 +356,10 @@ class CommandExecutor:
             try:
                 from mdma_rebuild.commands.sydef_cmds import load_factory_presets
                 load_factory_presets(self.session)
-            except (ImportError, AttributeError):
-                pass
+            except (ImportError, AttributeError) as e:
+                print(f"Note: Factory presets not loaded: {e}")
+            except Exception as e:
+                print(f"Warning: Error loading factory presets: {e}")
 
             self.init_error = None
 
@@ -397,37 +414,73 @@ class CommandExecutor:
         if not s:
             return {}
 
-        op_idx = s.current_operator
-        current_op = s.engine.operators.get(op_idx, {}) if hasattr(s, 'engine') else {}
-        filt_slot = s.selected_filter
+        op_idx = getattr(s, 'current_operator', 0)
+        current_op = {}
+        if hasattr(s, 'engine') and hasattr(s.engine, 'operators'):
+            current_op = s.engine.operators.get(op_idx, {})
+        filt_slot = getattr(s, 'selected_filter', 0)
         buf_len = len(s.working_buffer) if s.working_buffer is not None else 0
 
+        # Defensive access for filter attributes
+        filter_types = getattr(s, 'filter_types', {})
+        filter_names = getattr(s, 'filter_type_names', {})
+        filter_cutoffs = getattr(s, 'filter_cutoffs', {})
+        filter_resonances = getattr(s, 'filter_resonances', {})
+
         return {
-            'bpm': s.bpm,
-            'sample_rate': s.sample_rate,
+            'bpm': getattr(s, 'bpm', 128),
+            'sample_rate': getattr(s, 'sample_rate', 48000),
             'buffer_samples': buf_len,
             'buffer_seconds': buf_len / s.sample_rate if buf_len else 0,
             'current_operator': op_idx,
-            'waveform': current_op.get('wave', '—'),
+            'waveform': current_op.get('wave', '---'),
             'frequency': current_op.get('freq', 0),
             'amplitude': current_op.get('amp', 0),
-            'voice_count': s.voice_count,
-            'voice_algorithm': s.voice_algorithm,
-            'detune': s.dt,
-            'filter_type': s.filter_type_names.get(
-                s.filter_types.get(filt_slot, 0), 'lowpass'),
-            'filter_cutoff': s.filter_cutoffs.get(filt_slot, 4500.0),
-            'filter_resonance': s.filter_resonances.get(filt_slot, 50.0),
-            'attack': s.attack,
-            'decay': s.decay,
-            'sustain': s.sustain,
-            'release': s.release,
-            'hq_mode': s.hq_mode,
-            'output_format': s.output_format,
-            'output_bit_depth': s.output_bit_depth,
-            'track_count': len(s.tracks),
-            'effects': list(s.effects),
+            'voice_count': getattr(s, 'voice_count', 1),
+            'voice_algorithm': getattr(s, 'voice_algorithm', 0),
+            'detune': getattr(s, 'dt', 0),
+            'filter_type': filter_names.get(
+                filter_types.get(filt_slot, 0), 'lowpass'),
+            'filter_cutoff': filter_cutoffs.get(filt_slot, 4500.0),
+            'filter_resonance': filter_resonances.get(filt_slot, 50.0),
+            'attack': getattr(s, 'attack', 0.01),
+            'decay': getattr(s, 'decay', 0.1),
+            'sustain': getattr(s, 'sustain', 0.8),
+            'release': getattr(s, 'release', 0.1),
+            'hq_mode': getattr(s, 'hq_mode', False),
+            'output_format': getattr(s, 'output_format', 'wav'),
+            'output_bit_depth': getattr(s, 'output_bit_depth', 16),
+            'track_count': len(getattr(s, 'tracks', [])),
+            'effects': list(getattr(s, 'effects', [])),
         }
+
+    def _get_sydefs(self) -> dict:
+        """Get SyDef definitions from wherever they live.
+
+        SyDefs may be stored in session.sydefs, or in the sydef_cmds
+        module-level dict, or on the engine preset_bank.
+        """
+        s = self.session
+        if not s:
+            return {}
+        # Prefer session attribute
+        if hasattr(s, 'sydefs') and s.sydefs:
+            return s.sydefs
+        # Fall back to sydef_cmds module globals
+        try:
+            from mdma_rebuild.commands import sydef_cmds
+            sydefs = getattr(sydef_cmds, '_SYDEFS', None)
+            if sydefs:
+                return sydefs
+            sydefs = getattr(sydef_cmds, 'SYDEFS', None)
+            if sydefs:
+                return sydefs
+        except (ImportError, AttributeError):
+            pass
+        # Fall back to engine preset bank
+        if hasattr(s, 'engine') and hasattr(s.engine, 'preset_bank'):
+            return {str(k): v for k, v in s.engine.preset_bank.items()}
+        return {}
 
     def get_dynamic_tree_data(self) -> Dict[str, List[str]]:
         """Return lists of live objects for the browser tree."""
@@ -436,37 +489,38 @@ class CommandExecutor:
             return {}
 
         # Tracks
-        tracks = [t.get('name', f'track_{i+1}') for i, t in enumerate(s.tracks)]
+        tracks_list = getattr(s, 'tracks', [])
+        tracks = [t.get('name', f'track_{i+1}') for i, t in enumerate(tracks_list)]
 
         # Filled buffers
-        filled = sorted(k for k, v in s.buffers.items()
+        buffers_dict = getattr(s, 'buffers', {})
+        filled = sorted(k for k, v in buffers_dict.items()
                         if v is not None and len(v) > 0)
         buffers = [f"Buffer {i}" for i in filled] if filled else ["(empty)"]
 
         # Decks
-        decks = [f"Deck {i}" for i in sorted(s.decks.keys())] if s.decks else []
+        decks_dict = getattr(s, 'decks', {})
+        decks = [f"Deck {i}" for i in sorted(decks_dict.keys())] if decks_dict else []
 
         # Effects chain
-        effects = list(s.effects) if s.effects else ["(none)"]
+        effects_list = getattr(s, 'effects', [])
+        effects = list(effects_list) if effects_list else ["(none)"]
 
         # Presets / sydefs
-        presets = []
-        if hasattr(s, 'sydefs') and s.sydefs:
-            presets = sorted(s.sydefs.keys())
-        elif hasattr(s.engine, 'preset_bank') and s.engine.preset_bank:
-            presets = [f"Preset {k}" for k in sorted(s.engine.preset_bank.keys())]
-        if not presets:
-            presets = ["(none)"]
+        sydefs = self._get_sydefs()
+        presets = sorted(sydefs.keys()) if sydefs else ["(none)"]
 
         # User functions
-        funcs = sorted(s.user_functions.keys()) if s.user_functions else []
+        user_funcs = getattr(s, 'user_functions', {})
+        funcs = sorted(user_funcs.keys()) if user_funcs else []
 
         # Chains
-        chains = sorted(s.chains.keys()) if s.chains else []
+        chains_dict = getattr(s, 'chains', {})
+        chains = sorted(chains_dict.keys()) if chains_dict else []
 
         # Operators
         operators = []
-        if hasattr(s.engine, 'operators'):
+        if hasattr(s, 'engine') and hasattr(s.engine, 'operators'):
             for idx in sorted(s.engine.operators.keys()):
                 op = s.engine.operators[idx]
                 wave = op.get('wave', 'sine')
@@ -492,9 +546,10 @@ class CommandExecutor:
         """Return detailed info for a single track."""
         import numpy as np
         s = self.session
-        if not s or index >= len(s.tracks):
+        tracks = getattr(s, 'tracks', []) if s else []
+        if not tracks or index >= len(tracks):
             return {}
-        t = s.tracks[index]
+        t = tracks[index]
         audio = t.get('audio')
         duration = 0.0
         peak_db = -100.0
@@ -527,7 +582,7 @@ class CommandExecutor:
         s = self.session
         if not s:
             return {}
-        audio = s.buffers.get(index)
+        audio = getattr(s, 'buffers', {}).get(index)
         if audio is None or len(audio) == 0:
             return {'index': index, 'empty': True, 'duration': 0, 'channels': 0,
                     'peak_db': -100.0}
@@ -571,11 +626,11 @@ class CommandExecutor:
 
     def get_deck_details(self, index: int) -> Dict[str, Any]:
         """Return detailed info for a single deck."""
-        import numpy as np
         s = self.session
-        if not s or index not in s.decks:
+        decks = getattr(s, 'decks', {}) if s else {}
+        if not decks or index not in decks:
             return {'index': index, 'loaded': False}
-        dk = s.decks[index]
+        dk = decks[index]
         audio = dk.get('buffer')
         duration = 0.0
         if audio is not None and len(audio) > 0:
@@ -591,22 +646,23 @@ class CommandExecutor:
     def get_operator_details(self, index: int) -> Dict[str, Any]:
         """Return detailed info for a single operator."""
         s = self.session
-        if not s or not hasattr(s.engine, 'operators'):
+        if not s or not hasattr(s, 'engine') or not hasattr(s.engine, 'operators'):
             return {}
         op = s.engine.operators.get(index, {})
         env = None
-        if hasattr(s, 'operator_envelopes') and index in s.operator_envelopes:
-            e = s.operator_envelopes[index]
-            env = {'attack': e.get('attack', s.attack),
-                   'decay': e.get('decay', s.decay),
-                   'sustain': e.get('sustain', s.sustain),
-                   'release': e.get('release', s.release)}
+        op_envs = getattr(s, 'operator_envelopes', {})
+        if op_envs and index in op_envs:
+            e = op_envs[index]
+            env = {'attack': e.get('attack', getattr(s, 'attack', 0.01)),
+                   'decay': e.get('decay', getattr(s, 'decay', 0.1)),
+                   'sustain': e.get('sustain', getattr(s, 'sustain', 0.8)),
+                   'release': e.get('release', getattr(s, 'release', 0.1))}
         return {
             'index': index,
             'wave': op.get('wave', 'sine'),
             'freq': op.get('freq', 440.0),
             'amp': op.get('amp', 0.8),
-            'is_current': index == s.current_operator,
+            'is_current': index == getattr(s, 'current_operator', 0),
             'envelope': env,
         }
 
@@ -615,14 +671,19 @@ class CommandExecutor:
         s = self.session
         if not s:
             return {}
-        type_idx = s.filter_types.get(slot, 0)
+        filter_types = getattr(s, 'filter_types', {})
+        filter_names = getattr(s, 'filter_type_names', {})
+        filter_cutoffs = getattr(s, 'filter_cutoffs', {})
+        filter_resonances = getattr(s, 'filter_resonances', {})
+        filter_enabled = getattr(s, 'filter_enabled', {})
+        type_idx = filter_types.get(slot, 0)
         return {
             'slot': slot,
-            'type_name': s.filter_type_names.get(type_idx, 'lowpass'),
-            'cutoff': s.filter_cutoffs.get(slot, 4500.0),
-            'resonance': s.filter_resonances.get(slot, 50.0),
-            'enabled': s.filter_enabled.get(slot, slot == 0),
-            'is_selected': slot == s.selected_filter,
+            'type_name': filter_names.get(type_idx, 'lowpass'),
+            'cutoff': filter_cutoffs.get(slot, 4500.0),
+            'resonance': filter_resonances.get(slot, 50.0),
+            'enabled': filter_enabled.get(slot, slot == 0),
+            'is_selected': slot == getattr(s, 'selected_filter', 0),
         }
 
     def get_all_filter_slots(self) -> List[Dict[str, Any]]:
@@ -639,15 +700,16 @@ class CommandExecutor:
 
     def get_rich_tree_data(self) -> Dict[str, Any]:
         """Return enriched tree data with inline previews for all objects."""
-        import numpy as np
         s = self.session
         if not s:
             return {}
 
         # Tracks with previews
         tracks = []
-        for i, t in enumerate(s.tracks):
+        for i, t in enumerate(getattr(s, 'tracks', [])):
             info = self.get_track_details(i)
+            if not info:
+                continue
             ch_str = 'stereo' if info.get('channels', 0) == 2 else 'mono'
             if info.get('has_audio'):
                 preview = (f"{info['name']}  [{info['duration']:.2f}s, {ch_str}, "
@@ -663,7 +725,8 @@ class CommandExecutor:
 
         # Buffers with previews
         buffers = []
-        filled = sorted(k for k, v in s.buffers.items()
+        buffers_dict = getattr(s, 'buffers', {})
+        filled = sorted(k for k, v in buffers_dict.items()
                         if v is not None and len(v) > 0)
         for idx in filled:
             info = self.get_buffer_details(idx)
@@ -683,7 +746,8 @@ class CommandExecutor:
 
         # Decks with previews
         decks = []
-        for dk_id in sorted(s.decks.keys()):
+        decks_dict = getattr(s, 'decks', {})
+        for dk_id in sorted(decks_dict.keys()):
             info = self.get_deck_details(dk_id)
             if info.get('loaded'):
                 preview = f"Deck {dk_id}  [{info['duration']:.2f}s loaded]"
@@ -694,7 +758,7 @@ class CommandExecutor:
 
         # Operators with previews
         operators = []
-        if hasattr(s.engine, 'operators'):
+        if hasattr(s, 'engine') and hasattr(s.engine, 'operators'):
             for idx in sorted(s.engine.operators.keys()):
                 info = self.get_operator_details(idx)
                 current = ' *' if info.get('is_current') else ''
@@ -716,39 +780,37 @@ class CommandExecutor:
 
         # Effects
         effects = []
-        for i, fx in enumerate(s.effects):
+        for i, fx in enumerate(getattr(s, 'effects', [])):
             fx_name = fx[0] if isinstance(fx, (list, tuple)) else str(fx)
             effects.append({'label': fx_name, 'index': i, 'type': 'effect'})
 
-        # Presets
+        # Presets (SyDefs from wherever they live)
         presets = []
-        if hasattr(s, 'sydefs') and s.sydefs:
-            for name in sorted(s.sydefs.keys()):
-                presets.append({'label': name, 'name': name, 'type': 'sydef'})
-        elif hasattr(s.engine, 'preset_bank') and s.engine.preset_bank:
-            for k in sorted(s.engine.preset_bank.keys()):
-                presets.append({'label': f"Preset {k}", 'name': str(k),
-                                'type': 'preset'})
+        sydefs = self._get_sydefs()
+        for name in sorted(sydefs.keys()):
+            presets.append({'label': name, 'name': name, 'type': 'sydef'})
 
         # User functions
         funcs = []
-        if s.user_functions:
-            for name in sorted(s.user_functions.keys()):
+        user_funcs = getattr(s, 'user_functions', {})
+        if user_funcs:
+            for name in sorted(user_funcs.keys()):
                 funcs.append({'label': f"fn: {name}", 'name': name,
                               'type': 'user_function'})
 
         # Chains
         chains = []
-        if s.chains:
-            for name in sorted(s.chains.keys()):
-                ch = s.chains[name]
+        chains_dict = getattr(s, 'chains', {})
+        if chains_dict:
+            for name in sorted(chains_dict.keys()):
+                ch = chains_dict[name]
                 n = len(ch) if isinstance(ch, list) else 0
                 chains.append({'label': f"chain: {name} ({n} fx)",
                                 'name': name, 'type': 'chain'})
 
         # Deck section markers (accessibility)
         deck_sections = []
-        for dk_id in sorted(s.decks.keys()):
+        for dk_id in sorted(decks_dict.keys()):
             info = self.get_deck_details(dk_id)
             if info.get('loaded') and info['duration'] > 0:
                 dur = info['duration']
@@ -1066,20 +1128,21 @@ class ObjectBrowser(wx.Panel):
 
         if obj_type == 'track':
             idx = data.get('index', 0)
-            menu.Append(wx.ID_ANY, f"Play Track {idx+1}").Id
-            m_play = menu.FindItemByPosition(0).GetId()
-            menu.Append(wx.ID_ANY, "Solo")
-            m_solo = menu.FindItemByPosition(1).GetId()
-            menu.Append(wx.ID_ANY, "Mute")
-            m_mute = menu.FindItemByPosition(2).GetId()
+            m_play = wx.NewIdRef()
+            m_solo = wx.NewIdRef()
+            m_mute = wx.NewIdRef()
+            m_fx = wx.NewIdRef()
+            m_bounce = wx.NewIdRef()
+            m_clear = wx.NewIdRef()
+
+            menu.Append(m_play, f"Play Track {idx+1}")
+            menu.Append(m_solo, "Solo")
+            menu.Append(m_mute, "Mute")
             menu.AppendSeparator()
-            menu.Append(wx.ID_ANY, "Apply Effect...")
-            m_fx = menu.FindItemByPosition(4).GetId()
-            menu.Append(wx.ID_ANY, "Bounce to Working Buffer")
-            m_bounce = menu.FindItemByPosition(5).GetId()
+            menu.Append(m_fx, "Apply Effect...")
+            menu.Append(m_bounce, "Bounce to Working Buffer")
             menu.AppendSeparator()
-            menu.Append(wx.ID_ANY, "Clear Track")
-            m_clear = menu.FindItemByPosition(7).GetId()
+            menu.Append(m_clear, "Clear Track")
 
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/pt {i+1}'), id=m_play)
@@ -1494,7 +1557,10 @@ class ActionPanel(wx.Panel):
                     values[param.name] = ctrl.GetValue()
                 elif param.param_type == 'enum':
                     idx = ctrl.GetSelection()
-                    values[param.name] = param.choices[idx] if idx >= 0 else param.default
+                    if 0 <= idx < len(param.choices):
+                        values[param.name] = param.choices[idx]
+                    else:
+                        values[param.name] = param.default
                 else:
                     values[param.name] = ctrl.GetValue()
         
@@ -1509,8 +1575,10 @@ class ActionPanel(wx.Panel):
         try:
             return self.current_action.command_template.format(**values)
         except KeyError as e:
-            self.console_callback(f"Warning: missing parameter {e} in command template\n", 'warning')
-            return self.current_action.command_template
+            self.console_callback(
+                f"Error: missing parameter {e} in command template\n",
+                'error')
+            return ""
     
     def update_command_preview(self):
         """Update the command preview text."""
@@ -1941,7 +2009,8 @@ class StepGridPanel(wx.Panel):
         s = self.executor.session
         self.track_fills = {}
         if s:
-            for i, t in enumerate(s.tracks):
+            tracks = getattr(s, 'tracks', [])
+            for i, t in enumerate(tracks):
                 audio = t.get('audio')
                 if audio is not None and len(audio) > 0:
                     wp = t.get('write_pos', 0)
@@ -1950,9 +2019,12 @@ class StepGridPanel(wx.Panel):
                         self.track_fills[i] = set(range(n))
 
             # Write position of current track
-            if s.tracks:
-                ct = min(getattr(s, 'current_track', 0), len(s.tracks) - 1)
-                wp = s.tracks[ct].get('write_pos', 0)
+            if tracks:
+                ct_idx = getattr(s, 'current_track_index',
+                         getattr(s, 'current_track', 0))
+                ct = min(ct_idx, len(tracks) - 1)
+                ct = max(ct, 0)
+                wp = tracks[ct].get('write_pos', 0)
                 self.write_pos = wp // beat_samples if beat_samples > 0 else 0
 
         self.canvas.Refresh()
@@ -2108,20 +2180,487 @@ class ConsolePanel(wx.Panel):
 # MAIN FRAME
 # ============================================================================
 
+# ============================================================================
+# PHASE 2: PATCH BUILDER PANEL (Feature 2.1)
+# ============================================================================
+
+class PatchBuilderPanel(wx.Panel):
+    """Dedicated panel for building and editing Monolith patches.
+
+    Displays all operators, their wave types, frequencies, amplitudes,
+    and modulation routings in a unified view. Supports inline editing
+    of all parameters.
+    """
+
+    def __init__(self, parent, executor, console_callback=None, state_sync_callback=None):
+        super().__init__(parent)
+        self.executor = executor
+        self.console_cb = console_callback or (lambda *a: None)
+        self.sync_cb = state_sync_callback or (lambda: None)
+        self.SetBackgroundColour(Theme.BG_PANEL)
+        self._build_ui()
+
+    def _build_ui(self):
+        sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Header
+        header = wx.StaticText(self, label="Monolith Patch Builder")
+        header.SetForegroundColour(Theme.ACCENT)
+        header.SetFont(header.GetFont().Bold())
+        sizer.Add(header, 0, wx.ALL, 8)
+
+        # Operator list
+        self.op_list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
+        self.op_list.SetBackgroundColour(Theme.BG_INPUT)
+        self.op_list.SetForegroundColour(Theme.FG_TEXT)
+        self.op_list.InsertColumn(0, "Op", width=40)
+        self.op_list.InsertColumn(1, "Wave", width=120)
+        self.op_list.InsertColumn(2, "Freq (Hz)", width=80)
+        self.op_list.InsertColumn(3, "Amp", width=60)
+        self.op_list.InsertColumn(4, "Parameters", width=250)
+        sizer.Add(self.op_list, 1, wx.EXPAND | wx.ALL, 4)
+
+        # Routing section
+        route_label = wx.StaticText(self, label="Modulation Routing")
+        route_label.SetForegroundColour(Theme.ACCENT)
+        sizer.Add(route_label, 0, wx.LEFT | wx.TOP, 8)
+
+        self.route_list = wx.ListCtrl(self, style=wx.LC_REPORT)
+        self.route_list.SetBackgroundColour(Theme.BG_INPUT)
+        self.route_list.SetForegroundColour(Theme.FG_TEXT)
+        self.route_list.InsertColumn(0, "#", width=30)
+        self.route_list.InsertColumn(1, "Type", width=60)
+        self.route_list.InsertColumn(2, "Source", width=60)
+        self.route_list.InsertColumn(3, "Target", width=60)
+        self.route_list.InsertColumn(4, "Amount", width=70)
+        sizer.Add(self.route_list, 0, wx.EXPAND | wx.ALL, 4)
+        self.route_list.SetMinSize((-1, 100))
+
+        # Quick action buttons
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        for label, cmd in [
+            ("Add Op", "/op"),
+            ("Set Wave", None),
+            ("Add FM", None),
+            ("Clear Routes", "/clearalg"),
+            ("Preview", "/tone 440 1"),
+        ]:
+            btn = wx.Button(self, label=label)
+            btn.SetBackgroundColour(Theme.BG_INPUT)
+            btn.SetForegroundColour(Theme.FG_TEXT)
+            if cmd:
+                btn.Bind(wx.EVT_BUTTON, lambda e, c=cmd: self._exec(c))
+            elif label == "Set Wave":
+                btn.Bind(wx.EVT_BUTTON, self._on_set_wave)
+            elif label == "Add FM":
+                btn.Bind(wx.EVT_BUTTON, self._on_add_routing)
+            btn_sizer.Add(btn, 0, wx.ALL, 2)
+        sizer.Add(btn_sizer, 0, wx.EXPAND | wx.ALL, 4)
+
+        # Parameter quick-edit section
+        param_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        param_sizer.Add(wx.StaticText(self, label="Param:"), 0,
+                        wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        self.param_input = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER)
+        self.param_input.SetBackgroundColour(Theme.BG_INPUT)
+        self.param_input.SetForegroundColour(Theme.FG_TEXT)
+        self.param_input.SetHint("e.g. /wm supersaw saws=7 spread=0.5")
+        self.param_input.Bind(wx.EVT_TEXT_ENTER, self._on_param_enter)
+        param_sizer.Add(self.param_input, 1, wx.EXPAND)
+        sizer.Add(param_sizer, 0, wx.EXPAND | wx.ALL, 4)
+
+        self.SetSizer(sizer)
+
+    def _exec(self, cmd):
+        try:
+            result = self.executor.run(cmd)
+            if result:
+                self.console_cb(result + '\n', 'info')
+            self.sync_cb()
+            self.refresh()
+        except Exception as e:
+            self.console_cb(f"ERROR: {e}\n", 'error')
+
+    def _on_param_enter(self, event):
+        cmd = self.param_input.GetValue().strip()
+        if cmd:
+            if not cmd.startswith('/'):
+                cmd = '/' + cmd
+            self._exec(cmd)
+            self.param_input.Clear()
+
+    def _on_set_wave(self, event):
+        wave_types = [
+            'sine', 'triangle', 'saw', 'pulse', 'noise', 'pink',
+            'physical', 'physical2',
+            'supersaw', 'additive', 'formant', 'harmonic',
+            'waveguide_string', 'waveguide_tube', 'waveguide_membrane', 'waveguide_plate',
+            'wavetable', 'compound',
+        ]
+        dlg = wx.SingleChoiceDialog(self, "Select waveform:", "Set Waveform", wave_types)
+        if dlg.ShowModal() == wx.ID_OK:
+            wave = dlg.GetStringSelection()
+            self._exec(f"/wm {wave}")
+        dlg.Destroy()
+
+    def _on_add_routing(self, event):
+        dlg = wx.TextEntryDialog(self, "Enter routing (e.g. FM 2 1 50):",
+                                  "Add Modulation Routing")
+        if dlg.ShowModal() == wx.ID_OK:
+            parts = dlg.GetValue().strip().split()
+            if len(parts) >= 3:
+                algo = parts[0].lower()
+                self._exec(f"/{algo} {' '.join(parts[1:])}")
+        dlg.Destroy()
+
+    def refresh(self):
+        """Refresh the operator and routing displays."""
+        self.op_list.DeleteAllItems()
+        self.route_list.DeleteAllItems()
+
+        if not self.executor.session or not hasattr(self.executor.session, 'engine'):
+            return
+
+        engine = self.executor.session.engine
+
+        # Populate operators
+        for idx in sorted(engine.operators.keys()):
+            op = engine.operators[idx]
+            row = self.op_list.GetItemCount()
+            self.op_list.InsertItem(row, str(idx))
+            self.op_list.SetItem(row, 1, op.get('wave', 'sine'))
+            self.op_list.SetItem(row, 2, f"{op.get('freq', 440.0):.1f}")
+            self.op_list.SetItem(row, 3, f"{op.get('amp', 1.0):.3f}")
+
+            # Build params string based on wave type
+            wave = op.get('wave', 'sine')
+            params = []
+            if wave == 'pulse':
+                params.append(f"pw={op.get('pw', 0.5):.2f}")
+            elif wave == 'supersaw':
+                params.append(f"saws={op.get('num_saws', 7)}")
+                params.append(f"spread={op.get('detune_spread', 0.5):.2f}")
+            elif wave == 'harmonic':
+                params.append(f"odd={op.get('odd_level', 1.0):.1f}")
+                params.append(f"even={op.get('even_level', 1.0):.1f}")
+            elif wave == 'additive':
+                params.append(f"nharm={op.get('num_harmonics', 16)}")
+                params.append(f"rolloff={op.get('rolloff', 1.0):.1f}")
+            elif wave == 'formant':
+                params.append(f"vowel={op.get('vowel', 'a')}")
+            elif wave.startswith('waveguide_'):
+                params.append(f"damp={op.get('damping', 0.996):.3f}")
+            elif wave == 'wavetable':
+                params.append(f"table={op.get('wavetable_name', '')}")
+                params.append(f"frame={op.get('frame_pos', 0.0):.2f}")
+            elif wave == 'compound':
+                params.append(f"name={op.get('compound_name', '')}")
+                params.append(f"morph={op.get('morph', 0.0):.2f}")
+            self.op_list.SetItem(row, 4, ', '.join(params))
+
+        # Populate routings
+        for i, (algo_type, src, tgt, amt) in enumerate(engine.algorithms):
+            row = self.route_list.GetItemCount()
+            self.route_list.InsertItem(row, str(i))
+            self.route_list.SetItem(row, 1, algo_type)
+            self.route_list.SetItem(row, 2, f"op{src}")
+            self.route_list.SetItem(row, 3, f"op{tgt}")
+            self.route_list.SetItem(row, 4, f"{amt:.3f}")
+
+
+# ============================================================================
+# PHASE 2: CARRIER/MODULATOR ROUTING VIEW (Feature 2.2)
+# ============================================================================
+
+class RoutingPanel(wx.Panel):
+    """Visual representation of carrier/modulator signal flow.
+
+    Shows operators as boxes connected by arrows representing
+    modulation routings, with signal type and amount labels.
+    """
+
+    def __init__(self, parent, executor):
+        super().__init__(parent)
+        self.executor = executor
+        self.SetBackgroundColour(Theme.BG_DARK)
+        self.Bind(wx.EVT_PAINT, self.on_paint)
+        self.SetMinSize((300, 200))
+
+    def on_paint(self, event):
+        dc = wx.BufferedPaintDC(self)
+        gc = wx.GraphicsContext.Create(dc)
+        if not gc:
+            return
+
+        w, h = self.GetSize()
+        gc.SetBrush(wx.Brush(Theme.BG_DARK))
+        gc.SetPen(wx.TRANSPARENT_PEN)
+        gc.DrawRectangle(0, 0, w, h)
+
+        if not self.executor.session or not hasattr(self.executor.session, 'engine'):
+            gc.SetFont(gc.CreateFont(wx.Font(12, wx.FONTFAMILY_DEFAULT,
+                        wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL), Theme.FG_DIM))
+            gc.DrawText("No engine loaded", 20, h // 2)
+            return
+
+        engine = self.executor.session.engine
+        ops = sorted(engine.operators.keys())
+
+        if not ops:
+            gc.SetFont(gc.CreateFont(wx.Font(12, wx.FONTFAMILY_DEFAULT,
+                        wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL), Theme.FG_DIM))
+            gc.DrawText("No operators defined", 20, h // 2)
+            return
+
+        # Layout operators as boxes
+        num_ops = len(ops)
+        box_w, box_h = 100, 60
+        margin = 20
+        spacing = max(30, (w - margin * 2 - box_w * num_ops) / max(1, num_ops - 1) + box_w)
+
+        op_positions = {}
+        for i, idx in enumerate(ops):
+            x = margin + i * spacing
+            y = h // 2 - box_h // 2
+            op_positions[idx] = (x, y)
+
+            # Draw operator box
+            op = engine.operators[idx]
+            wave = op.get('wave', 'sine')
+            freq = op.get('freq', 440.0)
+
+            gc.SetBrush(wx.Brush(Theme.BG_PANEL))
+            gc.SetPen(wx.Pen(Theme.ACCENT, 2))
+            gc.DrawRoundedRectangle(x, y, box_w, box_h, 6)
+
+            # Label
+            gc.SetFont(gc.CreateFont(wx.Font(9, wx.FONTFAMILY_DEFAULT,
+                        wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD), Theme.FG_TEXT))
+            gc.DrawText(f"Op {idx}", x + 8, y + 4)
+            gc.SetFont(gc.CreateFont(wx.Font(8, wx.FONTFAMILY_DEFAULT,
+                        wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL), Theme.FG_DIM))
+            gc.DrawText(wave, x + 8, y + 22)
+            gc.DrawText(f"{freq:.0f} Hz", x + 8, y + 38)
+
+        # Draw routing arrows
+        algo_colors = {
+            'FM': Theme.ACCENT,
+            'TFM': wx.Colour(180, 100, 255),
+            'AM': Theme.SUCCESS,
+            'RM': Theme.WARNING,
+            'PM': Theme.ERROR,
+        }
+
+        for algo_type, src, tgt, amt in engine.algorithms:
+            if src not in op_positions or tgt not in op_positions:
+                continue
+            sx, sy = op_positions[src]
+            tx, ty = op_positions[tgt]
+
+            color = algo_colors.get(algo_type, Theme.FG_DIM)
+            gc.SetPen(wx.Pen(color, 2))
+
+            # Draw arrow from source bottom to target top
+            start_x = sx + box_w // 2
+            start_y = sy + box_h
+            end_x = tx + box_w // 2
+            end_y = ty
+
+            path = gc.CreatePath()
+            path.MoveToPoint(start_x, start_y)
+            # Bezier curve for nice routing lines
+            mid_y = start_y + 30
+            path.AddCurveToPoint(start_x, mid_y, end_x, mid_y, end_x, end_y)
+            gc.StrokePath(path)
+
+            # Label
+            label_x = (start_x + end_x) / 2
+            label_y = mid_y - 8
+            gc.SetFont(gc.CreateFont(wx.Font(7, wx.FONTFAMILY_DEFAULT,
+                        wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL), color))
+            gc.DrawText(f"{algo_type} {amt:.1f}", label_x - 15, label_y)
+
+    def refresh(self):
+        self.Refresh()
+
+
+# ============================================================================
+# PHASE 2: OSCILLATOR LIST VIEW (Feature 2.4)
+# ============================================================================
+
+class OscillatorListPanel(wx.Panel):
+    """Scrollable list-based oscillator browser.
+
+    Each entry shows waveform name, frequency, amplitude, and
+    quick-edit controls for common parameters.
+    """
+
+    def __init__(self, parent, executor, console_callback=None, state_sync_callback=None):
+        super().__init__(parent)
+        self.executor = executor
+        self.console_cb = console_callback or (lambda *a: None)
+        self.sync_cb = state_sync_callback or (lambda: None)
+        self.SetBackgroundColour(Theme.BG_PANEL)
+        self._build_ui()
+
+    def _build_ui(self):
+        sizer = wx.BoxSizer(wx.VERTICAL)
+
+        header = wx.StaticText(self, label="Oscillator Browser")
+        header.SetForegroundColour(Theme.ACCENT)
+        header.SetFont(header.GetFont().Bold())
+        sizer.Add(header, 0, wx.ALL, 8)
+
+        # Category filter
+        filter_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        filter_sizer.Add(wx.StaticText(self, label="Filter:"), 0,
+                         wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        self.wave_filter = wx.Choice(self, choices=[
+            "All", "Basic", "Noise", "Physical", "Extended",
+            "Waveguide", "Wavetable", "Compound"
+        ])
+        self.wave_filter.SetSelection(0)
+        self.wave_filter.Bind(wx.EVT_CHOICE, lambda e: self.refresh())
+        filter_sizer.Add(self.wave_filter, 0, wx.RIGHT, 8)
+
+        # Add operator button
+        add_btn = wx.Button(self, label="+ Add Operator")
+        add_btn.SetBackgroundColour(Theme.BG_INPUT)
+        add_btn.SetForegroundColour(Theme.SUCCESS)
+        add_btn.Bind(wx.EVT_BUTTON, self._on_add_op)
+        filter_sizer.Add(add_btn, 0)
+
+        sizer.Add(filter_sizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+
+        # Scrolled operator cards
+        self.scroll = wx.ScrolledWindow(self)
+        self.scroll.SetScrollRate(0, 20)
+        self.scroll.SetBackgroundColour(Theme.BG_DARK)
+        self.scroll_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.scroll.SetSizer(self.scroll_sizer)
+        sizer.Add(self.scroll, 1, wx.EXPAND | wx.ALL, 4)
+
+        self.SetSizer(sizer)
+
+    def _on_add_op(self, event):
+        """Add a new operator."""
+        if not self.executor.session:
+            return
+        engine = self.executor.session.engine
+        # Find next available index
+        existing = set(engine.operators.keys())
+        new_idx = 1
+        while new_idx in existing:
+            new_idx += 1
+        try:
+            result = self.executor.run(f"/op {new_idx}")
+            if result:
+                self.console_cb(result + '\n', 'info')
+            self.sync_cb()
+            self.refresh()
+        except Exception as e:
+            self.console_cb(f"ERROR: {e}\n", 'error')
+
+    def refresh(self):
+        """Rebuild the oscillator cards."""
+        self.scroll_sizer.Clear(True)
+
+        if not self.executor.session or not hasattr(self.executor.session, 'engine'):
+            return
+
+        engine = self.executor.session.engine
+        filter_sel = self.wave_filter.GetStringSelection()
+
+        # Category mapping
+        categories = {
+            'Basic': {'sine', 'triangle', 'saw', 'pulse'},
+            'Noise': {'noise', 'pink'},
+            'Physical': {'physical', 'physical2'},
+            'Extended': {'supersaw', 'additive', 'formant', 'harmonic'},
+            'Waveguide': {'waveguide_string', 'waveguide_tube', 'waveguide_membrane', 'waveguide_plate'},
+            'Wavetable': {'wavetable'},
+            'Compound': {'compound'},
+        }
+
+        for idx in sorted(engine.operators.keys()):
+            op = engine.operators[idx]
+            wave = op.get('wave', 'sine')
+
+            # Apply filter
+            if filter_sel != "All":
+                allowed = categories.get(filter_sel, set())
+                if wave not in allowed:
+                    continue
+
+            card = self._create_op_card(idx, op)
+            self.scroll_sizer.Add(card, 0, wx.EXPAND | wx.ALL, 4)
+
+        self.scroll.FitInside()
+        self.scroll.Layout()
+
+    def _create_op_card(self, idx, op):
+        """Create a card panel for one operator."""
+        card = wx.Panel(self.scroll)
+        card.SetBackgroundColour(Theme.BG_PANEL)
+        card_sizer = wx.BoxSizer(wx.HORIZONTAL)
+
+        wave = op.get('wave', 'sine')
+        freq = op.get('freq', 440.0)
+        amp_val = op.get('amp', 1.0)
+
+        # Op index badge
+        badge = wx.StaticText(card, label=f" Op{idx} ")
+        badge.SetForegroundColour(Theme.BG_DARK)
+        badge.SetBackgroundColour(Theme.ACCENT)
+        badge.SetFont(badge.GetFont().Bold())
+        card_sizer.Add(badge, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 4)
+
+        # Info
+        info_sizer = wx.BoxSizer(wx.VERTICAL)
+        wave_text = wx.StaticText(card, label=wave)
+        wave_text.SetForegroundColour(Theme.FG_TEXT)
+        wave_text.SetFont(wave_text.GetFont().Bold())
+        info_sizer.Add(wave_text, 0)
+
+        detail = f"{freq:.1f} Hz  |  amp: {amp_val:.3f}"
+        detail_text = wx.StaticText(card, label=detail)
+        detail_text.SetForegroundColour(Theme.FG_DIM)
+        info_sizer.Add(detail_text, 0)
+
+        card_sizer.Add(info_sizer, 1, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 4)
+
+        # Quick-edit buttons
+        select_btn = wx.Button(card, label="Select", size=(55, -1))
+        select_btn.Bind(wx.EVT_BUTTON, lambda e, i=idx: self._select_op(i))
+        card_sizer.Add(select_btn, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 2)
+
+        card.SetSizer(card_sizer)
+        return card
+
+    def _select_op(self, idx):
+        try:
+            result = self.executor.run(f"/op {idx}")
+            if result:
+                self.console_cb(result + '\n', 'info')
+            self.sync_cb()
+        except Exception as e:
+            self.console_cb(f"ERROR: {e}\n", 'error')
+
+
 class MDMAFrame(wx.Frame):
     """Main application window.
 
-    Layout (Phase 1):
-    +-----------+---------------------+
-    |  Object   |  Inspector / Action |
-    |  Browser  |  (notebook tabs)    |
-    |  (tree)   |                     |
-    +-----------+---------------------+
-    |  Step Grid  |  Console Output   |
-    +-------------+-------------------+
+    Layout (Phase 2):
+    +-----------+----------------------------------+
+    |  Object   |  Inspector / Actions / Patch /   |
+    |  Browser  |  Oscillators / Routing           |
+    |  (tree)   |  (notebook tabs)                 |
+    +-----------+----------------------------------+
+    |  Step Grid  |  Console Output                |
+    +-------------+--------------------------------+
     """
 
-    VERSION = "1.0.0"
+    VERSION = "2.0.0"
 
     def __init__(self):
         super().__init__(None, title="MDMA - Music Design Made Accessible",
@@ -2153,7 +2692,7 @@ class MDMAFrame(wx.Frame):
         self.Centre()
 
         # Welcome message
-        self.console.append(f"MDMA GUI v{self.VERSION} - Phase 1 Interface\n", 'info')
+        self.console.append(f"MDMA GUI v{self.VERSION} - Phase 2: Monolith Engine\n", 'info')
         self.console.append("=" * 55 + "\n", 'info')
 
         # Warn if engine failed to load
@@ -2277,6 +2816,23 @@ class MDMAFrame(wx.Frame):
             state_sync_callback=self.sync_state)
         self.right_notebook.AddPage(self.action_panel, "Actions")
 
+        # Phase 2 panels
+        self.patch_builder = PatchBuilderPanel(
+            self.right_notebook, self.executor,
+            console_callback=self.console_append,
+            state_sync_callback=self.sync_state)
+        self.right_notebook.AddPage(self.patch_builder, "Patch")
+
+        self.osc_list = OscillatorListPanel(
+            self.right_notebook, self.executor,
+            console_callback=self.console_append,
+            state_sync_callback=self.sync_state)
+        self.right_notebook.AddPage(self.osc_list, "Oscillators")
+
+        self.routing_panel = RoutingPanel(
+            self.right_notebook, self.executor)
+        self.right_notebook.AddPage(self.routing_panel, "Routing")
+
         # --- Bottom left: Step Grid ---
         self.step_grid = StepGridPanel(self.bottom_splitter, self.executor)
 
@@ -2368,6 +2924,11 @@ class MDMAFrame(wx.Frame):
 
         # Update step grid
         self.step_grid.update_from_session()
+
+        # Phase 2: refresh patch builder, oscillator list, routing view
+        self.patch_builder.refresh()
+        self.osc_list.refresh()
+        self.routing_panel.refresh()
 
     # ------------------------------------------------------------------
     # Auto-refresh timer

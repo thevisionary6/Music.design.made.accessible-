@@ -1,8 +1,9 @@
 # MDMA Full Release Roadmap
 
 **Music Design Made Accessible**
-**Document Version:** 1.0
+**Document Version:** 1.2
 **Baseline:** v52.0 (2026-02-03)
+**Last Updated:** 2026-02-11 (Phase 1 & 2 complete)
 **Target:** v1.0 Full Release
 
 ---
@@ -14,54 +15,75 @@ Phases are ordered by dependency — later phases build on earlier ones.
 Within each phase, features are listed by priority (highest first).
 
 **Status Key:**
+- **[DONE]** — Implemented and tested
 - **[EXISTS]** — Already implemented (may need refinement)
 - **[PARTIAL]** — Foundation exists, significant work remains
 - **[NEW]** — Not yet started
 
 ---
 
-## Phase 1: Core Interface & Workflow
+## Phase 1: Core Interface & Workflow -- COMPLETE
 
 > **Goal:** Make the GUI a real production surface, not just a command launcher.
 > **Depends on:** v52 GUI MVP
 > **Delivers:** A navigable, visual workspace for all MDMA objects.
+> **Completed:** 2026-02-11
 
 | # | Feature | Status | Description |
 |---|---------|--------|-------------|
-| 1.1 | Object tree view | **[NEW]** | Hierarchical browser showing tracks, decks, buffers, chains, and composite objects with live state |
-| 1.2 | Dynamic object list | **[PARTIAL]** | Object browser already exists in GUI MVP; needs live updates when engine state changes |
-| 1.3 | Preview views | **[NEW]** | Compact inline previews for tracks (duration, peak, channel count), decks (position, BPM), and composite objects |
-| 1.4 | Expanded detail views | **[NEW]** | Full-panel inspector when an object is selected — shows all parameters, FX chain, routing |
-| 1.5 | Step grid highlighting | **[NEW]** | Visual step grid that highlights active position during playback, with buffer I/O tracking indicators |
-| 1.6 | Context menus | **[NEW]** | Right-click context menus on objects for generation, destructive editing, FX application, and routing |
-| 1.7 | Selection-based FX | **[PARTIAL]** | Apply effects to selections, track buses, and song sections — FX system exists, needs selection targeting |
-| 1.8 | Accessibility markers | **[NEW]** | Labeled section markers for deck regions — screen-reader-friendly navigation anchors for all deck sections |
+| 1.1 | Object tree view | **[DONE]** | 10-category hierarchical tree: Engine, Synthesizer, Filter, Envelope, Tracks, Buffers, Decks, Effects, Presets, Banks |
+| 1.2 | Dynamic object list | **[DONE]** | Rich tree data with inline metadata; auto-refresh timer (500ms); full rebuild after every command |
+| 1.3 | Preview views | **[DONE]** | Inline previews: `Track 1: Drums [2.50s, stereo, peak: -3.2dB] [SOLO]` for all object types |
+| 1.4 | Expanded detail views | **[DONE]** | InspectorPanel with property grid, contextual action buttons, tabbed alongside ActionPanel |
+| 1.5 | Step grid highlighting | **[DONE]** | StepGridPanel with beat grid, playhead/write-pos indicators, 16/32/64/128 steps, color legend |
+| 1.6 | Context menus | **[DONE]** | Right-click on tracks, buffers, decks, effects, operators, presets, chains, categories |
+| 1.7 | Selection-based FX | **[DONE]** | FX picker dialog targeting specific objects (track/buffer/deck/working/global) |
+| 1.8 | Accessibility markers | **[DONE]** | Deck section markers (intro/body/outro) as navigable child nodes with timestamps |
 
 ### Milestone Deliverable
 A GUI where users can browse every object in their session, inspect its state, right-click to act on it, and see step-by-step playback position — all keyboard-navigable and screen-reader compatible.
 
 ---
 
-## Phase 2: Monolith Engine & Synthesis Expansion
+## Phase 2: Monolith Engine & Synthesis Expansion -- COMPLETE
 
 > **Goal:** Elevate the Monolith synth from functional to professional-grade.
 > **Depends on:** Phase 1 (GUI views to expose new parameters)
 > **Delivers:** A deep, visual synth engine with extended waveform capabilities.
+> **Completed:** 2026-02-11
 
 | # | Feature | Status | Description |
 |---|---------|--------|-------------|
-| 2.1 | Full Monolith patch builder view | **[NEW]** | Dedicated GUI panel for building and editing Monolith patches — operators, routing, envelopes, all in one view |
-| 2.2 | Carrier/modulator GUI | **[NEW]** | Visual representation of carrier and modulator relationships — shows signal flow, ratios, and levels |
-| 2.3 | Full parameter exposure | **[PARTIAL]** | All Monolith parameters (including full voice params) exposed via GUI widgets — param system exists, needs complete mapping |
-| 2.4 | Oscillator list view | **[NEW]** | Scrollable list-based oscillator browser (not grid) — each entry shows waveform name, preview, and quick-edit controls |
-| 2.5 | Extended wave models | **[PARTIAL]** | Wave models beyond basic sine/saw/square/triangle — additive, band-limited, and spectral waveforms |
-| 2.6 | Physical modeling waveforms | **[NEW]** | Waveguide-based string, tube, membrane, and plate models — physically simulated timbres |
-| 2.7 | Odd/even harmonic simulation | **[NEW]** | Models that emphasize odd harmonics (clarinet-like) or even harmonics (warm/tubular) with independent control |
-| 2.8 | Wavetable import support | **[NEW]** | Import `.wav` wavetable files (Serum format, single-cycle, multi-frame) and use them as oscillator sources |
-| 2.9 | Compound wave creation | **[NEW]** | Create complex waveforms by layering, morphing, or granular-chunking existing waves — AI-assisted or manual |
+| 2.1 | Full Monolith patch builder view | **[DONE]** | PatchBuilderPanel: operator list + routing list + inline param editing + wave type picker + quick action buttons |
+| 2.2 | Carrier/modulator GUI | **[DONE]** | RoutingPanel: visual signal flow diagram with operator boxes, bezier-curve routing arrows, color-coded by modulation type |
+| 2.3 | Full parameter exposure | **[DONE]** | All 40+ Monolith parameters exposed via /wm key=value syntax and GUI widgets. Param map covers supersaw, additive, formant, harmonic, waveguide, wavetable, compound |
+| 2.4 | Oscillator list view | **[DONE]** | OscillatorListPanel: scrollable card-based browser with category filter (Basic/Noise/Physical/Extended/Waveguide/Wavetable/Compound), per-op select button |
+| 2.5 | Extended wave models | **[DONE]** | Added supersaw (JP-8000 style, 3-11 detuned saws), additive (harmonic rolloff), formant (vowel-shaped oscillator a/e/i/o/u) |
+| 2.6 | Physical modeling waveforms | **[DONE]** | 4 waveguide models: Karplus-Strong string (damping/brightness/position), tube/pipe (reflection/bore), membrane/drum (tension/strike), plate/bar (thickness/material) |
+| 2.7 | Odd/even harmonic simulation | **[DONE]** | Harmonic wave type with independent odd_level, even_level, odd_decay, even_decay. Clarinet-like (odd only) to organ-like (even emphasis) |
+| 2.8 | Wavetable import support | **[DONE]** | /wt load command imports Serum-format .wav wavetables. Frame interpolation, per-frame normalization, frame position 0.0-1.0. Engine stores named wavetables |
+| 2.9 | Compound wave creation | **[DONE]** | /compound new/add/use/morph commands. Layer multiple wave types with detune/amp/phase per layer. Morph mode crossfades between 2 layers |
 
 ### Milestone Deliverable
 A fully visual synth-design experience — users can build patches from scratch, import wavetables, use physical models, and hear the results immediately.
+
+### Phase 2 Implementation Notes
+
+**New wave types added to `monolith.py`:**
+- `supersaw` (ssaw): 7 detuned saws, JP-8000 style, params: num_saws, detune_spread, mix
+- `additive` (add): Harmonic rolloff synthesis, params: num_harmonics, rolloff
+- `formant` (vowel): Vocal formant oscillator, params: vowel (a/e/i/o/u)
+- `harmonic` (harm): Independent odd/even control, params: odd_level, even_level, odd_decay, even_decay
+- `waveguide_string` (string/pluck): Karplus-Strong, params: damping, brightness, position
+- `waveguide_tube` (tube/pipe): Waveguide tube, params: damping, reflection, bore_shape
+- `waveguide_membrane` (membrane/drum): Drum model, params: tension, damping, strike_pos
+- `waveguide_plate` (plate/bar): Vibraphone/marimba, params: thickness, damping, material
+- `wavetable` (wt): Imported wavetable playback, params: wavetable_name, frame_pos
+- `compound` (comp/layer): Multi-wave layer/morph, params: compound_name, morph, layers
+
+**New commands:** /ssaw, /harm, /wg, /wt, /compound, /waveinfo
+**GUI panels:** PatchBuilderPanel, RoutingPanel, OscillatorListPanel (3 new tabs)
+**Total wave types:** 22 (up from 8)
 
 ---
 
@@ -254,8 +276,8 @@ These phase groups can be developed concurrently:
 
 | Phase | New Features | Partial/Existing | Total |
 |-------|-------------|------------------|-------|
-| 1. Core Interface | 6 | 2 | 8 |
-| 2. Monolith & Synthesis | 6 | 3 | 9 |
+| 1. Core Interface | 8 DONE | 0 | 8 |
+| 2. Monolith & Synthesis | 9 DONE | 0 | 9 |
 | 3. Modulation & Convolution | 5 | 1 | 6 |
 | 4. Generative Systems | 2 | 3 | 5 |
 | 5. Advanced Sound Engines | 3 | 0 | 3 |

@@ -106,14 +106,24 @@ def cmd_wm(session: Session, args: List[str]) -> str:
     
     Wave Types:
       sine, sin        - Pure sine wave
-      triangle, tri    - Triangle wave  
+      triangle, tri    - Triangle wave
       saw, sawtooth    - Sawtooth wave (carrier-only)
       pulse, pwm, square - Pulse wave with width control (carrier-only)
       noise, white     - White noise
       pink             - Pink noise (-3dB/octave)
       physical, phys   - Physical modeling (even/odd harmonics)
       physical2, phys2 - Physical modeling with inharmonicity
-    
+      supersaw, ssaw   - Stacked detuned saws (JP-8000 style)
+      additive, add    - Additive synthesis with harmonic rolloff
+      formant, vowel   - Formant-shaped oscillator (vocal timbres)
+      harmonic, harm   - Independent odd/even harmonic control
+      waveguide_string, string, pluck - Karplus-Strong string model
+      waveguide_tube, tube, pipe      - Waveguide tube/pipe model
+      waveguide_membrane, membrane, drum - Drum membrane model
+      waveguide_plate, plate, bar     - Plate/bar model (vibraphone)
+      wavetable, wt    - Wavetable playback (load with /wt)
+      compound, comp   - Compound wave (define with /compound)
+
     Parameters (wave-specific):
       pw=0.5           - Pulse width (0.0-1.0, default 0.5)
       even=8           - Even harmonics count (physical)
@@ -123,6 +133,27 @@ def cmd_wm(session: Session, args: List[str]) -> str:
       inharm=0.01      - Inharmonicity (physical2)
       partials=12      - Partial count (physical2)
       curve=exp        - Decay curve: exp/linear/sqrt (physical2)
+      saws=7           - Number of saw oscillators (supersaw)
+      spread=0.5       - Detune spread in semitones (supersaw)
+      mix=0.75         - Center vs. stack mix (supersaw)
+      rolloff=1.0      - Harmonic rolloff exponent (additive)
+      nharm=16         - Harmonic count (additive/harmonic)
+      vowel=a          - Vowel shape: a/e/i/o/u (formant)
+      oddlvl=1.0       - Odd harmonic level (harmonic)
+      evenlvl=1.0      - Even harmonic level (harmonic)
+      odecay=0.8       - Odd harmonic decay (harmonic)
+      edecay=0.8       - Even harmonic decay (harmonic)
+      damp=0.996       - Damping (waveguide models)
+      bright=0.5       - Brightness (waveguide_string)
+      pos=0.28         - Pluck/strike position (string/membrane)
+      reflect=0.7      - End reflection (tube)
+      bore=0.5         - Bore shape (tube)
+      tension=0.5      - Membrane tension (membrane)
+      thick=0.5        - Plate thickness (plate)
+      mat=0.5          - Material type (plate: 0=wood, 1=metal)
+      frame=0.0        - Wavetable frame position 0.0-1.0
+      wtn=name         - Wavetable name to use
+      morph=0.0        - Morph position for compound waves
     """
     # Available wave types for display
     wave_types = [
@@ -134,6 +165,16 @@ def cmd_wm(session: Session, args: List[str]) -> str:
         ('pink', '', 'Pink noise (-3dB/oct)'),
         ('physical', 'phys', 'Harmonic modeling'),
         ('physical2', 'phys2', 'Inharmonic modeling'),
+        ('supersaw', 'ssaw', 'Stacked detuned saws'),
+        ('additive', 'add', 'Additive synthesis'),
+        ('formant', 'vowel', 'Vocal formant oscillator'),
+        ('harmonic', 'harm', 'Odd/even harmonic control'),
+        ('waveguide_string', 'string/pluck', 'Plucked string model'),
+        ('waveguide_tube', 'tube/pipe', 'Tube/pipe model'),
+        ('waveguide_membrane', 'membrane/drum', 'Drum membrane model'),
+        ('waveguide_plate', 'plate/bar', 'Plate/bar model'),
+        ('wavetable', 'wt', 'Wavetable playback'),
+        ('compound', 'comp/layer', 'Compound wave layers'),
     ]
     
     if not args:
@@ -160,6 +201,43 @@ def cmd_wm(session: Session, args: List[str]) -> str:
                 lines.append(f"  Inharmonicity: {params.get('inharmonicity', 0.01):.4f}")
                 lines.append(f"  Partials: {params.get('partials', 12)}")
                 lines.append(f"  Decay Curve: {params.get('decay_curve', 'exp')}")
+            elif wave == 'supersaw':
+                lines.append(f"  Saws: {params.get('num_saws', 7)}")
+                lines.append(f"  Detune Spread: {params.get('detune_spread', 0.5):.2f} st")
+                lines.append(f"  Mix: {params.get('mix', 0.75):.2f}")
+            elif wave == 'additive':
+                lines.append(f"  Harmonics: {params.get('num_harmonics', 16)}")
+                lines.append(f"  Rolloff: {params.get('rolloff', 1.0):.2f}")
+            elif wave == 'formant':
+                lines.append(f"  Vowel: {params.get('vowel', 'a')}")
+            elif wave == 'harmonic':
+                lines.append(f"  Odd Level: {params.get('odd_level', 1.0):.2f}")
+                lines.append(f"  Even Level: {params.get('even_level', 1.0):.2f}")
+                lines.append(f"  Harmonics: {params.get('num_harmonics', 16)}")
+                lines.append(f"  Odd Decay: {params.get('odd_decay', 0.8):.2f}")
+                lines.append(f"  Even Decay: {params.get('even_decay', 0.8):.2f}")
+            elif wave == 'waveguide_string':
+                lines.append(f"  Damping: {params.get('damping', 0.996):.4f}")
+                lines.append(f"  Brightness: {params.get('brightness', 0.5):.2f}")
+                lines.append(f"  Position: {params.get('position', 0.28):.2f}")
+            elif wave == 'waveguide_tube':
+                lines.append(f"  Damping: {params.get('damping', 0.995):.4f}")
+                lines.append(f"  Reflection: {params.get('reflection', 0.7):.2f}")
+                lines.append(f"  Bore Shape: {params.get('bore_shape', 0.5):.2f}")
+            elif wave == 'waveguide_membrane':
+                lines.append(f"  Tension: {params.get('tension', 0.5):.2f}")
+                lines.append(f"  Damping: {params.get('damping', 0.995):.4f}")
+                lines.append(f"  Strike Pos: {params.get('strike_pos', 0.3):.2f}")
+            elif wave == 'waveguide_plate':
+                lines.append(f"  Thickness: {params.get('thickness', 0.5):.2f}")
+                lines.append(f"  Damping: {params.get('damping', 0.997):.4f}")
+                lines.append(f"  Material: {params.get('material', 0.5):.2f}")
+            elif wave == 'wavetable':
+                lines.append(f"  Table: {params.get('wavetable_name', '(none)')}")
+                lines.append(f"  Frame Pos: {params.get('frame_pos', 0.0):.3f}")
+            elif wave == 'compound':
+                lines.append(f"  Compound: {params.get('compound_name', '(none)')}")
+                lines.append(f"  Morph: {params.get('morph', 0.0):.3f}")
         
         lines.append("")
         lines.append("Available wave types:")
@@ -189,14 +267,46 @@ def cmd_wm(session: Session, args: List[str]) -> str:
                 'inharm': 'inharmonicity',
                 'partials': 'partials',
                 'curve': 'decay_curve',
+                # Phase 2: supersaw
+                'saws': 'num_saws',
+                'spread': 'detune_spread',
+                'mix': 'mix',
+                # Phase 2: additive / harmonic
+                'rolloff': 'rolloff',
+                'nharm': 'num_harmonics',
+                'vowel': 'vowel',
+                'oddlvl': 'odd_level',
+                'evenlvl': 'even_level',
+                'odecay': 'odd_decay',
+                'edecay': 'even_decay',
+                # Phase 2: waveguide
+                'damp': 'damping',
+                'bright': 'brightness',
+                'pos': 'position',
+                'reflect': 'reflection',
+                'bore': 'bore_shape',
+                'tension': 'tension',
+                'strike': 'strike_pos',
+                'thick': 'thickness',
+                'mat': 'material',
+                # Phase 2: wavetable / compound
+                'frame': 'frame_pos',
+                'wtn': 'wavetable_name',
+                'morph': 'morph',
+                'cmpn': 'compound_name',
             }
-            
+
+            # String-type params (no float conversion)
+            STRING_PARAMS = {'decay_curve', 'vowel', 'wavetable_name', 'compound_name'}
+            # Integer-type params
+            INT_PARAMS = {'even_harmonics', 'odd_harmonics', 'partials', 'num_saws', 'num_harmonics'}
+
             if key in param_map:
                 full_key = param_map[key]
                 # Convert to appropriate type
-                if full_key in ('even_harmonics', 'odd_harmonics', 'partials'):
+                if full_key in INT_PARAMS:
                     kwargs[full_key] = int(float(val))
-                elif full_key == 'decay_curve':
+                elif full_key in STRING_PARAMS:
                     kwargs[full_key] = val
                 else:
                     kwargs[full_key] = float(val)
@@ -2116,6 +2226,338 @@ def cmd_ns(session: Session, args: List[str]) -> str:
             f"  rms: {rms:.3f}")
 
 
+# ===========================================================================
+# PHASE 2: NEW SYNTH COMMANDS
+# ===========================================================================
+
+def cmd_ssaw(session: Session, args: List[str]) -> str:
+    """Configure supersaw parameters.
+
+    Usage:
+      /ssaw                       -> Show current supersaw settings
+      /ssaw <saws> <spread> <mix> -> Set supersaw params
+
+    Parameters:
+      saws   - Number of saw oscillators (3-11, default 7)
+      spread - Detune spread in semitones (0.0-2.0, default 0.5)
+      mix    - Center vs. stack balance (0.0-1.0, default 0.75)
+    """
+    op_idx = session.current_operator
+    params = session.engine.operators.get(op_idx)
+
+    if not args:
+        if params is None:
+            return "SSAW: (no operator defined)"
+        lines = [
+            f"=== SUPERSAW op{op_idx} ===",
+            f"  Saws: {params.get('num_saws', 7)}",
+            f"  Detune Spread: {params.get('detune_spread', 0.5):.2f} st",
+            f"  Mix: {params.get('mix', 0.75):.2f}",
+        ]
+        return '\n'.join(lines)
+
+    try:
+        saws = _parse_int(args[0]) if len(args) > 0 else 7
+        spread = _parse_float(args[1]) if len(args) > 1 else 0.5
+        mix = _parse_float(args[2]) if len(args) > 2 else 0.75
+        session.engine.set_param(op_idx, 'num_saws', max(3, min(11, saws)))
+        session.engine.set_param(op_idx, 'detune_spread', spread)
+        session.engine.set_param(op_idx, 'mix', mix)
+        return f"OK: supersaw params set (saws={saws}, spread={spread:.2f}, mix={mix:.2f})"
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+def cmd_harm(session: Session, args: List[str]) -> str:
+    """Configure harmonic model (odd/even independent control).
+
+    Usage:
+      /harm                                   -> Show settings
+      /harm <odd_lvl> <even_lvl>              -> Set levels
+      /harm <odd_lvl> <even_lvl> <nharm>      -> Set levels + count
+      /harm <odd_lvl> <even_lvl> <nharm> <odecay> <edecay>
+
+    Parameters:
+      odd_lvl  - Odd harmonic level (0.0-2.0, default 1.0)
+      even_lvl - Even harmonic level (0.0-2.0, default 1.0)
+      nharm    - Number of harmonics (1-64, default 16)
+      odecay   - Odd harmonic decay rate (0.1-1.0, default 0.8)
+      edecay   - Even harmonic decay rate (0.1-1.0, default 0.8)
+
+    Tip: Set even_lvl=0 for clarinet/square-like timbres (odd only).
+         Set odd_lvl low for warm organ-like timbres (even emphasis).
+    """
+    op_idx = session.current_operator
+    params = session.engine.operators.get(op_idx)
+
+    if not args:
+        if params is None:
+            return "HARM: (no operator defined)"
+        lines = [
+            f"=== HARMONIC MODEL op{op_idx} ===",
+            f"  Odd Level: {params.get('odd_level', 1.0):.2f}",
+            f"  Even Level: {params.get('even_level', 1.0):.2f}",
+            f"  Harmonics: {params.get('num_harmonics', 16)}",
+            f"  Odd Decay: {params.get('odd_decay', 0.8):.2f}",
+            f"  Even Decay: {params.get('even_decay', 0.8):.2f}",
+        ]
+        return '\n'.join(lines)
+
+    try:
+        odd_lvl = _parse_float(args[0]) if len(args) > 0 else 1.0
+        even_lvl = _parse_float(args[1]) if len(args) > 1 else 1.0
+        nharm = _parse_int(args[2]) if len(args) > 2 else 16
+        odecay = _parse_float(args[3]) if len(args) > 3 else 0.8
+        edecay = _parse_float(args[4]) if len(args) > 4 else 0.8
+        session.engine.set_param(op_idx, 'odd_level', odd_lvl)
+        session.engine.set_param(op_idx, 'even_level', even_lvl)
+        session.engine.set_param(op_idx, 'num_harmonics', max(1, min(64, nharm)))
+        session.engine.set_param(op_idx, 'odd_decay', odecay)
+        session.engine.set_param(op_idx, 'even_decay', edecay)
+        return (f"OK: harmonic model set (odd={odd_lvl:.2f}, even={even_lvl:.2f}, "
+                f"nharm={nharm}, odecay={odecay:.2f}, edecay={edecay:.2f})")
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+def cmd_waveguide(session: Session, args: List[str]) -> str:
+    """Configure waveguide model parameters.
+
+    Usage:
+      /wg                           -> Show current waveguide settings
+      /wg <param> <value>           -> Set single parameter
+
+    Parameters (context-dependent on current wave type):
+      damp <0.9-0.999>    - Damping
+      bright <0.0-1.0>    - Brightness (string)
+      pos <0.0-0.5>       - Pluck/strike position (string/membrane)
+      reflect <0.0-1.0>   - End reflection (tube)
+      bore <0.0-1.0>      - Bore shape (tube: 0=cyl, 1=conical)
+      tension <0.0-1.0>   - Membrane tension (membrane)
+      strike <0.0-1.0>    - Strike position (membrane)
+      thick <0.0-1.0>     - Plate thickness (plate)
+      mat <0.0-1.0>       - Material (plate: 0=wood, 1=metal)
+    """
+    op_idx = session.current_operator
+    params = session.engine.operators.get(op_idx)
+
+    if not args:
+        if params is None:
+            return "WG: (no operator defined)"
+        wave = params.get('wave', '')
+        lines = [f"=== WAVEGUIDE op{op_idx} ({wave}) ==="]
+        lines.append(f"  Damping: {params.get('damping', 0.996):.4f}")
+        if wave == 'waveguide_string':
+            lines.append(f"  Brightness: {params.get('brightness', 0.5):.2f}")
+            lines.append(f"  Position: {params.get('position', 0.28):.2f}")
+        elif wave == 'waveguide_tube':
+            lines.append(f"  Reflection: {params.get('reflection', 0.7):.2f}")
+            lines.append(f"  Bore Shape: {params.get('bore_shape', 0.5):.2f}")
+        elif wave == 'waveguide_membrane':
+            lines.append(f"  Tension: {params.get('tension', 0.5):.2f}")
+            lines.append(f"  Strike Pos: {params.get('strike_pos', 0.3):.2f}")
+        elif wave == 'waveguide_plate':
+            lines.append(f"  Thickness: {params.get('thickness', 0.5):.2f}")
+            lines.append(f"  Material: {params.get('material', 0.5):.2f}")
+        return '\n'.join(lines)
+
+    param_name = args[0].lower()
+    if len(args) < 2:
+        return "Usage: /wg <param> <value>"
+
+    wg_param_map = {
+        'damp': 'damping', 'damping': 'damping',
+        'bright': 'brightness', 'brightness': 'brightness',
+        'pos': 'position', 'position': 'position',
+        'reflect': 'reflection', 'reflection': 'reflection',
+        'bore': 'bore_shape',
+        'tension': 'tension',
+        'strike': 'strike_pos',
+        'thick': 'thickness', 'thickness': 'thickness',
+        'mat': 'material', 'material': 'material',
+    }
+
+    full_name = wg_param_map.get(param_name)
+    if not full_name:
+        return f"ERROR: Unknown waveguide param '{param_name}'. Use: {', '.join(sorted(set(wg_param_map.values())))}"
+
+    try:
+        val = _parse_float(args[1])
+        session.engine.set_param(op_idx, full_name, val)
+        return f"OK: {full_name} = {val:.4f} on op{op_idx}"
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+def cmd_wt(session: Session, args: List[str]) -> str:
+    """Wavetable management.
+
+    Usage:
+      /wt                       -> List loaded wavetables
+      /wt load <name> <path>    -> Load wavetable from .wav file
+      /wt load <name> <path> <framesize> -> Load with custom frame size
+      /wt use <name>            -> Set current operator to use wavetable
+      /wt frame <pos>           -> Set frame position (0.0-1.0)
+      /wt del <name>            -> Delete a loaded wavetable
+      /wt info <name>           -> Show wavetable details
+    """
+    if not args:
+        tables = session.engine.list_wavetables()
+        if not tables:
+            return "No wavetables loaded. Use /wt load <name> <path>"
+        lines = ["=== WAVETABLES ==="]
+        for name, frames, size in tables:
+            lines.append(f"  {name}: {frames} frames x {size} samples")
+        return '\n'.join(lines)
+
+    sub = args[0].lower()
+
+    if sub == 'load' and len(args) >= 3:
+        name = args[1]
+        path = args[2]
+        frame_size = _parse_int(args[3]) if len(args) > 3 else 2048
+        result = session.engine.load_wavetable_from_file(name, path, frame_size)
+        return result
+
+    elif sub == 'use' and len(args) >= 2:
+        name = args[1]
+        if name not in session.engine.wavetables:
+            available = ', '.join(session.engine.wavetables.keys()) or '(none)'
+            return f"ERROR: Wavetable '{name}' not found. Available: {available}"
+        op_idx = session.current_operator
+        session.engine.set_wave(op_idx, 'wavetable', wavetable_name=name)
+        return f"OK: op{op_idx} set to wavetable '{name}'"
+
+    elif sub == 'frame' and len(args) >= 2:
+        pos = _parse_float(args[1])
+        op_idx = session.current_operator
+        session.engine.set_param(op_idx, 'frame_pos', max(0.0, min(1.0, pos)))
+        return f"OK: frame position = {pos:.3f} on op{op_idx}"
+
+    elif sub == 'del' and len(args) >= 2:
+        name = args[1]
+        if session.engine.delete_wavetable(name):
+            return f"OK: wavetable '{name}' deleted"
+        return f"ERROR: wavetable '{name}' not found"
+
+    elif sub == 'info' and len(args) >= 2:
+        name = args[1]
+        if name not in session.engine.wavetables:
+            return f"ERROR: wavetable '{name}' not found"
+        frames = session.engine.wavetables[name]
+        lines = [
+            f"=== WAVETABLE: {name} ===",
+            f"  Frames: {frames.shape[0]}",
+            f"  Frame Size: {frames.shape[1]} samples",
+            f"  Total Samples: {frames.shape[0] * frames.shape[1]}",
+        ]
+        return '\n'.join(lines)
+
+    return ("Usage: /wt [load|use|frame|del|info]\n"
+            "  /wt load <name> <path> [framesize]\n"
+            "  /wt use <name>\n"
+            "  /wt frame <0.0-1.0>\n"
+            "  /wt del <name>\n"
+            "  /wt info <name>")
+
+
+def cmd_compound(session: Session, args: List[str]) -> str:
+    """Compound wave management.
+
+    Usage:
+      /compound                       -> List compound waves
+      /compound new <name>            -> Create new compound
+      /compound add <name> <wave> [detune] [amp] [phase]  -> Add layer
+      /compound use <name>            -> Set operator to use compound
+      /compound morph <0.0-1.0>       -> Set morph position (2-layer)
+      /compound del <name>            -> Delete compound
+      /compound show <name>           -> Show layers
+    """
+    if not args:
+        compounds = session.engine.list_compounds()
+        if not compounds:
+            return "No compound waves defined. Use /compound new <name>"
+        lines = ["=== COMPOUND WAVES ==="]
+        for name, n_layers in compounds:
+            lines.append(f"  {name}: {n_layers} layers")
+        return '\n'.join(lines)
+
+    sub = args[0].lower()
+
+    if sub == 'new' and len(args) >= 2:
+        name = args[1]
+        session.engine.create_compound(name, [])
+        return f"OK: compound '{name}' created (empty). Add layers with /compound add"
+
+    elif sub == 'add' and len(args) >= 3:
+        name = args[1]
+        wave = args[2].lower()
+        detune = _parse_float(args[3]) if len(args) > 3 else 0.0
+        layer_amp = _parse_float(args[4]) if len(args) > 4 else 1.0
+        layer_phase = _parse_float(args[5]) if len(args) > 5 else 0.0
+
+        if name not in session.engine.compound_waves:
+            session.engine.compound_waves[name] = []
+
+        layer = {'wave': wave, 'amp': layer_amp, 'detune': detune, 'phase': layer_phase}
+        session.engine.compound_waves[name].append(layer)
+        n = len(session.engine.compound_waves[name])
+        return f"OK: added {wave} layer to '{name}' (now {n} layers)"
+
+    elif sub == 'use' and len(args) >= 2:
+        name = args[1]
+        if name not in session.engine.compound_waves:
+            available = ', '.join(session.engine.compound_waves.keys()) or '(none)'
+            return f"ERROR: Compound '{name}' not found. Available: {available}"
+        op_idx = session.current_operator
+        session.engine.set_wave(op_idx, 'compound', compound_name=name)
+        return f"OK: op{op_idx} set to compound '{name}'"
+
+    elif sub == 'morph' and len(args) >= 2:
+        pos = _parse_float(args[1])
+        op_idx = session.current_operator
+        session.engine.set_param(op_idx, 'morph', max(0.0, min(1.0, pos)))
+        return f"OK: morph position = {pos:.3f} on op{op_idx}"
+
+    elif sub == 'del' and len(args) >= 2:
+        name = args[1]
+        if session.engine.delete_compound(name):
+            return f"OK: compound '{name}' deleted"
+        return f"ERROR: compound '{name}' not found"
+
+    elif sub == 'show' and len(args) >= 2:
+        name = args[1]
+        if name not in session.engine.compound_waves:
+            return f"ERROR: compound '{name}' not found"
+        layers = session.engine.compound_waves[name]
+        lines = [f"=== COMPOUND: {name} ({len(layers)} layers) ==="]
+        for i, layer in enumerate(layers):
+            lines.append(
+                f"  [{i}] {layer.get('wave', 'sine')}: "
+                f"amp={layer.get('amp', 1.0):.2f}, "
+                f"detune={layer.get('detune', 0.0):.2f}st, "
+                f"phase={layer.get('phase', 0.0):.2f}"
+            )
+        return '\n'.join(lines)
+
+    return ("Usage: /compound [new|add|use|morph|del|show]\n"
+            "  /compound new <name>\n"
+            "  /compound add <name> <wave> [detune] [amp] [phase]\n"
+            "  /compound use <name>\n"
+            "  /compound morph <0.0-1.0>\n"
+            "  /compound del <name>\n"
+            "  /compound show <name>")
+
+
+def cmd_waveinfo(session: Session, args: List[str]) -> str:
+    """Show all available wave types and their parameters.
+
+    Usage:
+      /waveinfo         -> List all wave types
+    """
+    return session.engine.get_wave_info()
+
+
 def get_synth_commands() -> dict:
     """Return synth commands for registration."""
     return {
@@ -2200,4 +2642,18 @@ def get_synth_commands() -> dict:
         'venv': cmd_venv,
         'fenv': cmd_fenv,
         'menv': cmd_menv,
+
+        # Phase 2: Extended wave commands
+        'ssaw': cmd_ssaw,
+        'supersaw': cmd_ssaw,
+        'harm': cmd_harm,
+        'harmonic': cmd_harm,
+        'wg': cmd_waveguide,
+        'waveguide': cmd_waveguide,
+        'wt': cmd_wt,
+        'wavetable': cmd_wt,
+        'compound': cmd_compound,
+        'comp': cmd_compound,
+        'waveinfo': cmd_waveinfo,
+        'waves': cmd_waveinfo,
     }

@@ -1,0 +1,32 @@
+# MDMA - Music Design Made Accessible
+# Core dependencies (required)
+numpy>=1.20.0
+scipy>=1.7.0
+soundfile>=0.10.0
+sounddevice>=0.4.0
+
+# Audio format support
+pydub>=0.25.0
+
+# Optional: GUI
+# wxPython>=4.2.0
+
+# Optional: TUI
+# textual>=0.40.0
+
+# Optional: Playback alternatives
+# simpleaudio>=1.0.4
+# PyAudio>=0.2.11
+
+# Optional: AI features
+# torch>=2.0.0
+# transformers>=4.30.0
+# diffusers>=0.20.0
+# librosa>=0.10.0
+
+# Optional: Stem separation
+# demucs>=4.0.0
+# spleeter>=2.3.0
+
+# Optional: Streaming
+# yt-dlp>=2023.0.0
