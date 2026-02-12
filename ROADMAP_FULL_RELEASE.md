@@ -105,6 +105,64 @@ A fully visual synth-design experience — users can build patches from scratch,
 ### Milestone Deliverable
 A modulation and convolution system where any audio can become a modulation source, convolution reverbs sound studio-grade, and AI can intelligently reshape acoustic spaces.
 
+### Phase 3 Readiness Notes (system audit 2026-02-12)
+
+**Existing foundation:**
+- `audiorate_cmds.py` already has `/audiorate interval`, `/audiorate filter`, `/audiorate pattern`, `/audiorate clear` — audio-rate LFO for both interval and filter modulation
+- `UmpulseBank` class in audiorate_cmds.py has `/ump load`, `/ump buffer`, `/ump use wave|ir`, `/ump wavetable` — impulse import pipeline exists
+- `MonolithEngine` has `set_interval_mod()`, `set_interval_lfo()`, `set_filter_mod()`, `set_op_filter_mod()` — engine hooks are ready
+- Enhanced chunking (`/chke`) supports 9 algorithms: auto, transient, beat, zero, equal, wavetable, energy, spectral, syllable
+- Granular engine exists in the codebase (Phase 3.6 marked PARTIAL)
+
+**Known gaps to resolve BEFORE Phase 3 implementation:**
+
+**A. Critical GUI–Engine gaps (27 ability gaps found):**
+
+| Priority | Gap | Engine | Commands | GUI |
+|----------|-----|--------|----------|-----|
+| HIGH | Preset Bank (0-127) | `save_preset/load_preset/list/delete` | `/preset` | MISSING — no save/load/delete controls |
+| HIGH | Audio-Rate Interval Mod | `set_interval_mod/set_interval_lfo` | `/audiorate interval` | MISSING — zero coverage |
+| HIGH | Audio-Rate Filter Mod | `set_filter_mod/set_op_filter_mod` | `/audiorate filter` | MISSING — zero coverage |
+| HIGH | HQ Mode Controls | 12 params (dc, subsonic, saturation, etc.) | `/hq` | DISPLAY ONLY — no toggle/edit |
+| HIGH | Filter Types (30) | 30 types in `_apply_filter` | `/ft` (all 30) | Only 6 in ACTIONS dropdown |
+| HIGH | Filter Envelope (ADSR) | Per-slot filter ADSR | `/fatk /fdec /fsus /frel` | MISSING — no filter ADSR controls |
+| HIGH | Algorithm Bank System | routing presets | `/bk /al` | PARTIAL — ObjectBrowser "Banks" empty |
+| HIGH | Per-Operator Envelope | operator_envelopes dict | `/venv` + level-aware ADSR | Read-only in inspector |
+| HIGH | Wavetable Management | load/list/delete methods | `/wt load/del/info` | DISPLAY ONLY — no load/delete |
+| HIGH | Compound Wave Mgmt | create/list/delete methods | `/compound new/add/del` | DISPLAY ONLY — no create/delete |
+| MEDIUM | Voice Algorithm | stack/unison/wide | `/va` | DISPLAY ONLY — no control |
+| MEDIUM | Stereo/Phase Spread | render params | `/stereo /vphase` | MISSING |
+| MEDIUM | Rand / VMod | voice variation params | `/rand /vmod` | MISSING |
+| MEDIUM | Waveform dropdown | 18 wave types | `/wm` (all 18) | 5 of 18 in ACTIONS |
+| MEDIUM | Umpulse System | UmpulseBank class | `/ump /impulse` | MISSING — no ObjectBrowser category |
+| MEDIUM | Enhanced Chunking | 9 algorithms | `/chke` | MISSING |
+| MEDIUM | Pattern Interval Mod | pattern-to-signal | `/audiorate pattern` | MISSING |
+| MEDIUM | Modulation Envelope | mod ADSR | `/menv` | MISSING |
+| MEDIUM | Filter Slot Count/Enable | 1-8 slots | `/fcount /fs /fe` | PARTIAL — no count/enable control |
+| MEDIUM | Modulation Routing | 5 types | `/fm /tfm /am /rm /pm /rt` | PARTIAL — text entry only |
+| MEDIUM | Wave Params in PatchBuilder | 40+ params | full `/wm key=val` | Missing many per-type params |
+| LOW | Musical Key/Scale | session key | `/key` | MISSING |
+| LOW | Noise / Note Sequence | engine | `/noise /ns` | MISSING |
+| LOW | Physical Model Params | phys/phys2 | `/phys /phys2` | Not in PatchBuilder |
+| LOW | Pulse Width | pw param | `/pw` | Display only |
+| LOW | Clear Modulation | clear_modulation() | `/audiorate clear` | MISSING |
+| LOW | OpInfo / WaveInfo | engine | `/opinfo /waveinfo` | Partial |
+
+**B. Phase 3 specific blockers:**
+- Feature 3.1 (LFO import): Needs `/ump` impulse system exposed in GUI. Currently zero GUI coverage of UmpulseBank.
+- Feature 3.2 (Envelope import): Same dependency — UmpulseBank has the import pipeline, GUI needs management panel.
+- Feature 3.3 (Convolution reverb): No convolution engine exists yet. Must build from scratch in dsp/.
+- Feature 3.4/3.5 (Neural/AI convolution): Depends on 3.3. AI model serving infrastructure needed.
+- Feature 3.6 (Granular impulse): Granular engine exists but needs IR-specific workflow wrapper.
+
+**C. Recommended pre-Phase 3 work:**
+1. Close the HIGH-priority GUI gaps — bring the GUI to parity with the CLI
+2. Wire audio-rate modulation into GUI (prerequisite for 3.1/3.2)
+3. Wire umpulse/impulse system into GUI (prerequisite for 3.1/3.2)
+4. Add ObjectBrowser categories for: Wavetables, Compound Waves, Umpulses, Audio-Rate Config
+5. Expand ACTIONS waveform dropdown from 5 → 18 types
+6. Expand ACTIONS filter type dropdown from 6 → 30 types
+
 ---
 
 ## Phase 4: Generative Systems
