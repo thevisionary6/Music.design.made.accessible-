@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MDMA GUI - Phase 2: Monolith Engine & Synthesis Expansion
+MDMA GUI - Phase 3: Modulation, Impulse & Convolution
 ==========================================================
 
 Full-featured wxPython interface for the MDMA audio engine.
@@ -19,7 +19,15 @@ Phase 2 features:
 - Extended wave types: supersaw, additive, formant, harmonic,
   waveguide (string/tube/membrane/plate), wavetable, compound
 
-Version: 2.0.0
+Phase 3 features:
+- Impulse-to-LFO waveshape conversion and application
+- Impulse-to-envelope amplitude contour extraction
+- Advanced convolution reverb with early/late split, stereo width
+- Neural-enhanced IR processing (extend, denoise, fill gaps)
+- AI-descriptor IR transformation (15 semantic descriptors)
+- Granular IR tools (stretch, morph, redesign, freeze)
+
+Version: 3.0.0
 Author: Based on spec by Cyrus
 Date: 2026-02-11
 
@@ -49,6 +57,7 @@ except ImportError:
     sys.exit(1)
 
 import io
+import numpy as np
 from contextlib import redirect_stdout, redirect_stderr
 from typing import Dict, List, Any, Optional, Callable
 from dataclasses import dataclass, field
@@ -824,6 +833,256 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             description='Load an algorithm from current bank'
         ),
     ],
+
+    # ------------------------------------------------------------------
+    # Phase 3: Modulation, Impulse & Convolution
+    # ------------------------------------------------------------------
+
+    'impulse_lfo': [
+        ActionDef(
+            name='ilfo_load',
+            label='Load Umpulse as LFO',
+            command_template='/impulselfo load {name}',
+            params=[ActionParam('name', 'Umpulse Name', 'string', '')],
+            description='Convert an umpulse into an LFO waveshape'
+        ),
+        ActionDef(
+            name='ilfo_file',
+            label='Load File as LFO',
+            command_template='/impulselfo file {path}',
+            params=[ActionParam('path', 'File Path', 'file', '')],
+            description='Load an audio file as LFO waveshape'
+        ),
+        ActionDef(
+            name='ilfo_apply',
+            label='Apply Impulse LFO',
+            command_template='/impulselfo apply {op} {rate} {depth}',
+            params=[
+                ActionParam('op', 'Operator', 'int', 0, min_val=0, max_val=15),
+                ActionParam('rate', 'Rate (Hz)', 'float', 4.0, min_val=0.01, max_val=100),
+                ActionParam('depth', 'Depth (semitones)', 'float', 12.0, min_val=0, max_val=48),
+            ],
+            description='Apply impulse LFO as interval modulation'
+        ),
+        ActionDef(
+            name='ilfo_filter',
+            label='Apply LFO to Filter',
+            command_template='/impulselfo filter {rate} {depth}',
+            params=[
+                ActionParam('rate', 'Rate (Hz)', 'float', 2.0, min_val=0.01, max_val=100),
+                ActionParam('depth', 'Depth (octaves)', 'float', 2.0, min_val=0, max_val=8),
+            ],
+            description='Apply impulse LFO as filter cutoff modulation'
+        ),
+        ActionDef(
+            name='ilfo_clear',
+            label='Clear LFO Mod',
+            command_template='/impulselfo clear',
+            params=[],
+            description='Clear all impulse LFO modulation'
+        ),
+    ],
+
+    'impulse_env': [
+        ActionDef(
+            name='ienv_load',
+            label='Load Umpulse as Envelope',
+            command_template='/impenv load {name}',
+            params=[ActionParam('name', 'Umpulse Name', 'string', '')],
+            description='Extract amplitude envelope from an umpulse'
+        ),
+        ActionDef(
+            name='ienv_file',
+            label='Load File as Envelope',
+            command_template='/impenv file {path}',
+            params=[ActionParam('path', 'File Path', 'file', '')],
+            description='Extract amplitude envelope from audio file'
+        ),
+        ActionDef(
+            name='ienv_apply',
+            label='Apply to Working Buffer',
+            command_template='/impenv apply {duration}',
+            params=[
+                ActionParam('duration', 'Duration (s)', 'float', 1.0, min_val=0.01, max_val=30),
+            ],
+            description='Apply impulse envelope to working buffer'
+        ),
+        ActionDef(
+            name='ienv_operator',
+            label='Apply to Operator',
+            command_template='/impenv operator {op} {duration}',
+            params=[
+                ActionParam('op', 'Operator', 'int', 0, min_val=0, max_val=15),
+                ActionParam('duration', 'Duration (s)', 'float', 1.0, min_val=0.01, max_val=30),
+            ],
+            description='Set impulse envelope as operator amplitude contour'
+        ),
+    ],
+
+    'convolution': [
+        ActionDef(
+            name='conv_load',
+            label='Load IR File',
+            command_template='/conv load {path}',
+            params=[ActionParam('path', 'IR File', 'file', '')],
+            description='Load impulse response from WAV file'
+        ),
+        ActionDef(
+            name='conv_preset',
+            label='Load IR Preset',
+            command_template='/conv preset {preset}',
+            params=[
+                ActionParam('preset', 'Preset', 'enum', 'hall',
+                            choices=['hall', 'hall_long', 'hall_bright', 'hall_dark',
+                                     'room', 'room_small', 'room_large',
+                                     'plate', 'plate_bright', 'plate_dark',
+                                     'spring', 'spring_tight', 'spring_loose',
+                                     'shimmer', 'shimmer_fifth',
+                                     'reverse', 'reverse_long']),
+            ],
+            description='Load a built-in IR preset'
+        ),
+        ActionDef(
+            name='conv_apply',
+            label='Apply Convolution',
+            command_template='/conv apply {wet} {dry}',
+            params=[
+                ActionParam('wet', 'Wet', 'float', 50, min_val=0, max_val=100),
+                ActionParam('dry', 'Dry', 'float', 50, min_val=0, max_val=100),
+            ],
+            description='Apply convolution reverb to working buffer'
+        ),
+        ActionDef(
+            name='conv_params',
+            label='Set Parameters',
+            command_template='/conv params wet={wet} dry={dry} pre_delay_ms={pre_delay} decay={decay} stereo_width={width}',
+            params=[
+                ActionParam('wet', 'Wet', 'float', 50, min_val=0, max_val=100),
+                ActionParam('dry', 'Dry', 'float', 50, min_val=0, max_val=100),
+                ActionParam('pre_delay', 'Pre-Delay (ms)', 'float', 0, min_val=0, max_val=500),
+                ActionParam('decay', 'Decay', 'float', 1.0, min_val=0.1, max_val=5),
+                ActionParam('width', 'Stereo Width', 'float', 50, min_val=0, max_val=100),
+            ],
+            description='Set convolution reverb parameters'
+        ),
+        ActionDef(
+            name='conv_split',
+            label='Early/Late Split',
+            command_template='/conv split {ms}',
+            params=[
+                ActionParam('ms', 'Split (ms)', 'float', 80, min_val=10, max_val=500),
+            ],
+            description='Set early/late reflection split point'
+        ),
+        ActionDef(
+            name='conv_save',
+            label='Save IR to Bank',
+            command_template='/conv save {name}',
+            params=[ActionParam('name', 'Name', 'string', '')],
+            description='Save current IR to the bank'
+        ),
+    ],
+
+    'ir_enhance': [
+        ActionDef(
+            name='ire_extend',
+            label='Extend IR',
+            command_template='/irenhance extend {target}',
+            params=[
+                ActionParam('target', 'Target Duration (s)', 'float', 5.0, min_val=0.1, max_val=30),
+            ],
+            description='Extend IR tail using neural-inspired decay analysis'
+        ),
+        ActionDef(
+            name='ire_denoise',
+            label='Denoise IR',
+            command_template='/irenhance denoise {threshold}',
+            params=[
+                ActionParam('threshold', 'Threshold (dB)', 'float', -60, min_val=-96, max_val=-20),
+            ],
+            description='Remove noise floor from recorded IR'
+        ),
+        ActionDef(
+            name='ire_fill',
+            label='Fill Gaps',
+            command_template='/irenhance fill {threshold}',
+            params=[
+                ActionParam('threshold', 'Gap Threshold (dB)', 'float', -40, min_val=-80, max_val=-10),
+            ],
+            description='Fill gaps/dropouts in recorded IR'
+        ),
+    ],
+
+    'ir_transform': [
+        ActionDef(
+            name='irt_apply',
+            label='Transform IR',
+            command_template='/irtransform {descriptor} {intensity}',
+            params=[
+                ActionParam('descriptor', 'Descriptor', 'enum', 'bigger',
+                            choices=['bigger', 'smaller', 'brighter', 'darker', 'warmer',
+                                     'metallic', 'wooden', 'glass', 'cathedral', 'intimate',
+                                     'ethereal', 'haunted', 'telephone', 'underwater', 'vintage']),
+                ActionParam('intensity', 'Intensity', 'float', 1.0, min_val=0, max_val=2),
+            ],
+            description='Transform IR using semantic descriptor'
+        ),
+        ActionDef(
+            name='irt_chain',
+            label='Chain Transforms',
+            command_template='/irtransform chain {transforms}',
+            params=[
+                ActionParam('transforms', 'Descriptors (space-separated)', 'string', 'bigger darker'),
+            ],
+            description='Chain multiple descriptor transformations'
+        ),
+    ],
+
+    'ir_granular': [
+        ActionDef(
+            name='irg_stretch',
+            label='Granular Stretch',
+            command_template='/irgranular stretch {factor} {grain_ms} {density}',
+            params=[
+                ActionParam('factor', 'Stretch Factor', 'float', 2.0, min_val=0.25, max_val=8),
+                ActionParam('grain_ms', 'Grain Size (ms)', 'float', 40, min_val=5, max_val=200),
+                ActionParam('density', 'Density', 'float', 8, min_val=1, max_val=32),
+            ],
+            description='Stretch IR using granular processing'
+        ),
+        ActionDef(
+            name='irg_morph',
+            label='Morph IRs',
+            command_template='/irgranular morph {ir_a} {ir_b} {position}',
+            params=[
+                ActionParam('ir_a', 'IR A Name', 'string', ''),
+                ActionParam('ir_b', 'IR B Name', 'string', ''),
+                ActionParam('position', 'Morph Position', 'float', 0.5, min_val=0, max_val=1),
+            ],
+            description='Morph between two IRs using granular interleaving'
+        ),
+        ActionDef(
+            name='irg_redesign',
+            label='Redesign IR',
+            command_template='/irgranular redesign {grain_ms} {density} {scatter} {reverse_prob}',
+            params=[
+                ActionParam('grain_ms', 'Grain Size (ms)', 'float', 20, min_val=5, max_val=200),
+                ActionParam('density', 'Density', 'float', 6, min_val=1, max_val=32),
+                ActionParam('scatter', 'Scatter', 'float', 0.3, min_val=0, max_val=1),
+                ActionParam('reverse_prob', 'Reverse Probability', 'float', 0.2, min_val=0, max_val=1),
+            ],
+            description='Redesign IR with granular decomposition and resynthesis'
+        ),
+        ActionDef(
+            name='irg_freeze',
+            label='Freeze IR',
+            command_template='/irgranular freeze {position}',
+            params=[
+                ActionParam('position', 'Freeze Position', 'float', 0.5, min_val=0, max_val=1),
+            ],
+            description='Freeze IR at a specific position'
+        ),
+    ],
 }
 
 
@@ -1466,6 +1725,12 @@ class ObjectBrowser(wx.Panel):
         ('modulation',      'Modulation'),
         ('wavetable',       'Wavetables'),
         ('compound',        'Compound Waves'),
+        ('convolution',     'Convolution Reverb'),
+        ('impulse_lfo',     'Impulse LFOs'),
+        ('impulse_env',     'Impulse Envelopes'),
+        ('ir_enhance',      'IR Enhancement'),
+        ('ir_transform',    'IR Transform'),
+        ('ir_granular',     'IR Granular'),
         ('tracks',          'Tracks'),
         ('buffers',         'Buffers'),
         ('decks',           'Decks'),
@@ -1683,6 +1948,71 @@ class ObjectBrowser(wx.Panel):
             sub = self.tree.AppendItem(cw_cat, ci_item['label'])
             self.tree.SetItemData(sub, {'type': 'compound', 'name': ci_item['name'],
                                          'id': 'compound'})
+
+        # ---- Phase 3: Convolution Reverb ----
+        try:
+            from mdma_rebuild.dsp.convolution import get_convolution_engine
+            ce = get_convolution_engine()
+            ce_info = ce.get_info()
+            ir_status = ce_info['ir_name'] if ce_info['ir_loaded'] else 'none'
+            conv_cat = self.tree.AppendItem(root,
+                f"Convolution Reverb  (IR: {ir_status})")
+            self.tree.SetItemData(conv_cat, {'type': 'category', 'id': 'convolution'})
+            self.category_items['convolution'] = conv_cat
+            if ce_info['ir_loaded']:
+                for lbl_c in [
+                    f"IR: {ce_info['ir_name']} ({ce_info['ir_duration']:.2f}s)",
+                    f"Wet/Dry: {ce_info['wet']:.0f}/{ce_info['dry']:.0f}",
+                    f"Pre-Delay: {ce_info['pre_delay_ms']:.0f}ms",
+                    f"Decay: {ce_info['decay']:.2f}x",
+                    f"Stereo Width: {ce_info['stereo_width']:.0f}",
+                    f"Early/Late: {ce_info['early_level']:.0f}/{ce_info['late_level']:.0f}",
+                ]:
+                    sub = self.tree.AppendItem(conv_cat, lbl_c)
+                    self.tree.SetItemData(sub, {'type': 'conv_prop', 'id': 'convolution'})
+            # Bank entries
+            for bn in ce_info.get('bank_names', []):
+                sub = self.tree.AppendItem(conv_cat, f"Bank: {bn}")
+                self.tree.SetItemData(sub, {'type': 'ir_bank_entry', 'name': bn,
+                                             'id': 'convolution'})
+        except Exception:
+            conv_cat = self.tree.AppendItem(root, "Convolution Reverb")
+            self.tree.SetItemData(conv_cat, {'type': 'category', 'id': 'convolution'})
+            self.category_items['convolution'] = conv_cat
+
+        # ---- Phase 3: Impulse LFOs ----
+        lfo_shapes = {}
+        if self.executor.session and hasattr(self.executor.session, '_lfo_waveshapes'):
+            lfo_shapes = self.executor.session._lfo_waveshapes
+        ilfo_cat = self.tree.AppendItem(root,
+            f"Impulse LFOs  ({len(lfo_shapes)})")
+        self.tree.SetItemData(ilfo_cat, {'type': 'category', 'id': 'impulse_lfo'})
+        self.category_items['impulse_lfo'] = ilfo_cat
+        for name in sorted(lfo_shapes.keys()):
+            sub = self.tree.AppendItem(ilfo_cat, f"{name} ({len(lfo_shapes[name])} samples)")
+            self.tree.SetItemData(sub, {'type': 'lfo_shape', 'name': name,
+                                         'id': 'impulse_lfo'})
+
+        # ---- Phase 3: Impulse Envelopes ----
+        imp_envs = {}
+        if self.executor.session and hasattr(self.executor.session, '_imp_envelopes'):
+            imp_envs = self.executor.session._imp_envelopes
+        ienv_cat = self.tree.AppendItem(root,
+            f"Impulse Envelopes  ({len(imp_envs)})")
+        self.tree.SetItemData(ienv_cat, {'type': 'category', 'id': 'impulse_env'})
+        self.category_items['impulse_env'] = ienv_cat
+        for name in sorted(imp_envs.keys()):
+            sub = self.tree.AppendItem(ienv_cat, f"{name} ({len(imp_envs[name])} samples)")
+            self.tree.SetItemData(sub, {'type': 'imp_env_shape', 'name': name,
+                                         'id': 'impulse_env'})
+
+        # ---- Phase 3: IR Enhancement / Transform / Granular ----
+        for cat_id, label in [('ir_enhance', 'IR Enhancement'),
+                               ('ir_transform', 'IR Transform'),
+                               ('ir_granular', 'IR Granular')]:
+            cat = self.tree.AppendItem(root, label)
+            self.tree.SetItemData(cat, {'type': 'category', 'id': cat_id})
+            self.category_items[cat_id] = cat
 
         # ---- Tracks ----
         track_items = rich.get('tracks', [])
@@ -2425,6 +2755,14 @@ class InspectorPanel(wx.Panel):
             self._inspect_wavetable(data)
         elif obj_type == 'compound':
             self._inspect_compound(data)
+        elif obj_type == 'conv_prop':
+            self._inspect_convolution(data)
+        elif obj_type == 'ir_bank_entry':
+            self._inspect_ir_bank(data)
+        elif obj_type == 'lfo_shape':
+            self._inspect_lfo_shape(data)
+        elif obj_type == 'imp_env_shape':
+            self._inspect_imp_env_shape(data)
         elif obj_type == 'category':
             self._inspect_category(data)
         else:
@@ -2685,6 +3023,58 @@ class InspectorPanel(wx.Panel):
         self._add_action_btn("Use", f"/compound use {name}")
         self._add_action_btn("Delete", f"/compound del {name}")
 
+    def _inspect_convolution(self, data):
+        self.title.SetLabel("Convolution Reverb")
+        self.subtitle.SetLabel("Convolution Engine State")
+        try:
+            from mdma_rebuild.dsp.convolution import get_convolution_engine
+            ce = get_convolution_engine()
+            info = ce.get_info()
+            if info['ir_loaded']:
+                self._add_prop("IR:", info['ir_name'])
+                self._add_prop("Duration:", f"{info['ir_duration']:.2f}s")
+            self._add_prop("Wet/Dry:", f"{info['wet']:.0f}/{info['dry']:.0f}")
+            self._add_prop("Pre-Delay:", f"{info['pre_delay_ms']:.0f}ms")
+            self._add_prop("Decay:", f"{info['decay']:.2f}x")
+            self._add_prop("Width:", f"{info['stereo_width']:.0f}")
+            self._add_prop("Early:", f"{info['early_level']:.0f}")
+            self._add_prop("Late:", f"{info['late_level']:.0f}")
+            self._add_prop("Split:", f"{info['early_late_split_ms']:.0f}ms")
+        except Exception:
+            self._add_prop("Status:", "Engine not available")
+
+    def _inspect_ir_bank(self, data):
+        name = data.get('name', '')
+        self.title.SetLabel(f"IR: {name}")
+        self.subtitle.SetLabel("Impulse Response in Bank")
+        self._add_prop("Name:", name)
+        self._add_action_btn("Use", f"/conv use {name}")
+
+    def _inspect_lfo_shape(self, data):
+        name = data.get('name', '')
+        self.title.SetLabel(f"LFO Shape: {name}")
+        self.subtitle.SetLabel("Impulse-derived LFO Waveshape")
+        self._add_prop("Name:", name)
+        s = self.executor.session
+        if s and hasattr(s, '_lfo_waveshapes') and name in s._lfo_waveshapes:
+            shape = s._lfo_waveshapes[name]
+            self._add_prop("Samples:", str(len(shape)))
+            self._add_prop("Peak:", f"{np.max(np.abs(shape)):.3f}")
+        self._add_action_btn("Apply Op0", f"/impulselfo apply 0 4 12")
+
+    def _inspect_imp_env_shape(self, data):
+        name = data.get('name', '')
+        self.title.SetLabel(f"Envelope: {name}")
+        self.subtitle.SetLabel("Impulse-derived Amplitude Envelope")
+        self._add_prop("Name:", name)
+        s = self.executor.session
+        if s and hasattr(s, '_imp_envelopes') and name in s._imp_envelopes:
+            env = s._imp_envelopes[name]
+            self._add_prop("Samples:", str(len(env)))
+            sr = getattr(s, 'sample_rate', 48000)
+            self._add_prop("Duration:", f"{len(env)/sr:.3f}s")
+        self._add_action_btn("Apply Buffer", f"/impenv apply 1.0")
+
     def _inspect_category(self, data):
         cat_id = data.get('id', '')
         names = {'engine': 'Engine', 'synth': 'Synthesizer',
@@ -2693,6 +3083,12 @@ class InspectorPanel(wx.Panel):
                  'envelope': 'Envelope', 'hq': 'HQ Mode',
                  'key': 'Key / Scale', 'modulation': 'Modulation',
                  'wavetable': 'Wavetables', 'compound': 'Compound Waves',
+                 'convolution': 'Convolution Reverb',
+                 'impulse_lfo': 'Impulse LFOs',
+                 'impulse_env': 'Impulse Envelopes',
+                 'ir_enhance': 'IR Enhancement',
+                 'ir_transform': 'IR Transform',
+                 'ir_granular': 'IR Granular',
                  'tracks': 'Tracks', 'buffers': 'Buffers',
                  'decks': 'Decks', 'fx': 'Effects',
                  'preset': 'Presets', 'bank': 'Banks'}
@@ -2730,6 +3126,47 @@ class InspectorPanel(wx.Panel):
             self._add_prop("Decay:", f"{state.get('filter_decay', 0.1):.3f}s")
             self._add_prop("Sustain:", f"{state.get('filter_sustain', 0.8):.3f}")
             self._add_prop("Release:", f"{state.get('filter_release', 0.1):.3f}s")
+        elif cat_id == 'convolution':
+            try:
+                from mdma_rebuild.dsp.convolution import get_convolution_engine
+                info = get_convolution_engine().get_info()
+                self._add_prop("IR:", info['ir_name'] or 'none')
+                self._add_prop("Wet/Dry:", f"{info['wet']:.0f}/{info['dry']:.0f}")
+                self._add_prop("Bank:", f"{info['bank_count']} IRs")
+            except Exception:
+                self._add_prop("Status:", "Not available")
+            self._add_action_btn("Preset: Hall", "/conv preset hall")
+        elif cat_id == 'impulse_lfo':
+            s = self.executor.session
+            if s and hasattr(s, '_lfo_waveshapes'):
+                n = len(s._lfo_waveshapes)
+                self._add_prop("Shapes:", str(n))
+                cur = getattr(s, '_current_lfo_name', '')
+                if cur:
+                    self._add_prop("Current:", cur)
+        elif cat_id == 'impulse_env':
+            s = self.executor.session
+            if s and hasattr(s, '_imp_envelopes'):
+                n = len(s._imp_envelopes)
+                self._add_prop("Envelopes:", str(n))
+                cur = getattr(s, '_current_imp_env_name', '')
+                if cur:
+                    self._add_prop("Current:", cur)
+        elif cat_id in ('ir_enhance', 'ir_transform', 'ir_granular'):
+            try:
+                from mdma_rebuild.dsp.convolution import get_convolution_engine
+                ce = get_convolution_engine()
+                if ce.ir is not None:
+                    self._add_prop("Active IR:", ce.ir_name)
+                    self._add_prop("Duration:", f"{len(ce.ir)/ce.sr:.2f}s")
+                else:
+                    self._add_prop("Status:", "Load an IR first (/conv)")
+            except Exception:
+                self._add_prop("Status:", "Not available")
+            if cat_id == 'ir_transform':
+                from mdma_rebuild.dsp.convolution import list_descriptors
+                descs = list_descriptors()
+                self._add_prop("Descriptors:", f"{len(descs)} available")
 
 
 class StepGridPanel(wx.Panel):
@@ -3511,7 +3948,7 @@ class MDMAFrame(wx.Frame):
     +-------------+--------------------------------+
     """
 
-    VERSION = "2.0.0"
+    VERSION = "3.0.0"
 
     def __init__(self):
         super().__init__(None, title="MDMA - Music Design Made Accessible",
@@ -3543,7 +3980,7 @@ class MDMAFrame(wx.Frame):
         self.Centre()
 
         # Welcome message
-        self.console.append(f"MDMA GUI v{self.VERSION} - Phase 2: Monolith Engine\n", 'info')
+        self.console.append(f"MDMA GUI v{self.VERSION} - Phase 3: Modulation & Convolution\n", 'info')
         self.console.append("=" * 55 + "\n", 'info')
 
         # Warn if engine failed to load
@@ -3846,6 +4283,12 @@ class MDMAFrame(wx.Frame):
             self.action_panel.set_category('wavetable')
         elif obj_type == 'compound':
             self.action_panel.set_category('compound')
+        elif obj_type in ('conv_prop', 'ir_bank_entry'):
+            self.action_panel.set_category('convolution')
+        elif obj_type == 'lfo_shape':
+            self.action_panel.set_category('impulse_lfo')
+        elif obj_type == 'imp_env_shape':
+            self.action_panel.set_category('impulse_env')
         elif obj_type in ('effect',):
             self.action_panel.set_category('fx')
         elif obj_type in ('sydef', 'user_function', 'chain'):
@@ -3926,10 +4369,11 @@ class MDMAFrame(wx.Frame):
         info.SetDescription(
             "Music Design Made Accessible\n\n"
             "Phase 1: Core Interface & Workflow\n"
-            "Phase 2: Monolith Engine & Synthesis Expansion\n\n"
-            "Object tree, inspector, step grid, patch builder,\n"
-            "routing visualization, 18 wave types, 30 filters,\n"
-            "wavetable/compound support, full engine parity.")
+            "Phase 2: Monolith Engine & Synthesis Expansion\n"
+            "Phase 3: Modulation, Impulse & Convolution\n\n"
+            "Advanced convolution reverb, impulse-to-LFO/envelope,\n"
+            "neural IR enhancement, AI descriptor transforms,\n"
+            "granular IR tools, 15 semantic descriptors.")
         info.SetCopyright("(C) 2026")
         wx.adv.AboutBox(info)
 
