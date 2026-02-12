@@ -5,6 +5,8 @@ This engine implements:
 - Full modulation routing: FM, TFM, AM, RM, PM
 - Voice algorithm system with detune, random, stereo spread, phase offset
 - Extended wave models: sine, triangle, saw, pulse/PWM, noise (white/pink), physical modeling
+- Phase 2 extensions: supersaw, additive, formant, waveguide (string/tube/membrane/plate),
+  harmonic (odd/even independent), wavetable import, compound wave creation
 - Deterministic offline rendering
 - Per-operator parameters and multi-voice stacking
 
@@ -12,7 +14,7 @@ PARAMETER SCALING:
 -----------------
 Abstract parameters use unified 1-100 scaling:
 - rand (amplitude variation): 0-100
-- mod (modulation scaling): 0-100  
+- mod (modulation scaling): 0-100
 - stereo_spread: 0-100
 - resonance: 0-100
 
@@ -23,7 +25,7 @@ Real-world units preserved:
 - freq: Hz
 
 Section A1-A4 of MDMA Master Feature List v1.1
-BUILD ID: monolith_v14_chunk1.2
+BUILD ID: monolith_v15_phase2
 """
 
 from __future__ import annotations
@@ -335,11 +337,470 @@ def _generate_physical2(t: np.ndarray, freq: float, amp: float, phase: float,
 
 
 # ============================================================================
+# PHASE 2: EXTENDED WAVE GENERATORS
+# ============================================================================
+
+def _generate_supersaw(t: np.ndarray, freq: float, amp: float, phase: float,
+                       num_saws: int = 7, detune_spread: float = 0.5,
+                       mix: float = 0.75, sr: int = 48000) -> np.ndarray:
+    """Generate supersaw wave (JP-8000 style).
+
+    Stacks multiple detuned sawtooth oscillators for a rich, wide sound.
+
+    Parameters
+    ----------
+    num_saws : int
+        Number of sawtooth oscillators (3-11, default 7)
+    detune_spread : float
+        Detune spread in semitones (0.0-2.0)
+    mix : float
+        Balance between center saw and detuned stack (0=center only, 1=stack only)
+    """
+    num_saws = max(3, min(11, num_saws))
+    out = np.zeros_like(t)
+
+    for i in range(num_saws):
+        # Spread detuning symmetrically
+        offset = (i - (num_saws - 1) / 2) / max(1, (num_saws - 1) / 2)
+        detune_semitones = offset * detune_spread
+        saw_freq = freq * (2.0 ** (detune_semitones / 12.0))
+        saw_phase = phase + i * 0.7  # Spread initial phase
+
+        if i == num_saws // 2:
+            # Center oscillator
+            weight = 1.0 - mix
+        else:
+            weight = mix / max(1, num_saws - 1)
+
+        saw_val = (saw_freq * t + saw_phase / (2 * np.pi)) % 1.0
+        out += weight * (2 * saw_val - 1)
+
+    max_val = np.max(np.abs(out))
+    if max_val > 0:
+        out = out / max_val
+    return amp * out
+
+
+def _generate_additive(t: np.ndarray, freq: float, amp: float, phase: float,
+                       harmonics: Optional[List[Tuple[int, float, float]]] = None,
+                       num_harmonics: int = 16, rolloff: float = 1.0) -> np.ndarray:
+    """Generate additive synthesis wave from harmonic specification.
+
+    Parameters
+    ----------
+    harmonics : list of (harmonic_number, amplitude, phase_offset), optional
+        Explicit harmonic specification. If None, uses natural rolloff.
+    num_harmonics : int
+        Number of harmonics when using auto-rolloff (1-64)
+    rolloff : float
+        Amplitude rolloff exponent (1.0 = 1/n, 2.0 = 1/n^2, 0.5 = 1/sqrt(n))
+    """
+    out = np.zeros_like(t)
+
+    if harmonics is not None:
+        for h_num, h_amp, h_phase in harmonics:
+            out += h_amp * np.sin(2 * np.pi * freq * h_num * t + phase * h_num + h_phase)
+    else:
+        num_harmonics = max(1, min(64, num_harmonics))
+        for n in range(1, num_harmonics + 1):
+            h_amp = 1.0 / (n ** rolloff)
+            out += h_amp * np.sin(2 * np.pi * freq * n * t + phase * n)
+
+    max_val = np.max(np.abs(out))
+    if max_val > 0:
+        out = out / max_val
+    return amp * out
+
+
+def _generate_formant_wave(t: np.ndarray, freq: float, amp: float, phase: float,
+                           vowel: str = 'a') -> np.ndarray:
+    """Generate formant-shaped oscillator (vocal-like timbres).
+
+    Parameters
+    ----------
+    vowel : str
+        Vowel shape: 'a', 'e', 'i', 'o', 'u'
+    """
+    # Formant frequencies and bandwidths for each vowel
+    formant_table = {
+        'a': [(800, 80, 1.0), (1150, 90, 0.5), (2900, 120, 0.3)],
+        'e': [(350, 60, 1.0), (2000, 100, 0.5), (2800, 120, 0.2)],
+        'i': [(270, 60, 1.0), (2300, 100, 0.4), (3000, 120, 0.2)],
+        'o': [(450, 70, 1.0), (800, 80, 0.5), (2830, 100, 0.15)],
+        'u': [(325, 50, 1.0), (700, 60, 0.4), (2530, 100, 0.1)],
+    }
+    formants = formant_table.get(vowel.lower(), formant_table['a'])
+
+    # Generate carrier as impulse train at fundamental frequency
+    carrier_phase = (freq * t + phase / (2 * np.pi)) % 1.0
+    carrier = 2 * carrier_phase - 1  # Sawtooth as carrier
+
+    # Shape using formant resonances (additive approach)
+    out = np.zeros_like(t)
+    for f_freq, f_bw, f_amp in formants:
+        # Each formant as a resonant sine burst at the formant frequency
+        # modulated by the carrier fundamental
+        n_harm = max(1, int(f_freq / max(freq, 1)))
+        envelope = np.exp(-np.pi * f_bw * ((t * freq) % 1.0) / freq) if freq > 0 else np.ones_like(t)
+        out += f_amp * envelope * np.sin(2 * np.pi * f_freq * t + phase)
+
+    max_val = np.max(np.abs(out))
+    if max_val > 0:
+        out = out / max_val
+    return amp * out
+
+
+# ── Phase 2 Feature 2.7: Odd/Even Harmonic Model ──
+
+def _generate_harmonic(t: np.ndarray, freq: float, amp: float, phase: float,
+                       odd_level: float = 1.0, even_level: float = 1.0,
+                       num_harmonics: int = 16, odd_decay: float = 0.8,
+                       even_decay: float = 0.8) -> np.ndarray:
+    """Generate waveform with independent odd/even harmonic control.
+
+    Odd harmonics produce clarinet/square-wave-like timbres.
+    Even harmonics produce warm/tubular organ-like timbres.
+
+    Parameters
+    ----------
+    odd_level : float
+        Overall level of odd harmonics (0.0-2.0)
+    even_level : float
+        Overall level of even harmonics (0.0-2.0)
+    num_harmonics : int
+        Total number of harmonics (1-64)
+    odd_decay : float
+        Per-harmonic decay for odd harmonics (0.1-1.0)
+    even_decay : float
+        Per-harmonic decay for even harmonics (0.1-1.0)
+    """
+    out = np.zeros_like(t)
+    num_harmonics = max(1, min(64, num_harmonics))
+
+    # Fundamental is harmonic 1 (odd)
+    out += odd_level * np.sin(2 * np.pi * freq * t + phase)
+
+    for n in range(2, num_harmonics + 1):
+        if n % 2 == 0:
+            # Even harmonic
+            h_amp = even_level * (even_decay ** (n // 2 - 1))
+        else:
+            # Odd harmonic
+            h_amp = odd_level * (odd_decay ** (n // 2))
+        out += h_amp * np.sin(2 * np.pi * freq * n * t + phase * n)
+
+    max_val = np.max(np.abs(out))
+    if max_val > 0:
+        out = out / max_val
+    return amp * out
+
+
+# ── Phase 2 Feature 2.6: Waveguide Physical Models ──
+
+def _generate_waveguide_string(t: np.ndarray, freq: float, amp: float, phase: float,
+                                damping: float = 0.996, brightness: float = 0.5,
+                                position: float = 0.28, sr: int = 48000) -> np.ndarray:
+    """Karplus-Strong waveguide string model.
+
+    Parameters
+    ----------
+    damping : float
+        String damping (0.9-0.999, higher = longer sustain)
+    brightness : float
+        Tone brightness (0.0 = dark, 1.0 = bright)
+    position : float
+        Pluck position (0.0-0.5, affects harmonic content)
+    """
+    n_samples = len(t)
+    delay_len = max(2, int(sr / max(freq, 20)))
+
+    # Initialize delay line with filtered noise burst
+    rng = np.random.default_rng()
+    delay_line = rng.random(delay_len) * 2 - 1
+
+    # Shape the excitation based on pluck position
+    pos_samples = max(1, int(delay_len * position))
+    for i in range(delay_len):
+        if i < pos_samples:
+            delay_line[i] *= np.sin(np.pi * i / pos_samples)
+        else:
+            delay_line[i] *= np.sin(np.pi * (delay_len - i) / (delay_len - pos_samples))
+
+    # Brightness filter coefficient
+    b_coeff = 0.5 + 0.5 * brightness
+
+    out = np.zeros(n_samples, dtype=np.float64)
+    ptr = 0
+
+    for i in range(n_samples):
+        out[i] = delay_line[ptr]
+        next_ptr = (ptr + 1) % delay_len
+        # Two-point averaging filter (Karplus-Strong) with brightness control
+        filtered = b_coeff * delay_line[ptr] + (1 - b_coeff) * delay_line[next_ptr]
+        delay_line[ptr] = filtered * damping
+        ptr = next_ptr
+
+    max_val = np.max(np.abs(out))
+    if max_val > 0:
+        out = out / max_val
+    return amp * out
+
+
+def _generate_waveguide_tube(t: np.ndarray, freq: float, amp: float, phase: float,
+                              damping: float = 0.995, reflection: float = 0.7,
+                              bore_shape: float = 0.5, sr: int = 48000) -> np.ndarray:
+    """Waveguide tube/pipe model (flute/clarinet-like).
+
+    Parameters
+    ----------
+    damping : float
+        Air column damping (0.9-0.999)
+    reflection : float
+        End reflection coefficient (0.0 = open, 1.0 = closed)
+    bore_shape : float
+        Bore taper (0.0 = cylindrical/clarinet, 1.0 = conical/oboe)
+    """
+    n_samples = len(t)
+    delay_len = max(2, int(sr / max(freq, 20) / 2))  # Half-wavelength for tube
+
+    # Forward and backward traveling waves
+    forward = np.zeros(delay_len, dtype=np.float64)
+    backward = np.zeros(delay_len, dtype=np.float64)
+
+    # Excitation: breath noise filtered through the tube
+    rng = np.random.default_rng()
+    out = np.zeros(n_samples, dtype=np.float64)
+    ptr = 0
+
+    # Bore taper affects high harmonics
+    taper_filter = 0.5 + 0.5 * (1.0 - bore_shape)
+
+    for i in range(n_samples):
+        # Breath excitation (gentle noise)
+        excitation = 0.3 * (rng.random() * 2 - 1) if i < n_samples // 4 else 0.0
+
+        next_ptr = (ptr + 1) % delay_len
+
+        # Forward wave with damping
+        forward[ptr] = (excitation + backward[ptr] * reflection) * damping
+
+        # Backward wave (reflected)
+        backward[next_ptr] = -forward[ptr] * reflection * taper_filter
+
+        # Output is the sum of traveling waves
+        out[i] = forward[ptr] + backward[ptr]
+        ptr = next_ptr
+
+    max_val = np.max(np.abs(out))
+    if max_val > 0:
+        out = out / max_val
+    return amp * out
+
+
+def _generate_waveguide_membrane(t: np.ndarray, freq: float, amp: float, phase: float,
+                                  tension: float = 0.5, damping: float = 0.995,
+                                  strike_pos: float = 0.3, sr: int = 48000) -> np.ndarray:
+    """Waveguide membrane/drum model.
+
+    Parameters
+    ----------
+    tension : float
+        Membrane tension (0.0-1.0, affects pitch bend and inharmonicity)
+    damping : float
+        Membrane damping (0.9-0.999)
+    strike_pos : float
+        Strike position (0.0 = center, 1.0 = edge)
+    """
+    n_samples = len(t)
+    out = np.zeros(n_samples, dtype=np.float64)
+
+    # Membrane has inharmonic modes: ratios 1.00, 1.59, 2.14, 2.30, 2.65, 2.92
+    mode_ratios = [1.00, 1.59, 2.14, 2.30, 2.65, 2.92, 3.16, 3.50]
+    mode_amps = [1.0, 0.8, 0.6, 0.5, 0.3, 0.2, 0.15, 0.1]
+
+    # Strike position affects which modes are excited
+    for j, (ratio, base_amp) in enumerate(zip(mode_ratios, mode_amps)):
+        # Modes near strike position are more excited
+        mode_excite = max(0.1, 1.0 - abs(strike_pos - (j / len(mode_ratios))) * 2)
+        mode_amp = base_amp * mode_excite
+
+        # Tension affects frequency (higher tension = closer to harmonic)
+        adj_ratio = 1.0 + (ratio - 1.0) * (0.5 + 0.5 * tension)
+        mode_freq = freq * adj_ratio
+
+        # Each mode decays independently (higher modes decay faster)
+        mode_decay = damping ** (1 + j * 0.5)
+        decay_env = mode_decay ** (np.arange(n_samples, dtype=np.float64))
+        out += mode_amp * decay_env * np.sin(2 * np.pi * mode_freq * t + phase + j * 0.3)
+
+    max_val = np.max(np.abs(out))
+    if max_val > 0:
+        out = out / max_val
+    return amp * out
+
+
+def _generate_waveguide_plate(t: np.ndarray, freq: float, amp: float, phase: float,
+                               thickness: float = 0.5, damping: float = 0.997,
+                               material: float = 0.5, sr: int = 48000) -> np.ndarray:
+    """Waveguide plate/bar model (vibraphone/marimba-like).
+
+    Parameters
+    ----------
+    thickness : float
+        Plate thickness (0.0-1.0, affects inharmonicity)
+    damping : float
+        Material damping (0.9-0.999)
+    material : float
+        Material type (0.0 = wood/soft, 1.0 = metal/bright)
+    """
+    n_samples = len(t)
+    out = np.zeros(n_samples, dtype=np.float64)
+
+    # Plate modes: f_n ~ n^2 (unlike strings where f_n ~ n)
+    # This gives the characteristic metallic/bell sound
+    inharmonicity = 0.005 + 0.03 * thickness
+    num_partials = 8 + int(8 * material)  # Metal has more audible partials
+
+    for n in range(1, num_partials + 1):
+        # Plate frequency: f_n = f0 * n * sqrt(1 + B * n^2)
+        p_freq = freq * n * np.sqrt(1 + inharmonicity * n * n)
+
+        # Amplitude: metal sustains high partials, wood rolls off faster
+        if material > 0.5:
+            p_amp = 1.0 / (n ** 0.8)  # Metal: slow rolloff
+        else:
+            p_amp = 1.0 / (n ** 1.5)  # Wood: fast rolloff
+
+        # Decay: higher partials decay faster; metal decays slower
+        base_damp = damping * (1 - 0.002 * n)
+        decay_env = (base_damp ** (np.arange(n_samples, dtype=np.float64)))
+        p_phase = phase + n * 0.2
+        out += p_amp * decay_env * np.sin(2 * np.pi * p_freq * t + p_phase)
+
+    max_val = np.max(np.abs(out))
+    if max_val > 0:
+        out = out / max_val
+    return amp * out
+
+
+# ── Phase 2 Feature 2.8: Wavetable Playback ──
+
+def _generate_wavetable(t: np.ndarray, freq: float, amp: float, phase: float,
+                        frames: Optional[np.ndarray] = None,
+                        frame_pos: float = 0.0,
+                        sr: int = 48000) -> np.ndarray:
+    """Generate sound from a loaded wavetable.
+
+    Parameters
+    ----------
+    frames : np.ndarray or None
+        Wavetable data as (num_frames, frame_size) array.
+        If None, falls back to sine.
+    frame_pos : float
+        Position in wavetable (0.0-1.0, selects which frame to play)
+    """
+    if frames is None or len(frames) == 0:
+        return _generate_sine(t, freq, amp, phase)
+
+    num_frames, frame_size = frames.shape
+
+    # Select frame (with interpolation between adjacent frames)
+    pos = max(0.0, min(1.0, frame_pos)) * (num_frames - 1)
+    idx_lo = int(pos)
+    idx_hi = min(idx_lo + 1, num_frames - 1)
+    frac = pos - idx_lo
+    frame = frames[idx_lo] * (1 - frac) + frames[idx_hi] * frac
+
+    # Read through the single-cycle waveform at the desired frequency
+    n_samples = len(t)
+    out = np.zeros(n_samples, dtype=np.float64)
+    phase_inc = freq * frame_size / sr
+    read_pos = phase / (2 * np.pi) * frame_size
+
+    for i in range(n_samples):
+        idx_f = read_pos % frame_size
+        idx_int = int(idx_f)
+        idx_next = (idx_int + 1) % frame_size
+        frac_s = idx_f - idx_int
+        out[i] = frame[idx_int] * (1 - frac_s) + frame[idx_next] * frac_s
+        read_pos += phase_inc
+
+    max_val = np.max(np.abs(out))
+    if max_val > 0:
+        out = out / max_val
+    return amp * out
+
+
+# ── Phase 2 Feature 2.9: Compound Wave Creation ──
+
+def _generate_compound(t: np.ndarray, freq: float, amp: float, phase: float,
+                       layers: Optional[List[Dict[str, Any]]] = None,
+                       morph: float = 0.0,
+                       sr: int = 48000) -> np.ndarray:
+    """Generate compound waveform by layering or morphing wave types.
+
+    Parameters
+    ----------
+    layers : list of dicts, optional
+        Each dict: {'wave': str, 'amp': float, 'detune': float, 'phase': float}
+        If None, defaults to sine+saw morph.
+    morph : float
+        Morph position between first two layers (0.0 = layer A, 1.0 = layer B).
+        Only used in 2-layer mode for smooth transitions.
+    """
+    if layers is None or len(layers) == 0:
+        layers = [
+            {'wave': 'sine', 'amp': 1.0, 'detune': 0.0, 'phase': 0.0},
+            {'wave': 'saw', 'amp': 1.0, 'detune': 0.0, 'phase': 0.0},
+        ]
+
+    # Simple generators for compound layers
+    simple_gens = {
+        'sine': lambda tt, f, a, p: a * np.sin(2 * np.pi * f * tt + p),
+        'triangle': lambda tt, f, a, p: a * (2 * np.abs(2 * ((f * tt + p / (2 * np.pi)) % 1.0) - 1) - 1),
+        'saw': lambda tt, f, a, p: a * (2 * ((f * tt + p / (2 * np.pi)) % 1.0) - 1),
+        'pulse': lambda tt, f, a, p: a * np.where(((f * tt + p / (2 * np.pi)) % 1.0) < 0.5, 1.0, -1.0),
+    }
+
+    if len(layers) == 2 and morph > 0:
+        # Morph mode: crossfade between two layers
+        a_wave = layers[0].get('wave', 'sine')
+        b_wave = layers[1].get('wave', 'saw')
+        a_gen = simple_gens.get(a_wave, simple_gens['sine'])
+        b_gen = simple_gens.get(b_wave, simple_gens['sine'])
+
+        a_freq = freq * (2.0 ** (layers[0].get('detune', 0.0) / 12.0))
+        b_freq = freq * (2.0 ** (layers[1].get('detune', 0.0) / 12.0))
+        a_ph = phase + layers[0].get('phase', 0.0)
+        b_ph = phase + layers[1].get('phase', 0.0)
+
+        a_out = a_gen(t, a_freq, layers[0].get('amp', 1.0), a_ph)
+        b_out = b_gen(t, b_freq, layers[1].get('amp', 1.0), b_ph)
+
+        out = a_out * (1.0 - morph) + b_out * morph
+    else:
+        # Layer mode: sum all layers
+        out = np.zeros_like(t)
+        for layer in layers:
+            l_wave = layer.get('wave', 'sine')
+            gen = simple_gens.get(l_wave, simple_gens['sine'])
+            l_freq = freq * (2.0 ** (layer.get('detune', 0.0) / 12.0))
+            l_ph = phase + layer.get('phase', 0.0)
+            l_amp = layer.get('amp', 1.0)
+            out += gen(t, l_freq, l_amp, l_ph)
+
+    max_val = np.max(np.abs(out))
+    if max_val > 0:
+        out = out / max_val
+    return amp * out
+
+
+# ============================================================================
 # WAVE TYPE REGISTRY
 # ============================================================================
 
 # Carrier-only wave types (should not be used as modulators)
-CARRIER_ONLY_WAVES = {'saw', 'pulse', 'pwm', 'square'}
+CARRIER_ONLY_WAVES = {'saw', 'pulse', 'pwm', 'square', 'supersaw'}
 
 # All supported wave types
 WAVE_TYPES = {
@@ -351,6 +812,17 @@ WAVE_TYPES = {
     'pink',
     'physical', 'phys',
     'physical2', 'phys2',
+    # Phase 2 extensions
+    'supersaw', 'ssaw',
+    'additive', 'add',
+    'formant', 'vowel',
+    'harmonic', 'harm',
+    'waveguide_string', 'string', 'pluck',
+    'waveguide_tube', 'tube', 'pipe',
+    'waveguide_membrane', 'membrane', 'drum',
+    'waveguide_plate', 'plate', 'bar',
+    'wavetable', 'wt',
+    'compound', 'comp', 'layer',
 }
 
 # Wave type aliases
@@ -363,6 +835,22 @@ WAVE_ALIASES = {
     'white': 'noise',
     'phys': 'physical',
     'phys2': 'physical2',
+    # Phase 2 aliases
+    'ssaw': 'supersaw',
+    'add': 'additive',
+    'vowel': 'formant',
+    'harm': 'harmonic',
+    'string': 'waveguide_string',
+    'pluck': 'waveguide_string',
+    'tube': 'waveguide_tube',
+    'pipe': 'waveguide_tube',
+    'membrane': 'waveguide_membrane',
+    'drum': 'waveguide_membrane',
+    'plate': 'waveguide_plate',
+    'bar': 'waveguide_plate',
+    'wt': 'wavetable',
+    'comp': 'compound',
+    'layer': 'compound',
 }
 
 
@@ -432,6 +920,14 @@ class MonolithEngine:
         self.interval_mod_depth: float = 0.0  # Depth in semitones
         self.interval_mod_wave: str = 'sine'  # LFO waveform
 
+        # === PHASE 2: WAVETABLE STORAGE ===
+        # wavetables: dict[name] -> np.ndarray of shape (num_frames, frame_size)
+        self.wavetables: Dict[str, np.ndarray] = {}
+
+        # === PHASE 2: COMPOUND WAVE STORAGE ===
+        # compound_waves: dict[name] -> list of layer dicts
+        self.compound_waves: Dict[str, List[Dict[str, Any]]] = {}
+
     def set_operator(self, idx: int, wave_type: str = 'sine', freq: float = 440.0,
                      amp: float = 1.0, phase: float = 0.0, **kwargs) -> None:
         """Create or update an operator.
@@ -473,6 +969,38 @@ class MonolithEngine:
             'inharmonicity': kwargs.get('inharmonicity', 0.01),
             'partials': kwargs.get('partials', 12),
             'decay_curve': kwargs.get('decay_curve', 'exp'),
+            # Phase 2: supersaw params
+            'num_saws': kwargs.get('num_saws', 7),
+            'detune_spread': kwargs.get('detune_spread', 0.5),
+            'mix': kwargs.get('mix', 0.75),
+            # Phase 2: additive params
+            'harmonics': kwargs.get('harmonics', None),
+            'num_harmonics': kwargs.get('num_harmonics', 16),
+            'rolloff': kwargs.get('rolloff', 1.0),
+            # Phase 2: formant params
+            'vowel': kwargs.get('vowel', 'a'),
+            # Phase 2: harmonic model params
+            'odd_level': kwargs.get('odd_level', 1.0),
+            'even_level': kwargs.get('even_level', 1.0),
+            'odd_decay': kwargs.get('odd_decay', 0.8),
+            'even_decay': kwargs.get('even_decay', 0.8),
+            # Phase 2: waveguide params
+            'damping': kwargs.get('damping', 0.996),
+            'brightness': kwargs.get('brightness', 0.5),
+            'position': kwargs.get('position', 0.28),
+            'reflection': kwargs.get('reflection', 0.7),
+            'bore_shape': kwargs.get('bore_shape', 0.5),
+            'tension': kwargs.get('tension', 0.5),
+            'strike_pos': kwargs.get('strike_pos', 0.3),
+            'thickness': kwargs.get('thickness', 0.5),
+            'material': kwargs.get('material', 0.5),
+            # Phase 2: wavetable params
+            'wavetable_name': kwargs.get('wavetable_name', ''),
+            'frame_pos': kwargs.get('frame_pos', 0.0),
+            # Phase 2: compound params
+            'compound_name': kwargs.get('compound_name', ''),
+            'layers': kwargs.get('layers', None),
+            'morph': kwargs.get('morph', 0.0),
         }
 
     def set_wave(self, idx: int, wave_type: str, **kwargs) -> None:
@@ -730,6 +1258,135 @@ class MonolithEngine:
             return True
         return False
 
+    # ── Phase 2: Wavetable Management ──
+
+    def load_wavetable(self, name: str, frames: np.ndarray) -> None:
+        """Load a wavetable into the engine.
+
+        Parameters
+        ----------
+        name : str
+            Name to reference this wavetable
+        frames : np.ndarray
+            Wavetable data, shape (num_frames, frame_size)
+        """
+        if frames.ndim == 1:
+            # Single cycle — wrap as 1 frame
+            frames = frames.reshape(1, -1)
+        self.wavetables[name] = frames.astype(np.float64)
+
+    def load_wavetable_from_file(self, name: str, filepath: str,
+                                  frame_size: int = 2048) -> str:
+        """Load a wavetable from a .wav file (Serum format).
+
+        Serum wavetables are single .wav files containing multiple
+        single-cycle frames concatenated. Each frame is typically
+        2048 samples.
+
+        Parameters
+        ----------
+        name : str
+            Name to reference this wavetable
+        filepath : str
+            Path to .wav file
+        frame_size : int
+            Samples per frame (default 2048, Serum standard)
+
+        Returns
+        -------
+        str
+            Status message
+        """
+        try:
+            import soundfile as sf
+            data, sr = sf.read(filepath, dtype='float64')
+            if data.ndim > 1:
+                data = data[:, 0]  # Mono
+
+            # Resample to engine rate if needed
+            if sr != self.sample_rate:
+                from scipy.signal import resample
+                ratio = self.sample_rate / sr
+                data = resample(data, int(len(data) * ratio))
+
+            total_samples = len(data)
+            num_frames = max(1, total_samples // frame_size)
+
+            # Trim to exact frame boundary
+            data = data[:num_frames * frame_size]
+            frames = data.reshape(num_frames, frame_size)
+
+            # Normalize each frame
+            for i in range(num_frames):
+                mx = np.max(np.abs(frames[i]))
+                if mx > 0:
+                    frames[i] /= mx
+
+            self.wavetables[name] = frames
+            return f"Loaded wavetable '{name}': {num_frames} frames x {frame_size} samples"
+        except Exception as e:
+            return f"ERROR: Failed to load wavetable: {e}"
+
+    def list_wavetables(self) -> List[Tuple[str, int, int]]:
+        """List all loaded wavetables.
+
+        Returns list of (name, num_frames, frame_size).
+        """
+        result = []
+        for name, frames in self.wavetables.items():
+            result.append((name, frames.shape[0], frames.shape[1]))
+        return result
+
+    def delete_wavetable(self, name: str) -> bool:
+        """Delete a loaded wavetable."""
+        if name in self.wavetables:
+            del self.wavetables[name]
+            return True
+        return False
+
+    # ── Phase 2: Compound Wave Management ──
+
+    def create_compound(self, name: str, layers: List[Dict[str, Any]]) -> None:
+        """Create a named compound wave definition.
+
+        Parameters
+        ----------
+        name : str
+            Name to reference this compound
+        layers : list of dicts
+            Each dict: {'wave': str, 'amp': float, 'detune': float, 'phase': float}
+        """
+        self.compound_waves[name] = layers
+
+    def list_compounds(self) -> List[Tuple[str, int]]:
+        """List all compound wave definitions.
+
+        Returns list of (name, num_layers).
+        """
+        return [(name, len(layers)) for name, layers in self.compound_waves.items()]
+
+    def delete_compound(self, name: str) -> bool:
+        """Delete a compound wave definition."""
+        if name in self.compound_waves:
+            del self.compound_waves[name]
+            return True
+        return False
+
+    def get_wave_info(self) -> str:
+        """Get human-readable list of all available wave types."""
+        lines = ["=== AVAILABLE WAVE TYPES ==="]
+        lines.append("Basic: sine, triangle, saw, pulse")
+        lines.append("Noise: noise (white), pink")
+        lines.append("Physical: physical (harmonic ctrl), physical2 (inharmonic)")
+        lines.append("Extended: supersaw, additive, formant, harmonic")
+        lines.append("Waveguide: waveguide_string, waveguide_tube, waveguide_membrane, waveguide_plate")
+        lines.append("Tables: wavetable, compound")
+        if self.wavetables:
+            lines.append(f"Loaded wavetables: {', '.join(self.wavetables.keys())}")
+        if self.compound_waves:
+            lines.append(f"Compound waves: {', '.join(self.compound_waves.keys())}")
+        return '\n'.join(lines)
+
     def get_routing_info(self) -> str:
         """Get human-readable routing information."""
         if not self.algorithms:
@@ -847,6 +1504,86 @@ class MonolithEngine:
                     partials=op.get('partials', 12),
                     decay_curve=op.get('decay_curve', 'exp')
                 )
+            # ── Phase 2 wave types ──
+            elif wave == 'supersaw':
+                return _generate_supersaw(
+                    t, base_freq, amp, phase,
+                    num_saws=op.get('num_saws', 7),
+                    detune_spread=op.get('detune_spread', 0.5),
+                    mix=op.get('mix', 0.75),
+                    sr=self.sample_rate
+                )
+            elif wave == 'additive':
+                return _generate_additive(
+                    t, base_freq, amp, phase,
+                    harmonics=op.get('harmonics'),
+                    num_harmonics=op.get('num_harmonics', 16),
+                    rolloff=op.get('rolloff', 1.0)
+                )
+            elif wave == 'formant':
+                return _generate_formant_wave(
+                    t, base_freq, amp, phase,
+                    vowel=op.get('vowel', 'a')
+                )
+            elif wave == 'harmonic':
+                return _generate_harmonic(
+                    t, base_freq, amp, phase,
+                    odd_level=op.get('odd_level', 1.0),
+                    even_level=op.get('even_level', 1.0),
+                    num_harmonics=op.get('num_harmonics', 16),
+                    odd_decay=op.get('odd_decay', 0.8),
+                    even_decay=op.get('even_decay', 0.8)
+                )
+            elif wave == 'waveguide_string':
+                return _generate_waveguide_string(
+                    t, base_freq, amp, phase,
+                    damping=op.get('damping', 0.996),
+                    brightness=op.get('brightness', 0.5),
+                    position=op.get('position', 0.28),
+                    sr=self.sample_rate
+                )
+            elif wave == 'waveguide_tube':
+                return _generate_waveguide_tube(
+                    t, base_freq, amp, phase,
+                    damping=op.get('damping', 0.995),
+                    reflection=op.get('reflection', 0.7),
+                    bore_shape=op.get('bore_shape', 0.5),
+                    sr=self.sample_rate
+                )
+            elif wave == 'waveguide_membrane':
+                return _generate_waveguide_membrane(
+                    t, base_freq, amp, phase,
+                    tension=op.get('tension', 0.5),
+                    damping=op.get('damping', 0.995),
+                    strike_pos=op.get('strike_pos', 0.3),
+                    sr=self.sample_rate
+                )
+            elif wave == 'waveguide_plate':
+                return _generate_waveguide_plate(
+                    t, base_freq, amp, phase,
+                    thickness=op.get('thickness', 0.5),
+                    damping=op.get('damping', 0.997),
+                    material=op.get('material', 0.5),
+                    sr=self.sample_rate
+                )
+            elif wave == 'wavetable':
+                wt_name = op.get('wavetable_name', '')
+                frames = self.wavetables.get(wt_name) if wt_name else None
+                return _generate_wavetable(
+                    t, base_freq, amp, phase,
+                    frames=frames,
+                    frame_pos=op.get('frame_pos', 0.0),
+                    sr=self.sample_rate
+                )
+            elif wave == 'compound':
+                cmp_name = op.get('compound_name', '')
+                layers = self.compound_waves.get(cmp_name) if cmp_name else op.get('layers')
+                return _generate_compound(
+                    t, base_freq, amp, phase,
+                    layers=layers,
+                    morph=op.get('morph', 0.0),
+                    sr=self.sample_rate
+                )
             else:
                 return _generate_sine(t, base_freq, amp, phase)
     
@@ -887,6 +1624,53 @@ class MonolithEngine:
             pw = op.get('pw', 0.5)
             normalized = (phase_acc / (2 * np.pi)) % 1.0
             return amp * np.where(normalized < pw, 1.0, -1.0)
+        elif wave in ('waveguide_string', 'waveguide_tube', 'waveguide_membrane',
+                       'waveguide_plate', 'physical', 'physical2', 'supersaw',
+                       'additive', 'formant', 'harmonic', 'wavetable', 'compound'):
+            # These complex wave types don't support per-sample frequency
+            # modulation — use mean frequency as approximation
+            mean_freq = float(np.mean(freq_array))
+            if wave == 'supersaw':
+                return _generate_supersaw(t, mean_freq, amp, phase,
+                    num_saws=op.get('num_saws', 7), detune_spread=op.get('detune_spread', 0.5),
+                    mix=op.get('mix', 0.75), sr=self.sample_rate)
+            elif wave == 'additive':
+                return _generate_additive(t, mean_freq, amp, phase,
+                    harmonics=op.get('harmonics'), num_harmonics=op.get('num_harmonics', 16),
+                    rolloff=op.get('rolloff', 1.0))
+            elif wave == 'formant':
+                return _generate_formant_wave(t, mean_freq, amp, phase, vowel=op.get('vowel', 'a'))
+            elif wave == 'harmonic':
+                return _generate_harmonic(t, mean_freq, amp, phase,
+                    odd_level=op.get('odd_level', 1.0), even_level=op.get('even_level', 1.0),
+                    num_harmonics=op.get('num_harmonics', 16),
+                    odd_decay=op.get('odd_decay', 0.8), even_decay=op.get('even_decay', 0.8))
+            elif wave == 'physical':
+                return _generate_physical(t, mean_freq, amp, phase,
+                    even_harmonics=op.get('even_harmonics', 8), odd_harmonics=op.get('odd_harmonics', 4),
+                    even_weight=op.get('even_weight', 1.0), decay=op.get('decay', 0.7))
+            elif wave == 'physical2':
+                return _generate_physical2(t, mean_freq, amp, phase,
+                    inharmonicity=op.get('inharmonicity', 0.01), partials=op.get('partials', 12),
+                    decay_curve=op.get('decay_curve', 'exp'))
+            elif wave == 'waveguide_string':
+                return _generate_waveguide_string(t, mean_freq, amp, phase,
+                    damping=op.get('damping', 0.996), brightness=op.get('brightness', 0.5),
+                    position=op.get('position', 0.28), sr=self.sample_rate)
+            elif wave == 'waveguide_tube':
+                return _generate_waveguide_tube(t, mean_freq, amp, phase,
+                    damping=op.get('damping', 0.995), reflection=op.get('reflection', 0.7),
+                    bore_shape=op.get('bore_shape', 0.5), sr=self.sample_rate)
+            elif wave == 'waveguide_membrane':
+                return _generate_waveguide_membrane(t, mean_freq, amp, phase,
+                    tension=op.get('tension', 0.5), damping=op.get('damping', 0.995),
+                    strike_pos=op.get('strike_pos', 0.3), sr=self.sample_rate)
+            elif wave == 'waveguide_plate':
+                return _generate_waveguide_plate(t, mean_freq, amp, phase,
+                    thickness=op.get('thickness', 0.5), damping=op.get('damping', 0.997),
+                    material=op.get('material', 0.5), sr=self.sample_rate)
+            else:
+                return amp * np.sin(phase_acc)
         else:
             # Fallback to sine
             return amp * np.sin(phase_acc)

@@ -1,9 +1,9 @@
 # MDMA Full Release Roadmap
 
 **Music Design Made Accessible**
-**Document Version:** 1.1
+**Document Version:** 1.2
 **Baseline:** v52.0 (2026-02-03)
-**Last Updated:** 2026-02-11 (Phase 1 complete, bug sweep done)
+**Last Updated:** 2026-02-11 (Phase 1 & 2 complete)
 **Target:** v1.0 Full Release
 
 ---
@@ -45,39 +45,45 @@ A GUI where users can browse every object in their session, inspect its state, r
 
 ---
 
-## Phase 2: Monolith Engine & Synthesis Expansion
+## Phase 2: Monolith Engine & Synthesis Expansion -- COMPLETE
 
 > **Goal:** Elevate the Monolith synth from functional to professional-grade.
 > **Depends on:** Phase 1 (GUI views to expose new parameters)
 > **Delivers:** A deep, visual synth engine with extended waveform capabilities.
+> **Completed:** 2026-02-11
 
 | # | Feature | Status | Description |
 |---|---------|--------|-------------|
-| 2.1 | Full Monolith patch builder view | **[NEW]** | Dedicated GUI panel for building and editing Monolith patches — operators, routing, envelopes, all in one view |
-| 2.2 | Carrier/modulator GUI | **[NEW]** | Visual representation of carrier and modulator relationships — shows signal flow, ratios, and levels |
-| 2.3 | Full parameter exposure | **[PARTIAL]** | All Monolith parameters (including full voice params) exposed via GUI widgets — param system exists, needs complete mapping |
-| 2.4 | Oscillator list view | **[NEW]** | Scrollable list-based oscillator browser (not grid) — each entry shows waveform name, preview, and quick-edit controls |
-| 2.5 | Extended wave models | **[PARTIAL]** | Wave models beyond basic sine/saw/square/triangle — additive, band-limited, and spectral waveforms |
-| 2.6 | Physical modeling waveforms | **[NEW]** | Waveguide-based string, tube, membrane, and plate models — physically simulated timbres |
-| 2.7 | Odd/even harmonic simulation | **[NEW]** | Models that emphasize odd harmonics (clarinet-like) or even harmonics (warm/tubular) with independent control |
-| 2.8 | Wavetable import support | **[NEW]** | Import `.wav` wavetable files (Serum format, single-cycle, multi-frame) and use them as oscillator sources |
-| 2.9 | Compound wave creation | **[NEW]** | Create complex waveforms by layering, morphing, or granular-chunking existing waves — AI-assisted or manual |
+| 2.1 | Full Monolith patch builder view | **[DONE]** | PatchBuilderPanel: operator list + routing list + inline param editing + wave type picker + quick action buttons |
+| 2.2 | Carrier/modulator GUI | **[DONE]** | RoutingPanel: visual signal flow diagram with operator boxes, bezier-curve routing arrows, color-coded by modulation type |
+| 2.3 | Full parameter exposure | **[DONE]** | All 40+ Monolith parameters exposed via /wm key=value syntax and GUI widgets. Param map covers supersaw, additive, formant, harmonic, waveguide, wavetable, compound |
+| 2.4 | Oscillator list view | **[DONE]** | OscillatorListPanel: scrollable card-based browser with category filter (Basic/Noise/Physical/Extended/Waveguide/Wavetable/Compound), per-op select button |
+| 2.5 | Extended wave models | **[DONE]** | Added supersaw (JP-8000 style, 3-11 detuned saws), additive (harmonic rolloff), formant (vowel-shaped oscillator a/e/i/o/u) |
+| 2.6 | Physical modeling waveforms | **[DONE]** | 4 waveguide models: Karplus-Strong string (damping/brightness/position), tube/pipe (reflection/bore), membrane/drum (tension/strike), plate/bar (thickness/material) |
+| 2.7 | Odd/even harmonic simulation | **[DONE]** | Harmonic wave type with independent odd_level, even_level, odd_decay, even_decay. Clarinet-like (odd only) to organ-like (even emphasis) |
+| 2.8 | Wavetable import support | **[DONE]** | /wt load command imports Serum-format .wav wavetables. Frame interpolation, per-frame normalization, frame position 0.0-1.0. Engine stores named wavetables |
+| 2.9 | Compound wave creation | **[DONE]** | /compound new/add/use/morph commands. Layer multiple wave types with detune/amp/phase per layer. Morph mode crossfades between 2 layers |
 
 ### Milestone Deliverable
 A fully visual synth-design experience — users can build patches from scratch, import wavetables, use physical models, and hear the results immediately.
 
-### Phase 2 Readiness Notes (from system audit 2026-02-11)
+### Phase 2 Implementation Notes
 
-**Existing foundation in `monolith.py`:**
-- Operator dict supports: `wave`, `freq`, `amp`, `phase`, `pw`, `even_harmonics`, `odd_harmonics`, `even_weight`, `decay`, `inharmonicity`, `partials`, `decay_curve`
-- Physical modeling waveforms already partially exist (`physical`, `physical2` wave types)
-- Band-limited oscillators implemented (`hq_oscillators` flag)
-- 5 modulation algorithm types: FM, TFM, AM, RM, PM
+**New wave types added to `monolith.py`:**
+- `supersaw` (ssaw): 7 detuned saws, JP-8000 style, params: num_saws, detune_spread, mix
+- `additive` (add): Harmonic rolloff synthesis, params: num_harmonics, rolloff
+- `formant` (vowel): Vocal formant oscillator, params: vowel (a/e/i/o/u)
+- `harmonic` (harm): Independent odd/even control, params: odd_level, even_level, odd_decay, even_decay
+- `waveguide_string` (string/pluck): Karplus-Strong, params: damping, brightness, position
+- `waveguide_tube` (tube/pipe): Waveguide tube, params: damping, reflection, bore_shape
+- `waveguide_membrane` (membrane/drum): Drum model, params: tension, damping, strike_pos
+- `waveguide_plate` (plate/bar): Vibraphone/marimba, params: thickness, damping, material
+- `wavetable` (wt): Imported wavetable playback, params: wavetable_name, frame_pos
+- `compound` (comp/layer): Multi-wave layer/morph, params: compound_name, morph, layers
 
-**Known issues to resolve before starting Phase 2:**
-- `session.sydefs` does not exist on Session object — SyDefs stored in `sydef_cmds` module globals. Consider migrating to `session.sydefs` for Phase 2 patch builder.
-- `session.current_track` does not exist — use `session.current_track_index` or `session.get_current_track()`
-- Deck data lives in `dj_mode.py`, not `session.decks` dict — architectural decision needed for Phase 2
+**New commands:** /ssaw, /harm, /wg, /wt, /compound, /waveinfo
+**GUI panels:** PatchBuilderPanel, RoutingPanel, OscillatorListPanel (3 new tabs)
+**Total wave types:** 22 (up from 8)
 
 ---
 
@@ -271,7 +277,7 @@ These phase groups can be developed concurrently:
 | Phase | New Features | Partial/Existing | Total |
 |-------|-------------|------------------|-------|
 | 1. Core Interface | 8 DONE | 0 | 8 |
-| 2. Monolith & Synthesis | 6 | 3 | 9 |
+| 2. Monolith & Synthesis | 9 DONE | 0 | 9 |
 | 3. Modulation & Convolution | 5 | 1 | 6 |
 | 4. Generative Systems | 2 | 3 | 5 |
 | 5. Advanced Sound Engines | 3 | 0 | 3 |

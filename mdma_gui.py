@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
 """
-MDMA GUI - Phase 1: Core Interface & Workflow
-==============================================
+MDMA GUI - Phase 2: Monolith Engine & Synthesis Expansion
+==========================================================
 
 Full-featured wxPython interface for the MDMA audio engine.
 
 Phase 1 features:
-- Hierarchical object tree with live previews (tracks, buffers, decks,
-  operators, filters, effects, presets, chains)
+- Hierarchical object tree with live previews
 - Inspector panel with full object detail views
 - Step grid with playback position and buffer I/O tracking
-- Context menus for generation, FX, and destructive editing
-- Selection-based FX targeting (apply FX to tracks, buses, sections)
-- Accessibility section markers for deck regions
-- Auto-refresh timer for live state synchronization
-- Tabbed right panel (Inspector + Action Panel)
+- Context menus, selection-based FX, accessibility markers
 
-Version: 1.0.0
+Phase 2 features:
+- Monolith Patch Builder panel (operators, routing, inline editing)
+- Carrier/Modulator routing visualization (signal flow diagram)
+- Oscillator list view with category filter and quick-edit controls
+- Full parameter exposure for all Phase 2 wave types
+- Extended wave types: supersaw, additive, formant, harmonic,
+  waveguide (string/tube/membrane/plate), wavetable, compound
+
+Version: 2.0.0
 Author: Based on spec by Cyrus
 Date: 2026-02-11
 
@@ -26,7 +29,7 @@ Requirements:
 Usage:
     python mdma_gui.py
 
-BUILD ID: mdma_gui_v1.0.0_phase1
+BUILD ID: mdma_gui_v2.0.0_phase2
 """
 
 import sys
@@ -2177,20 +2180,487 @@ class ConsolePanel(wx.Panel):
 # MAIN FRAME
 # ============================================================================
 
+# ============================================================================
+# PHASE 2: PATCH BUILDER PANEL (Feature 2.1)
+# ============================================================================
+
+class PatchBuilderPanel(wx.Panel):
+    """Dedicated panel for building and editing Monolith patches.
+
+    Displays all operators, their wave types, frequencies, amplitudes,
+    and modulation routings in a unified view. Supports inline editing
+    of all parameters.
+    """
+
+    def __init__(self, parent, executor, console_callback=None, state_sync_callback=None):
+        super().__init__(parent)
+        self.executor = executor
+        self.console_cb = console_callback or (lambda *a: None)
+        self.sync_cb = state_sync_callback or (lambda: None)
+        self.SetBackgroundColour(Theme.BG_PANEL)
+        self._build_ui()
+
+    def _build_ui(self):
+        sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Header
+        header = wx.StaticText(self, label="Monolith Patch Builder")
+        header.SetForegroundColour(Theme.ACCENT)
+        header.SetFont(header.GetFont().Bold())
+        sizer.Add(header, 0, wx.ALL, 8)
+
+        # Operator list
+        self.op_list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
+        self.op_list.SetBackgroundColour(Theme.BG_INPUT)
+        self.op_list.SetForegroundColour(Theme.FG_TEXT)
+        self.op_list.InsertColumn(0, "Op", width=40)
+        self.op_list.InsertColumn(1, "Wave", width=120)
+        self.op_list.InsertColumn(2, "Freq (Hz)", width=80)
+        self.op_list.InsertColumn(3, "Amp", width=60)
+        self.op_list.InsertColumn(4, "Parameters", width=250)
+        sizer.Add(self.op_list, 1, wx.EXPAND | wx.ALL, 4)
+
+        # Routing section
+        route_label = wx.StaticText(self, label="Modulation Routing")
+        route_label.SetForegroundColour(Theme.ACCENT)
+        sizer.Add(route_label, 0, wx.LEFT | wx.TOP, 8)
+
+        self.route_list = wx.ListCtrl(self, style=wx.LC_REPORT)
+        self.route_list.SetBackgroundColour(Theme.BG_INPUT)
+        self.route_list.SetForegroundColour(Theme.FG_TEXT)
+        self.route_list.InsertColumn(0, "#", width=30)
+        self.route_list.InsertColumn(1, "Type", width=60)
+        self.route_list.InsertColumn(2, "Source", width=60)
+        self.route_list.InsertColumn(3, "Target", width=60)
+        self.route_list.InsertColumn(4, "Amount", width=70)
+        sizer.Add(self.route_list, 0, wx.EXPAND | wx.ALL, 4)
+        self.route_list.SetMinSize((-1, 100))
+
+        # Quick action buttons
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        for label, cmd in [
+            ("Add Op", "/op"),
+            ("Set Wave", None),
+            ("Add FM", None),
+            ("Clear Routes", "/clearalg"),
+            ("Preview", "/tone 440 1"),
+        ]:
+            btn = wx.Button(self, label=label)
+            btn.SetBackgroundColour(Theme.BG_INPUT)
+            btn.SetForegroundColour(Theme.FG_TEXT)
+            if cmd:
+                btn.Bind(wx.EVT_BUTTON, lambda e, c=cmd: self._exec(c))
+            elif label == "Set Wave":
+                btn.Bind(wx.EVT_BUTTON, self._on_set_wave)
+            elif label == "Add FM":
+                btn.Bind(wx.EVT_BUTTON, self._on_add_routing)
+            btn_sizer.Add(btn, 0, wx.ALL, 2)
+        sizer.Add(btn_sizer, 0, wx.EXPAND | wx.ALL, 4)
+
+        # Parameter quick-edit section
+        param_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        param_sizer.Add(wx.StaticText(self, label="Param:"), 0,
+                        wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        self.param_input = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER)
+        self.param_input.SetBackgroundColour(Theme.BG_INPUT)
+        self.param_input.SetForegroundColour(Theme.FG_TEXT)
+        self.param_input.SetHint("e.g. /wm supersaw saws=7 spread=0.5")
+        self.param_input.Bind(wx.EVT_TEXT_ENTER, self._on_param_enter)
+        param_sizer.Add(self.param_input, 1, wx.EXPAND)
+        sizer.Add(param_sizer, 0, wx.EXPAND | wx.ALL, 4)
+
+        self.SetSizer(sizer)
+
+    def _exec(self, cmd):
+        try:
+            result = self.executor.run(cmd)
+            if result:
+                self.console_cb(result + '\n', 'info')
+            self.sync_cb()
+            self.refresh()
+        except Exception as e:
+            self.console_cb(f"ERROR: {e}\n", 'error')
+
+    def _on_param_enter(self, event):
+        cmd = self.param_input.GetValue().strip()
+        if cmd:
+            if not cmd.startswith('/'):
+                cmd = '/' + cmd
+            self._exec(cmd)
+            self.param_input.Clear()
+
+    def _on_set_wave(self, event):
+        wave_types = [
+            'sine', 'triangle', 'saw', 'pulse', 'noise', 'pink',
+            'physical', 'physical2',
+            'supersaw', 'additive', 'formant', 'harmonic',
+            'waveguide_string', 'waveguide_tube', 'waveguide_membrane', 'waveguide_plate',
+            'wavetable', 'compound',
+        ]
+        dlg = wx.SingleChoiceDialog(self, "Select waveform:", "Set Waveform", wave_types)
+        if dlg.ShowModal() == wx.ID_OK:
+            wave = dlg.GetStringSelection()
+            self._exec(f"/wm {wave}")
+        dlg.Destroy()
+
+    def _on_add_routing(self, event):
+        dlg = wx.TextEntryDialog(self, "Enter routing (e.g. FM 2 1 50):",
+                                  "Add Modulation Routing")
+        if dlg.ShowModal() == wx.ID_OK:
+            parts = dlg.GetValue().strip().split()
+            if len(parts) >= 3:
+                algo = parts[0].lower()
+                self._exec(f"/{algo} {' '.join(parts[1:])}")
+        dlg.Destroy()
+
+    def refresh(self):
+        """Refresh the operator and routing displays."""
+        self.op_list.DeleteAllItems()
+        self.route_list.DeleteAllItems()
+
+        if not self.executor.session or not hasattr(self.executor.session, 'engine'):
+            return
+
+        engine = self.executor.session.engine
+
+        # Populate operators
+        for idx in sorted(engine.operators.keys()):
+            op = engine.operators[idx]
+            row = self.op_list.GetItemCount()
+            self.op_list.InsertItem(row, str(idx))
+            self.op_list.SetItem(row, 1, op.get('wave', 'sine'))
+            self.op_list.SetItem(row, 2, f"{op.get('freq', 440.0):.1f}")
+            self.op_list.SetItem(row, 3, f"{op.get('amp', 1.0):.3f}")
+
+            # Build params string based on wave type
+            wave = op.get('wave', 'sine')
+            params = []
+            if wave == 'pulse':
+                params.append(f"pw={op.get('pw', 0.5):.2f}")
+            elif wave == 'supersaw':
+                params.append(f"saws={op.get('num_saws', 7)}")
+                params.append(f"spread={op.get('detune_spread', 0.5):.2f}")
+            elif wave == 'harmonic':
+                params.append(f"odd={op.get('odd_level', 1.0):.1f}")
+                params.append(f"even={op.get('even_level', 1.0):.1f}")
+            elif wave == 'additive':
+                params.append(f"nharm={op.get('num_harmonics', 16)}")
+                params.append(f"rolloff={op.get('rolloff', 1.0):.1f}")
+            elif wave == 'formant':
+                params.append(f"vowel={op.get('vowel', 'a')}")
+            elif wave.startswith('waveguide_'):
+                params.append(f"damp={op.get('damping', 0.996):.3f}")
+            elif wave == 'wavetable':
+                params.append(f"table={op.get('wavetable_name', '')}")
+                params.append(f"frame={op.get('frame_pos', 0.0):.2f}")
+            elif wave == 'compound':
+                params.append(f"name={op.get('compound_name', '')}")
+                params.append(f"morph={op.get('morph', 0.0):.2f}")
+            self.op_list.SetItem(row, 4, ', '.join(params))
+
+        # Populate routings
+        for i, (algo_type, src, tgt, amt) in enumerate(engine.algorithms):
+            row = self.route_list.GetItemCount()
+            self.route_list.InsertItem(row, str(i))
+            self.route_list.SetItem(row, 1, algo_type)
+            self.route_list.SetItem(row, 2, f"op{src}")
+            self.route_list.SetItem(row, 3, f"op{tgt}")
+            self.route_list.SetItem(row, 4, f"{amt:.3f}")
+
+
+# ============================================================================
+# PHASE 2: CARRIER/MODULATOR ROUTING VIEW (Feature 2.2)
+# ============================================================================
+
+class RoutingPanel(wx.Panel):
+    """Visual representation of carrier/modulator signal flow.
+
+    Shows operators as boxes connected by arrows representing
+    modulation routings, with signal type and amount labels.
+    """
+
+    def __init__(self, parent, executor):
+        super().__init__(parent)
+        self.executor = executor
+        self.SetBackgroundColour(Theme.BG_DARK)
+        self.Bind(wx.EVT_PAINT, self.on_paint)
+        self.SetMinSize((300, 200))
+
+    def on_paint(self, event):
+        dc = wx.BufferedPaintDC(self)
+        gc = wx.GraphicsContext.Create(dc)
+        if not gc:
+            return
+
+        w, h = self.GetSize()
+        gc.SetBrush(wx.Brush(Theme.BG_DARK))
+        gc.SetPen(wx.TRANSPARENT_PEN)
+        gc.DrawRectangle(0, 0, w, h)
+
+        if not self.executor.session or not hasattr(self.executor.session, 'engine'):
+            gc.SetFont(gc.CreateFont(wx.Font(12, wx.FONTFAMILY_DEFAULT,
+                        wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL), Theme.FG_DIM))
+            gc.DrawText("No engine loaded", 20, h // 2)
+            return
+
+        engine = self.executor.session.engine
+        ops = sorted(engine.operators.keys())
+
+        if not ops:
+            gc.SetFont(gc.CreateFont(wx.Font(12, wx.FONTFAMILY_DEFAULT,
+                        wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL), Theme.FG_DIM))
+            gc.DrawText("No operators defined", 20, h // 2)
+            return
+
+        # Layout operators as boxes
+        num_ops = len(ops)
+        box_w, box_h = 100, 60
+        margin = 20
+        spacing = max(30, (w - margin * 2 - box_w * num_ops) / max(1, num_ops - 1) + box_w)
+
+        op_positions = {}
+        for i, idx in enumerate(ops):
+            x = margin + i * spacing
+            y = h // 2 - box_h // 2
+            op_positions[idx] = (x, y)
+
+            # Draw operator box
+            op = engine.operators[idx]
+            wave = op.get('wave', 'sine')
+            freq = op.get('freq', 440.0)
+
+            gc.SetBrush(wx.Brush(Theme.BG_PANEL))
+            gc.SetPen(wx.Pen(Theme.ACCENT, 2))
+            gc.DrawRoundedRectangle(x, y, box_w, box_h, 6)
+
+            # Label
+            gc.SetFont(gc.CreateFont(wx.Font(9, wx.FONTFAMILY_DEFAULT,
+                        wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD), Theme.FG_TEXT))
+            gc.DrawText(f"Op {idx}", x + 8, y + 4)
+            gc.SetFont(gc.CreateFont(wx.Font(8, wx.FONTFAMILY_DEFAULT,
+                        wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL), Theme.FG_DIM))
+            gc.DrawText(wave, x + 8, y + 22)
+            gc.DrawText(f"{freq:.0f} Hz", x + 8, y + 38)
+
+        # Draw routing arrows
+        algo_colors = {
+            'FM': Theme.ACCENT,
+            'TFM': wx.Colour(180, 100, 255),
+            'AM': Theme.SUCCESS,
+            'RM': Theme.WARNING,
+            'PM': Theme.ERROR,
+        }
+
+        for algo_type, src, tgt, amt in engine.algorithms:
+            if src not in op_positions or tgt not in op_positions:
+                continue
+            sx, sy = op_positions[src]
+            tx, ty = op_positions[tgt]
+
+            color = algo_colors.get(algo_type, Theme.FG_DIM)
+            gc.SetPen(wx.Pen(color, 2))
+
+            # Draw arrow from source bottom to target top
+            start_x = sx + box_w // 2
+            start_y = sy + box_h
+            end_x = tx + box_w // 2
+            end_y = ty
+
+            path = gc.CreatePath()
+            path.MoveToPoint(start_x, start_y)
+            # Bezier curve for nice routing lines
+            mid_y = start_y + 30
+            path.AddCurveToPoint(start_x, mid_y, end_x, mid_y, end_x, end_y)
+            gc.StrokePath(path)
+
+            # Label
+            label_x = (start_x + end_x) / 2
+            label_y = mid_y - 8
+            gc.SetFont(gc.CreateFont(wx.Font(7, wx.FONTFAMILY_DEFAULT,
+                        wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL), color))
+            gc.DrawText(f"{algo_type} {amt:.1f}", label_x - 15, label_y)
+
+    def refresh(self):
+        self.Refresh()
+
+
+# ============================================================================
+# PHASE 2: OSCILLATOR LIST VIEW (Feature 2.4)
+# ============================================================================
+
+class OscillatorListPanel(wx.Panel):
+    """Scrollable list-based oscillator browser.
+
+    Each entry shows waveform name, frequency, amplitude, and
+    quick-edit controls for common parameters.
+    """
+
+    def __init__(self, parent, executor, console_callback=None, state_sync_callback=None):
+        super().__init__(parent)
+        self.executor = executor
+        self.console_cb = console_callback or (lambda *a: None)
+        self.sync_cb = state_sync_callback or (lambda: None)
+        self.SetBackgroundColour(Theme.BG_PANEL)
+        self._build_ui()
+
+    def _build_ui(self):
+        sizer = wx.BoxSizer(wx.VERTICAL)
+
+        header = wx.StaticText(self, label="Oscillator Browser")
+        header.SetForegroundColour(Theme.ACCENT)
+        header.SetFont(header.GetFont().Bold())
+        sizer.Add(header, 0, wx.ALL, 8)
+
+        # Category filter
+        filter_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        filter_sizer.Add(wx.StaticText(self, label="Filter:"), 0,
+                         wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        self.wave_filter = wx.Choice(self, choices=[
+            "All", "Basic", "Noise", "Physical", "Extended",
+            "Waveguide", "Wavetable", "Compound"
+        ])
+        self.wave_filter.SetSelection(0)
+        self.wave_filter.Bind(wx.EVT_CHOICE, lambda e: self.refresh())
+        filter_sizer.Add(self.wave_filter, 0, wx.RIGHT, 8)
+
+        # Add operator button
+        add_btn = wx.Button(self, label="+ Add Operator")
+        add_btn.SetBackgroundColour(Theme.BG_INPUT)
+        add_btn.SetForegroundColour(Theme.SUCCESS)
+        add_btn.Bind(wx.EVT_BUTTON, self._on_add_op)
+        filter_sizer.Add(add_btn, 0)
+
+        sizer.Add(filter_sizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+
+        # Scrolled operator cards
+        self.scroll = wx.ScrolledWindow(self)
+        self.scroll.SetScrollRate(0, 20)
+        self.scroll.SetBackgroundColour(Theme.BG_DARK)
+        self.scroll_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.scroll.SetSizer(self.scroll_sizer)
+        sizer.Add(self.scroll, 1, wx.EXPAND | wx.ALL, 4)
+
+        self.SetSizer(sizer)
+
+    def _on_add_op(self, event):
+        """Add a new operator."""
+        if not self.executor.session:
+            return
+        engine = self.executor.session.engine
+        # Find next available index
+        existing = set(engine.operators.keys())
+        new_idx = 1
+        while new_idx in existing:
+            new_idx += 1
+        try:
+            result = self.executor.run(f"/op {new_idx}")
+            if result:
+                self.console_cb(result + '\n', 'info')
+            self.sync_cb()
+            self.refresh()
+        except Exception as e:
+            self.console_cb(f"ERROR: {e}\n", 'error')
+
+    def refresh(self):
+        """Rebuild the oscillator cards."""
+        self.scroll_sizer.Clear(True)
+
+        if not self.executor.session or not hasattr(self.executor.session, 'engine'):
+            return
+
+        engine = self.executor.session.engine
+        filter_sel = self.wave_filter.GetStringSelection()
+
+        # Category mapping
+        categories = {
+            'Basic': {'sine', 'triangle', 'saw', 'pulse'},
+            'Noise': {'noise', 'pink'},
+            'Physical': {'physical', 'physical2'},
+            'Extended': {'supersaw', 'additive', 'formant', 'harmonic'},
+            'Waveguide': {'waveguide_string', 'waveguide_tube', 'waveguide_membrane', 'waveguide_plate'},
+            'Wavetable': {'wavetable'},
+            'Compound': {'compound'},
+        }
+
+        for idx in sorted(engine.operators.keys()):
+            op = engine.operators[idx]
+            wave = op.get('wave', 'sine')
+
+            # Apply filter
+            if filter_sel != "All":
+                allowed = categories.get(filter_sel, set())
+                if wave not in allowed:
+                    continue
+
+            card = self._create_op_card(idx, op)
+            self.scroll_sizer.Add(card, 0, wx.EXPAND | wx.ALL, 4)
+
+        self.scroll.FitInside()
+        self.scroll.Layout()
+
+    def _create_op_card(self, idx, op):
+        """Create a card panel for one operator."""
+        card = wx.Panel(self.scroll)
+        card.SetBackgroundColour(Theme.BG_PANEL)
+        card_sizer = wx.BoxSizer(wx.HORIZONTAL)
+
+        wave = op.get('wave', 'sine')
+        freq = op.get('freq', 440.0)
+        amp_val = op.get('amp', 1.0)
+
+        # Op index badge
+        badge = wx.StaticText(card, label=f" Op{idx} ")
+        badge.SetForegroundColour(Theme.BG_DARK)
+        badge.SetBackgroundColour(Theme.ACCENT)
+        badge.SetFont(badge.GetFont().Bold())
+        card_sizer.Add(badge, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 4)
+
+        # Info
+        info_sizer = wx.BoxSizer(wx.VERTICAL)
+        wave_text = wx.StaticText(card, label=wave)
+        wave_text.SetForegroundColour(Theme.FG_TEXT)
+        wave_text.SetFont(wave_text.GetFont().Bold())
+        info_sizer.Add(wave_text, 0)
+
+        detail = f"{freq:.1f} Hz  |  amp: {amp_val:.3f}"
+        detail_text = wx.StaticText(card, label=detail)
+        detail_text.SetForegroundColour(Theme.FG_DIM)
+        info_sizer.Add(detail_text, 0)
+
+        card_sizer.Add(info_sizer, 1, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 4)
+
+        # Quick-edit buttons
+        select_btn = wx.Button(card, label="Select", size=(55, -1))
+        select_btn.Bind(wx.EVT_BUTTON, lambda e, i=idx: self._select_op(i))
+        card_sizer.Add(select_btn, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 2)
+
+        card.SetSizer(card_sizer)
+        return card
+
+    def _select_op(self, idx):
+        try:
+            result = self.executor.run(f"/op {idx}")
+            if result:
+                self.console_cb(result + '\n', 'info')
+            self.sync_cb()
+        except Exception as e:
+            self.console_cb(f"ERROR: {e}\n", 'error')
+
+
 class MDMAFrame(wx.Frame):
     """Main application window.
 
-    Layout (Phase 1):
-    +-----------+---------------------+
-    |  Object   |  Inspector / Action |
-    |  Browser  |  (notebook tabs)    |
-    |  (tree)   |                     |
-    +-----------+---------------------+
-    |  Step Grid  |  Console Output   |
-    +-------------+-------------------+
+    Layout (Phase 2):
+    +-----------+----------------------------------+
+    |  Object   |  Inspector / Actions / Patch /   |
+    |  Browser  |  Oscillators / Routing           |
+    |  (tree)   |  (notebook tabs)                 |
+    +-----------+----------------------------------+
+    |  Step Grid  |  Console Output                |
+    +-------------+--------------------------------+
     """
 
-    VERSION = "1.0.0"
+    VERSION = "2.0.0"
 
     def __init__(self):
         super().__init__(None, title="MDMA - Music Design Made Accessible",
@@ -2222,7 +2692,7 @@ class MDMAFrame(wx.Frame):
         self.Centre()
 
         # Welcome message
-        self.console.append(f"MDMA GUI v{self.VERSION} - Phase 1 Interface\n", 'info')
+        self.console.append(f"MDMA GUI v{self.VERSION} - Phase 2: Monolith Engine\n", 'info')
         self.console.append("=" * 55 + "\n", 'info')
 
         # Warn if engine failed to load
@@ -2346,6 +2816,23 @@ class MDMAFrame(wx.Frame):
             state_sync_callback=self.sync_state)
         self.right_notebook.AddPage(self.action_panel, "Actions")
 
+        # Phase 2 panels
+        self.patch_builder = PatchBuilderPanel(
+            self.right_notebook, self.executor,
+            console_callback=self.console_append,
+            state_sync_callback=self.sync_state)
+        self.right_notebook.AddPage(self.patch_builder, "Patch")
+
+        self.osc_list = OscillatorListPanel(
+            self.right_notebook, self.executor,
+            console_callback=self.console_append,
+            state_sync_callback=self.sync_state)
+        self.right_notebook.AddPage(self.osc_list, "Oscillators")
+
+        self.routing_panel = RoutingPanel(
+            self.right_notebook, self.executor)
+        self.right_notebook.AddPage(self.routing_panel, "Routing")
+
         # --- Bottom left: Step Grid ---
         self.step_grid = StepGridPanel(self.bottom_splitter, self.executor)
 
@@ -2437,6 +2924,11 @@ class MDMAFrame(wx.Frame):
 
         # Update step grid
         self.step_grid.update_from_session()
+
+        # Phase 2: refresh patch builder, oscillator list, routing view
+        self.patch_builder.refresh()
+        self.osc_list.refresh()
+        self.routing_panel.refresh()
 
     # ------------------------------------------------------------------
     # Auto-refresh timer
