@@ -2,6 +2,17 @@
 
 ## Version 52.0 (2026-02-03) - Interface Transition + GUI MVP
 
+### Milestone: Phases 1-4 Complete
+
+As of v52, the first four phases of the [10-phase roadmap](ROADMAP_FULL_RELEASE.md) are fully implemented and tested:
+
+- **Phase 1 — Core Interface & Workflow** (completed 2026-02-11): Object tree, inspector panels, step grid, context menus, selection-based FX, accessibility markers
+- **Phase 2 — Monolith Engine & Synthesis** (completed 2026-02-11): 22 wave types, patch builder, physical modeling, wavetable import, compound waves
+- **Phase 3 — Modulation, Impulse & Convolution** (completed 2026-02-12): Impulse LFO/envelope import, convolution reverb (17 IR presets), neural IR enhancement, AI impulse transformation
+- **Phase 4 — Generative Systems** (completed 2026-02-12): `/gen2`, `/beat`, `/loop`, `/xform`, `/adapt` — 21 scales, 21 chords, 12 progressions, 17 beat generators, 11 genre templates
+
+**Next up:** Phase 4b (Microtonal Support) — extending generative systems for non-12-TET tuning systems, custom scales, and diverse musical traditions.
+
 ### Major Changes
 
 #### 1. DSL Mode Deprecated

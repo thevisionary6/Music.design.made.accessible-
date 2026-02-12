@@ -1,9 +1,9 @@
 # MDMA Full Release Roadmap
 
 **Music Design Made Accessible**
-**Document Version:** 1.3
+**Document Version:** 1.4
 **Baseline:** v52.0 (2026-02-03)
-**Last Updated:** 2026-02-12 (Phases 1, 2 & 3 complete)
+**Last Updated:** 2026-02-12 (Phases 1-4 complete; Phase 4b microtonal expansion planned)
 **Target:** v1.0 Full Release
 
 ---
@@ -197,11 +197,12 @@ A modulation and convolution system where any audio can become a modulation sour
 
 ---
 
-## Phase 4: Generative Systems
+## Phase 4: Generative Systems -- COMPLETE
 
 > **Goal:** AI and algorithmic tools that produce musically useful output.
 > **Depends on:** Phase 2 (synth engine for rendering), Phase 3 (modulation for expression)
 > **Delivers:** Generation engines that produce patterns, loops, and beats ready for arrangement.
+> **Completed:** 2026-02-12
 
 | # | Feature | Status | Description |
 |---|---------|--------|-------------|
@@ -221,6 +222,42 @@ A modulation and convolution system where any audio can become a modulation sour
 
 ### Milestone Deliverable
 Users can say "generate a 4-bar drum loop in this style" or "adapt this melody to minor key" and get musically coherent, production-ready results. **ACHIEVED.**
+
+---
+
+## Phase 4b: Microtonal Support (Generative Systems Expansion)
+
+> **Goal:** Extend Phase 4 generative systems and the music theory engine to support microtonal tuning systems beyond 12-TET.
+> **Depends on:** Phase 4 (generative systems), Phase 2 (synth engine frequency pipeline)
+> **Delivers:** Full microtonal composition workflow — custom tuning systems, microtonal scales, non-Western theory integration, and microtonal-aware generation.
+
+| # | Feature | Status | Description |
+|---|---------|--------|-------------|
+| 4b.1 | Tuning system engine | **[NEW]** | Pluggable tuning backend that replaces 12-TET assumptions — support for equal divisions of the octave (EDO: 19, 22, 24, 31, 53, etc.), just intonation (rational frequency ratios), and custom cent-based tunings. Session-level `tuning` property with hot-swap support |
+| 4b.2 | Microtonal frequency pipeline | **[NEW]** | Replace `midi_to_freq()` 12-TET formula with tuning-aware conversion — `tuning_to_freq(degree, tuning_system)`. All synthesis, pattern, and generative code routes through the new pipeline so tuning changes propagate everywhere |
+| 4b.3 | Microtonal scale definitions | **[NEW]** | Extend `SCALES` dict to support non-12-TET interval sets — scales defined as cent offsets or frequency ratios instead of semitone integers. Built-in microtonal scales: quarter-tone Arabic maqamat, Turkish makam, Indonesian slendro/pelog, Indian shruti (22-tone), Bohlen-Pierce, Wendy Carlos Alpha/Beta/Gamma |
+| 4b.4 | Microtonal notation and input | **[NEW]** | New note input syntax for microtonal pitches — cent offsets (`+50c`), EDO step numbers (`19edo:7`), ratio notation (`3/2`, `5/4`), and quarter-tone accidentals (`C4+`, `Eb4-`). Pattern commands (`/mel`, `/cor`, `/pat`) accept microtonal tokens |
+| 4b.5 | Configurable reference frequency | **[NEW]** | Session-level A4 reference (default 440Hz) — `/ref 432`, `/ref 415` (baroque), `/ref 444` (orchestral). All pitch calculations respect the reference. Persistent across save/load |
+| 4b.6 | Microtonal-aware generative systems | **[NEW]** | Extend `/gen2`, `/beat`, `/loop`, `/adapt`, `/xform` to generate content using the active tuning system — melody generation respects EDO step counts, chord voicings use tuning-correct intervals, adaptation algorithms handle non-12 pitch spaces |
+| 4b.7 | Tuning table import/export | **[NEW]** | Import tuning definitions from standard formats — Scala `.scl`/`.kbm` files, TUN files, AnaMark tuning. Export MDMA tunings to `.scl` for use in other software |
+| 4b.8 | Microtonal theory extensions | **[NEW]** | Extend music theory module — interval measurement in cents, consonance/dissonance ranking for arbitrary tunings, microtonal chord detection, key detection for non-12-TET pitch sets, MOS (Moment of Symmetry) scale generation |
+
+### Implementation Notes
+
+**Architectural approach:** The current `music_theory.py` uses semitone-integer offsets for all scales and chords. The microtonal extension redefines intervals as **cent values** (float) internally while maintaining backward compatibility — 12-TET semitone `1` = `100.0` cents. This means existing 12-TET scales and commands work unchanged.
+
+**Key extension points identified in current codebase:**
+- `music_theory.py:midi_to_freq()` — replace with tuning-aware lookup
+- `music_theory.py:SCALES` — extend to accept cent-based intervals
+- `music_theory.py:snap_to_scale()` — generalize for non-12 pitch class sets
+- `monolith.py` generate functions — already accept arbitrary Hz, no changes needed
+- `gen_cmds.py` — pass tuning context to all generation functions
+- `session.py` — add `tuning_system` and `reference_freq` session properties
+
+**Backward compatibility:** All existing 12-TET workflows remain the default. Microtonal features activate only when a non-standard tuning is loaded via `/tuning` command. No breaking changes.
+
+### Milestone Deliverable
+Users can load any tuning system (EDO, just intonation, or custom), compose with microtonal scales from diverse musical traditions, generate microtonal content with the full suite of generative tools, and import/export tuning definitions for interoperability with other music software.
 
 ---
 
@@ -335,13 +372,15 @@ Live audio-reactive visuals on external screens, accessible visualizer tools for
 ## Phase Summary & Dependency Map
 
 ```
-Phase 1: Core Interface & Workflow
+Phase 1: Core Interface & Workflow         [DONE]
   |
-  +---> Phase 2: Monolith Engine & Synthesis
+  +---> Phase 2: Monolith Engine & Synthesis     [DONE]
   |       |
-  |       +---> Phase 3: Modulation, Impulse & Convolution
+  |       +---> Phase 3: Modulation, Impulse & Convolution  [DONE]
   |       |       |
-  |       |       +---> Phase 4: Generative Systems
+  |       |       +---> Phase 4: Generative Systems          [DONE]
+  |       |               |
+  |       |               +---> Phase 4b: Microtonal Support [NEW]
   |       |               |
   |       |               +---> Phase 5: Advanced Sound Engines
   |       |
@@ -362,9 +401,10 @@ These phase groups can be developed concurrently:
 
 | Track A (Sound Engine) | Track B (Integration) | Track C (Media) |
 |------------------------|-----------------------|-----------------|
-| Phase 2: Synthesis | Phase 6: MIDI/VST/HW | Phase 10: Visualization |
-| Phase 3: Modulation | Phase 8: DJ & Performance | |
-| Phase 4: Generative | Phase 9: Recording | |
+| ~~Phase 2: Synthesis~~ DONE | Phase 6: MIDI/VST/HW | Phase 10: Visualization |
+| ~~Phase 3: Modulation~~ DONE | Phase 8: DJ & Performance | |
+| ~~Phase 4: Generative~~ DONE | Phase 9: Recording | |
+| Phase 4b: Microtonal | | |
 | Phase 5: Neural Engines | | |
 | Phase 7: Presets (after both tracks) | | |
 
@@ -372,19 +412,20 @@ These phase groups can be developed concurrently:
 
 ## Feature Count Summary
 
-| Phase | New Features | Partial/Existing | Total |
-|-------|-------------|------------------|-------|
-| 1. Core Interface | 8 DONE | 0 | 8 |
-| 2. Monolith & Synthesis | 9 DONE | 0 | 9 |
-| 3. Modulation & Convolution | 6 DONE | 0 | 6 |
-| 4. Generative Systems | 2 | 3 | 5 |
-| 5. Advanced Sound Engines | 3 | 0 | 3 |
-| 6. MIDI, VST & Hardware | 4 | 0 | 4 |
-| 7. Presets & Content | 2 | 1 | 3 |
-| 8. DJ & Performance | 3 | 3 | 6 |
-| 9. Recording & Input | 4 | 0 | 4 |
-| 10. Visualization & Media | 3 | 1 | 4 |
-| **Total** | **38** | **14** | **52** |
+| Phase | Status | Features | Done | Remaining |
+|-------|--------|----------|------|-----------|
+| 1. Core Interface | **COMPLETE** | 8 | 8 | 0 |
+| 2. Monolith & Synthesis | **COMPLETE** | 9 | 9 | 0 |
+| 3. Modulation & Convolution | **COMPLETE** | 6 | 6 | 0 |
+| 4. Generative Systems | **COMPLETE** | 5 | 5 | 0 |
+| 4b. Microtonal Support | **NEW** | 8 | 0 | 8 |
+| 5. Advanced Sound Engines | NEW | 3 | 0 | 3 |
+| 6. MIDI, VST & Hardware | NEW | 4 | 0 | 4 |
+| 7. Presets & Content | PARTIAL | 3 | 0 | 3 |
+| 8. DJ & Performance | PARTIAL | 6 | 0 | 6 |
+| 9. Recording & Input | NEW | 4 | 0 | 4 |
+| 10. Visualization & Media | PARTIAL | 4 | 0 | 4 |
+| **Total** | | **60** | **28** | **32** |
 
 ---
 
