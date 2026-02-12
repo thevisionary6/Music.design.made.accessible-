@@ -29,10 +29,22 @@ Usage:
 BUILD ID: mdma_gui_v1.0.0_phase1
 """
 
-import wx
-import wx.lib.agw.aui as aui
 import sys
 import os
+
+# wxPython import guard — give a clear message instead of a traceback
+try:
+    import wx
+    import wx.lib.agw.aui as aui
+except ImportError:
+    print("MDMA GUI requires wxPython.")
+    print("Install with:  pip install wxPython")
+    print("\nAlternatives:")
+    print("  python run_mdma.py --repl   (terminal, no extra deps)")
+    print("  python run_mdma.py --tui    (pip install textual)")
+    print("  python run_mdma.py          (auto-detect best interface)")
+    sys.exit(1)
+
 import io
 from contextlib import redirect_stdout, redirect_stderr
 from typing import Dict, List, Any, Optional, Callable
