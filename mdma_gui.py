@@ -2168,6 +2168,9 @@ class ObjectBrowser(wx.Panel):
         menu = wx.Menu()
         obj_type = data.get('type', '')
 
+        # ==============================================================
+        # Track
+        # ==============================================================
         if obj_type == 'track':
             idx = data.get('index', 0)
             m_play = wx.NewIdRef()
@@ -2197,8 +2200,11 @@ class ObjectBrowser(wx.Panel):
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/btw {i+1}'), id=m_bounce)
             self.Bind(wx.EVT_MENU,
-                lambda e, i=idx: self._exec(f'/tclr {i+1}'), id=m_clear)
+                lambda e, i=idx: self._exec(f'/tsel {i+1}\n/rc'), id=m_clear)
 
+        # ==============================================================
+        # Buffer
+        # ==============================================================
         elif obj_type == 'buffer':
             idx = data.get('index', 1)
             m_play = wx.NewIdRef()
@@ -2221,6 +2227,9 @@ class ObjectBrowser(wx.Panel):
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/clr {i}'), id=m_clear)
 
+        # ==============================================================
+        # Working Buffer
+        # ==============================================================
         elif obj_type == 'working_buffer':
             m_play = wx.NewIdRef()
             m_fx = wx.NewIdRef()
@@ -2236,6 +2245,9 @@ class ObjectBrowser(wx.Panel):
                 lambda e: self._show_fx_picker('working', 0), id=m_fx)
             self.Bind(wx.EVT_MENU, lambda e: self._exec('/wbc'), id=m_clear)
 
+        # ==============================================================
+        # Deck
+        # ==============================================================
         elif obj_type == 'deck':
             idx = data.get('index', 1)
             m_play = wx.NewIdRef()
@@ -2254,11 +2266,38 @@ class ObjectBrowser(wx.Panel):
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/deck {i} clear'), id=m_clear)
 
+        # ==============================================================
+        # Deck Section
+        # ==============================================================
+        elif obj_type == 'deck_section':
+            dk = data.get('deck', 1)
+            start = data.get('start', 0)
+            end = data.get('end', 0)
+            m_jump = wx.NewIdRef()
+            m_play = wx.NewIdRef()
+            m_loop = wx.NewIdRef()
+            menu.Append(m_jump, f"Jump to {start:.2f}s")
+            menu.Append(m_play, "Play Section")
+            menu.Append(m_loop, "Loop Section")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, d=dk, s=start: self._exec(f'/deck {d} seek {s}'),
+                id=m_jump)
+            self.Bind(wx.EVT_MENU,
+                lambda e, d=dk, s=start, en=end: self._exec(
+                    f'/deck {d} seek {s}\n/pd {d}'), id=m_play)
+            self.Bind(wx.EVT_MENU,
+                lambda e, d=dk, s=start, en=end: self._exec(
+                    f'/deck {d} loop {s} {en}'), id=m_loop)
+
+        # ==============================================================
+        # Effect
+        # ==============================================================
         elif obj_type == 'effect':
             idx = data.get('index', 0)
             m_remove = wx.NewIdRef()
             m_clear_all = wx.NewIdRef()
-            menu.Append(m_remove, f"Remove This Effect")
+            menu.Append(m_remove, "Remove This Effect")
             menu.AppendSeparator()
             menu.Append(m_clear_all, "Clear All Effects")
 
@@ -2267,40 +2306,407 @@ class ObjectBrowser(wx.Panel):
             self.Bind(wx.EVT_MENU,
                 lambda e: self._exec('/fxc'), id=m_clear_all)
 
+        # ==============================================================
+        # Operator
+        # ==============================================================
         elif obj_type == 'operator':
             idx = data.get('index', 0)
             m_select = wx.NewIdRef()
             m_gen = wx.NewIdRef()
+            m_wave = wx.NewIdRef()
+            m_fm = wx.NewIdRef()
             menu.Append(m_select, f"Select Operator {idx}")
-            menu.Append(m_gen, "Generate Tone on This Operator")
+            menu.Append(m_gen, "Generate Tone (440Hz)")
+            menu.AppendSeparator()
+            menu.Append(m_wave, "Set Waveform...")
+            menu.Append(m_fm, "Add FM Routing...")
 
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/op {i}'), id=m_select)
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/op {i}\n/tone 440 1'),
                 id=m_gen)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_waveform_picker(i), id=m_wave)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_routing_picker(i), id=m_fm)
 
+        # ==============================================================
+        # Filter Slot
+        # ==============================================================
+        elif obj_type == 'filter_slot':
+            slot = data.get('slot', 0)
+            m_select = wx.NewIdRef()
+            m_type = wx.NewIdRef()
+            m_cutoff = wx.NewIdRef()
+            m_res = wx.NewIdRef()
+            m_clear = wx.NewIdRef()
+            menu.Append(m_select, f"Select Filter {slot}")
+            menu.AppendSeparator()
+            menu.Append(m_type, "Set Filter Type...")
+            menu.Append(m_cutoff, "Set Cutoff...")
+            menu.Append(m_res, "Set Resonance...")
+            menu.AppendSeparator()
+            menu.Append(m_clear, "Clear Filter")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, s=slot: self._exec(f'/fs {s}'), id=m_select)
+            self.Bind(wx.EVT_MENU,
+                lambda e, s=slot: self._show_filter_type_picker(s), id=m_type)
+            self.Bind(wx.EVT_MENU,
+                lambda e, s=slot: self._show_value_editor(
+                    "Cutoff Frequency", "Enter cutoff (Hz):", "4500",
+                    f'/fs {s}\n/cut {{}}'), id=m_cutoff)
+            self.Bind(wx.EVT_MENU,
+                lambda e, s=slot: self._show_value_editor(
+                    "Resonance", "Enter resonance (0-1):", "0.5",
+                    f'/fs {s}\n/res {{}}'), id=m_res)
+            self.Bind(wx.EVT_MENU,
+                lambda e, s=slot: self._exec(f'/fs {s}\n/sfc'), id=m_clear)
+
+        # ==============================================================
+        # Routing (modulation)
+        # ==============================================================
+        elif obj_type == 'routing':
+            idx = data.get('index', 0)
+            m_edit = wx.NewIdRef()
+            m_clear = wx.NewIdRef()
+            menu.Append(m_edit, f"Edit Routing {idx}...")
+            menu.AppendSeparator()
+            menu.Append(m_clear, "Remove Routing")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_placeholder(
+                    "Edit Routing",
+                    f"Routing {i} editing — use /route command for full control."),
+                id=m_edit)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/rt clear {i}'), id=m_clear)
+
+        # ==============================================================
+        # Wavetable
+        # ==============================================================
+        elif obj_type == 'wavetable':
+            name = data.get('name', '')
+            m_use = wx.NewIdRef()
+            m_del = wx.NewIdRef()
+            menu.Append(m_use, f"Use Wavetable: {name}")
+            menu.AppendSeparator()
+            menu.Append(m_del, "Delete Wavetable")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/wm wavetable\n/wt use {n}'),
+                id=m_use)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/wt delete {n}'), id=m_del)
+
+        # ==============================================================
+        # Compound Wave
+        # ==============================================================
+        elif obj_type == 'compound':
+            name = data.get('name', '')
+            m_use = wx.NewIdRef()
+            m_del = wx.NewIdRef()
+            menu.Append(m_use, f"Use Compound: {name}")
+            menu.AppendSeparator()
+            menu.Append(m_del, "Delete Compound")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/wm compound\n/compound use {n}'),
+                id=m_use)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/compound delete {n}'),
+                id=m_del)
+
+        # ==============================================================
+        # SyDef (preset)
+        # ==============================================================
         elif obj_type == 'sydef':
             name = data.get('name', '')
             m_use = wx.NewIdRef()
+            m_del = wx.NewIdRef()
             menu.Append(m_use, f"Use Preset: {name}")
+            menu.AppendSeparator()
+            menu.Append(m_del, "Delete Preset")
             self.Bind(wx.EVT_MENU,
                 lambda e, n=name: self._exec(f'/use {n}'), id=m_use)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/preset delete {n}'),
+                id=m_del)
 
+        # ==============================================================
+        # Chain
+        # ==============================================================
         elif obj_type == 'chain':
             name = data.get('name', '')
             m_apply = wx.NewIdRef()
+            m_del = wx.NewIdRef()
             menu.Append(m_apply, f"Apply Chain: {name}")
+            menu.AppendSeparator()
+            menu.Append(m_del, "Delete Chain")
             self.Bind(wx.EVT_MENU,
                 lambda e, n=name: self._exec(f'/chain {n} apply'), id=m_apply)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/chain {n} delete'),
+                id=m_del)
 
+        # ==============================================================
+        # User Function
+        # ==============================================================
+        elif obj_type == 'user_function':
+            name = data.get('name', '')
+            m_run = wx.NewIdRef()
+            m_edit = wx.NewIdRef()
+            m_del = wx.NewIdRef()
+            menu.Append(m_run, f"Run: {name}")
+            menu.Append(m_edit, "Edit Definition...")
+            menu.AppendSeparator()
+            menu.Append(m_del, "Delete Function")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/run {n}'), id=m_run)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._show_placeholder(
+                    "Edit Function",
+                    f"Function '{n}' — use /fn to redefine."), id=m_edit)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/userdata delete {n}'),
+                id=m_del)
+
+        # ==============================================================
+        # Preset Slot (bank)
+        # ==============================================================
+        elif obj_type == 'preset_slot':
+            slot = data.get('slot', 0)
+            m_load = wx.NewIdRef()
+            m_save = wx.NewIdRef()
+            m_del = wx.NewIdRef()
+            menu.Append(m_load, f"Load Slot {slot}")
+            menu.Append(m_save, f"Save to Slot {slot}...")
+            menu.AppendSeparator()
+            menu.Append(m_del, "Clear Slot")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, s=slot: self._exec(f'/bk load {s}'), id=m_load)
+            self.Bind(wx.EVT_MENU,
+                lambda e, s=slot: self._show_value_editor(
+                    "Save Preset", "Enter preset name:", f"slot_{s}",
+                    f'/bk save {s} {{}}'), id=m_save)
+            self.Bind(wx.EVT_MENU,
+                lambda e, s=slot: self._exec(f'/bk delete {s}'), id=m_del)
+
+        # ==============================================================
+        # IR Bank Entry (convolution)
+        # ==============================================================
+        elif obj_type == 'ir_bank_entry':
+            name = data.get('name', '')
+            m_use = wx.NewIdRef()
+            m_del = wx.NewIdRef()
+            menu.Append(m_use, f"Use IR: {name}")
+            menu.AppendSeparator()
+            menu.Append(m_del, "Remove from Bank")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/conv use {n}'), id=m_use)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/conv bank remove {n}'),
+                id=m_del)
+
+        # ==============================================================
+        # LFO Shape (impulse LFO)
+        # ==============================================================
+        elif obj_type == 'lfo_shape':
+            name = data.get('name', '')
+            m_apply_op = wx.NewIdRef()
+            m_apply_filt = wx.NewIdRef()
+            m_info = wx.NewIdRef()
+            m_del = wx.NewIdRef()
+            menu.Append(m_apply_op, "Apply to Operator...")
+            menu.Append(m_apply_filt, "Apply to Filter...")
+            menu.AppendSeparator()
+            menu.Append(m_info, "Info")
+            menu.Append(m_del, f"Delete: {name}")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._show_value_editor(
+                    "Apply LFO", "Operator index:", "0",
+                    f'/impulselfo apply {n} {{}} 4.0'), id=m_apply_op)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._show_value_editor(
+                    "Apply to Filter", "Filter rate (Hz):", "2.0",
+                    f'/impulselfo filter {n} {{}}'), id=m_apply_filt)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/impulselfo info {n}'),
+                id=m_info)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/impulselfo clear {n}'),
+                id=m_del)
+
+        # ==============================================================
+        # Impulse Envelope Shape
+        # ==============================================================
+        elif obj_type == 'imp_env_shape':
+            name = data.get('name', '')
+            m_apply_buf = wx.NewIdRef()
+            m_apply_op = wx.NewIdRef()
+            m_info = wx.NewIdRef()
+            m_del = wx.NewIdRef()
+            menu.Append(m_apply_buf, "Apply to Working Buffer")
+            menu.Append(m_apply_op, "Apply to Operator...")
+            menu.AppendSeparator()
+            menu.Append(m_info, "Info")
+            menu.Append(m_del, f"Delete: {name}")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/impenv apply {n}'),
+                id=m_apply_buf)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._show_value_editor(
+                    "Apply Envelope", "Operator index:", "0",
+                    f'/impenv operator {n} {{}}'), id=m_apply_op)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/impenv info {n}'), id=m_info)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/impenv clear {n}'), id=m_del)
+
+        # ==============================================================
+        # Convolution Property
+        # ==============================================================
+        elif obj_type == 'conv_prop':
+            m_edit = wx.NewIdRef()
+            m_presets = wx.NewIdRef()
+            m_clear = wx.NewIdRef()
+            menu.Append(m_edit, "Edit Parameters...")
+            menu.Append(m_presets, "Load Preset...")
+            menu.AppendSeparator()
+            menu.Append(m_clear, "Clear Convolution")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/conv info'), id=m_edit)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._show_conv_preset_picker(), id=m_presets)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/conv clear'), id=m_clear)
+
+        # ==============================================================
+        # Envelope Parameter (quick-edit)
+        # ==============================================================
+        elif obj_type == 'envelope_param':
+            param = data.get('param', 'attack')
+            cmd_map = {'attack': '/atk', 'decay': '/dec',
+                       'sustain': '/sus', 'release': '/rel'}
+            cmd = cmd_map.get(param, '/env')
+            m_edit = wx.NewIdRef()
+            m_reset = wx.NewIdRef()
+            menu.Append(m_edit, f"Set {param.capitalize()}...")
+            menu.Append(m_reset, f"Reset {param.capitalize()}")
+
+            defaults = {'attack': '0.01', 'decay': '0.1',
+                        'sustain': '0.8', 'release': '0.1'}
+            self.Bind(wx.EVT_MENU,
+                lambda e, c=cmd, p=param: self._show_value_editor(
+                    f"Set {p.capitalize()}", f"Enter {p} value:", "0.1",
+                    c + ' {}'), id=m_edit)
+            self.Bind(wx.EVT_MENU,
+                lambda e, c=cmd, d=defaults.get(param, '0.1'):
+                    self._exec(f'{c} {d}'), id=m_reset)
+
+        # ==============================================================
+        # Filter Envelope Parameter (quick-edit)
+        # ==============================================================
+        elif obj_type == 'fenv_param':
+            param = data.get('param', 'filter_attack')
+            short = param.replace('filter_', '')
+            cmd_map = {'filter_attack': '/fatk', 'filter_decay': '/fdec',
+                       'filter_sustain': '/fsus', 'filter_release': '/frel'}
+            cmd = cmd_map.get(param, '/fenv')
+            m_edit = wx.NewIdRef()
+            m_reset = wx.NewIdRef()
+            menu.Append(m_edit, f"Set Filter {short.capitalize()}...")
+            menu.Append(m_reset, f"Reset Filter {short.capitalize()}")
+
+            defaults = {'filter_attack': '0.01', 'filter_decay': '0.1',
+                        'filter_sustain': '0.8', 'filter_release': '0.1'}
+            self.Bind(wx.EVT_MENU,
+                lambda e, c=cmd, s=short: self._show_value_editor(
+                    f"Filter {s.capitalize()}", f"Enter {s} value:", "0.1",
+                    c + ' {}'), id=m_edit)
+            self.Bind(wx.EVT_MENU,
+                lambda e, c=cmd, d=defaults.get(param, '0.1'):
+                    self._exec(f'{c} {d}'), id=m_reset)
+
+        # ==============================================================
+        # Voice Property
+        # ==============================================================
+        elif obj_type == 'voice_prop':
+            m_voices = wx.NewIdRef()
+            m_algo = wx.NewIdRef()
+            m_detune = wx.NewIdRef()
+            menu.Append(m_voices, "Set Voice Count...")
+            menu.Append(m_algo, "Set Algorithm...")
+            menu.Append(m_detune, "Set Detune...")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._show_value_editor(
+                    "Voices", "Number of voices:", "4",
+                    '/v {}'), id=m_voices)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._show_voice_algo_picker(), id=m_algo)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._show_value_editor(
+                    "Detune", "Detune amount (Hz):", "0.5",
+                    '/dt {}'), id=m_detune)
+
+        # ==============================================================
+        # HQ Property
+        # ==============================================================
+        elif obj_type == 'hq_prop':
+            m_toggle = wx.NewIdRef()
+            m_dc = wx.NewIdRef()
+            m_sat = wx.NewIdRef()
+            m_osc = wx.NewIdRef()
+            menu.Append(m_toggle, "Toggle HQ Mode")
+            menu.AppendSeparator()
+            menu.Append(m_dc, "Toggle DC Removal")
+            menu.Append(m_sat, "Toggle Saturation")
+            menu.Append(m_osc, "Toggle HQ Oscillators")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/hq toggle'), id=m_toggle)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/hq dc toggle'), id=m_dc)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/hq saturation toggle'), id=m_sat)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/hq osc toggle'), id=m_osc)
+
+        # ==============================================================
+        # Engine Property
+        # ==============================================================
+        elif obj_type == 'engine_prop':
+            m_bpm = wx.NewIdRef()
+            m_sr = wx.NewIdRef()
+            menu.Append(m_bpm, "Set BPM...")
+            menu.Append(m_sr, "Set Sample Rate...")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._show_value_editor(
+                    "BPM", "Enter BPM:", "128", '/bpm {}'), id=m_bpm)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._show_sr_picker(), id=m_sr)
+
+        # ==============================================================
+        # Category-level context menus
+        # ==============================================================
         elif obj_type == 'category':
             cat_id = data.get('id', '')
+
             if cat_id == 'tracks':
                 m_new = wx.NewIdRef()
                 menu.Append(m_new, "Add New Track")
                 self.Bind(wx.EVT_MENU,
                     lambda e: self._exec('/new track'), id=m_new)
+
             elif cat_id == 'fx':
                 m_add = wx.NewIdRef()
                 m_clear = wx.NewIdRef()
@@ -2310,6 +2716,244 @@ class ObjectBrowser(wx.Panel):
                     lambda e: self._show_fx_picker('global', 0), id=m_add)
                 self.Bind(wx.EVT_MENU,
                     lambda e: self._exec('/fxc'), id=m_clear)
+
+            elif cat_id == 'synth':
+                m_add_op = wx.NewIdRef()
+                m_wave = wx.NewIdRef()
+                menu.Append(m_add_op, "Add Operator")
+                menu.Append(m_wave, "Set Waveform...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/mod +1'), id=m_add_op)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_waveform_picker(None), id=m_wave)
+
+            elif cat_id == 'filter':
+                m_add = wx.NewIdRef()
+                m_type = wx.NewIdRef()
+                menu.Append(m_add, "Add Filter Slot")
+                menu.Append(m_type, "Set Filter Type...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_placeholder(
+                        "Add Filter",
+                        "Use /fs <slot> to select a filter slot."), id=m_add)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_filter_type_picker(None), id=m_type)
+
+            elif cat_id == 'envelope':
+                m_preset = wx.NewIdRef()
+                m_reset = wx.NewIdRef()
+                menu.Append(m_preset, "Apply Envelope Preset...")
+                menu.Append(m_reset, "Reset Envelope")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_envelope_preset_picker(), id=m_preset)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/env 0.01 0.1 0.8 0.1'), id=m_reset)
+
+            elif cat_id == 'filter_envelope':
+                m_reset = wx.NewIdRef()
+                menu.Append(m_reset, "Reset Filter Envelope")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/fatk 0.01\n/fdec 0.1\n/fsus 0.8\n/frel 0.1'),
+                    id=m_reset)
+
+            elif cat_id == 'voice':
+                m_reset = wx.NewIdRef()
+                m_voices = wx.NewIdRef()
+                menu.Append(m_voices, "Set Voice Count...")
+                menu.Append(m_reset, "Reset Voice Settings")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Voices", "Number of voices:", "1", '/v {}'),
+                    id=m_voices)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/v 1\n/va stack\n/dt 0'),
+                    id=m_reset)
+
+            elif cat_id == 'hq':
+                m_toggle = wx.NewIdRef()
+                m_info = wx.NewIdRef()
+                menu.Append(m_toggle, "Toggle HQ Mode")
+                menu.Append(m_info, "HQ Info")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/hq toggle'), id=m_toggle)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/hq'), id=m_info)
+
+            elif cat_id == 'key':
+                m_set = wx.NewIdRef()
+                menu.Append(m_set, "Set Key / Scale...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_key_scale_picker(), id=m_set)
+
+            elif cat_id == 'modulation':
+                m_add_fm = wx.NewIdRef()
+                m_add_am = wx.NewIdRef()
+                m_clear = wx.NewIdRef()
+                menu.Append(m_add_fm, "Add FM Routing...")
+                menu.Append(m_add_am, "Add AM Routing...")
+                menu.AppendSeparator()
+                menu.Append(m_clear, "Clear All Routings")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_routing_picker(None, 'fm'),
+                    id=m_add_fm)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_routing_picker(None, 'am'),
+                    id=m_add_am)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/rt clear'), id=m_clear)
+
+            elif cat_id == 'wavetable':
+                m_load = wx.NewIdRef()
+                menu.Append(m_load, "Generate Wavetable...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_placeholder(
+                        "Wavetable",
+                        "Use /wt <file> to generate a wavetable from audio."),
+                    id=m_load)
+
+            elif cat_id == 'compound':
+                m_create = wx.NewIdRef()
+                menu.Append(m_create, "Create Compound Wave...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_placeholder(
+                        "Compound Wave",
+                        "Use /compound <name> <wave1> <wave2> ... to define."),
+                    id=m_create)
+
+            elif cat_id == 'convolution':
+                m_load = wx.NewIdRef()
+                m_preset = wx.NewIdRef()
+                m_clear = wx.NewIdRef()
+                menu.Append(m_load, "Load IR File...")
+                menu.Append(m_preset, "Load Preset...")
+                menu.AppendSeparator()
+                menu.Append(m_clear, "Clear Convolution")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_ir_file_picker(), id=m_load)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_conv_preset_picker(), id=m_preset)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/conv clear'), id=m_clear)
+
+            elif cat_id == 'impulse_lfo':
+                m_load = wx.NewIdRef()
+                m_list = wx.NewIdRef()
+                menu.Append(m_load, "Load LFO from File...")
+                menu.Append(m_list, "List LFO Shapes")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_placeholder(
+                        "Load LFO",
+                        "Use /impulselfo file <path> <name> to import."),
+                    id=m_load)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/impulselfo list'), id=m_list)
+
+            elif cat_id == 'impulse_env':
+                m_load = wx.NewIdRef()
+                m_list = wx.NewIdRef()
+                menu.Append(m_load, "Load Envelope from File...")
+                menu.Append(m_list, "List Envelopes")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_placeholder(
+                        "Load Envelope",
+                        "Use /impenv file <path> <name> to import."),
+                    id=m_load)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/impenv list'), id=m_list)
+
+            elif cat_id == 'ir_enhance':
+                m_extend = wx.NewIdRef()
+                m_denoise = wx.NewIdRef()
+                m_fill = wx.NewIdRef()
+                menu.Append(m_extend, "Extend IR Tail...")
+                menu.Append(m_denoise, "Denoise IR")
+                menu.Append(m_fill, "Fill IR Gaps")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Extend IR", "Target duration (seconds):", "3.0",
+                        '/irenhance extend {}'), id=m_extend)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/irenhance denoise'), id=m_denoise)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/irenhance fill'), id=m_fill)
+
+            elif cat_id == 'ir_transform':
+                m_desc = wx.NewIdRef()
+                m_list = wx.NewIdRef()
+                menu.Append(m_desc, "Transform by Descriptor...")
+                menu.Append(m_list, "List Descriptors")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_ir_descriptor_picker(), id=m_desc)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/irtransform list'), id=m_list)
+
+            elif cat_id == 'ir_granular':
+                m_stretch = wx.NewIdRef()
+                m_morph = wx.NewIdRef()
+                m_redesign = wx.NewIdRef()
+                menu.Append(m_stretch, "Stretch IR...")
+                menu.Append(m_morph, "Morph IR...")
+                menu.Append(m_redesign, "Redesign IR")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Stretch", "Stretch factor:", "2.0",
+                        '/irgranular stretch {}'), id=m_stretch)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Morph", "Morph amount (0-1):", "0.5",
+                        '/irgranular morph {}'), id=m_morph)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/irgranular redesign'), id=m_redesign)
+
+            elif cat_id == 'engine':
+                m_bpm = wx.NewIdRef()
+                m_sr = wx.NewIdRef()
+                menu.Append(m_bpm, "Set BPM...")
+                menu.Append(m_sr, "Set Sample Rate...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "BPM", "Enter BPM:", "128", '/bpm {}'), id=m_bpm)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_sr_picker(), id=m_sr)
+
+            elif cat_id == 'buffers':
+                m_new = wx.NewIdRef()
+                menu.Append(m_new, "New Buffer from Working")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/bs'), id=m_new)
+
+            elif cat_id == 'decks':
+                m_new = wx.NewIdRef()
+                menu.Append(m_new, "Create Deck")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/deck new'), id=m_new)
+
+            elif cat_id == 'preset':
+                m_save = wx.NewIdRef()
+                m_load = wx.NewIdRef()
+                menu.Append(m_save, "Save Current as Preset...")
+                menu.Append(m_load, "Load Preset...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Save Preset", "Enter preset name:", "my_preset",
+                        '/preset save {}'), id=m_save)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_placeholder(
+                        "Load Preset",
+                        "Use /preset load <name> or /use <name>."),
+                    id=m_load)
+
+            elif cat_id == 'bank':
+                m_save = wx.NewIdRef()
+                m_info = wx.NewIdRef()
+                menu.Append(m_save, "Save to Bank Slot...")
+                menu.Append(m_info, "Bank Info")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Bank Slot", "Enter slot number:", "1",
+                        '/bk save {}'), id=m_save)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/bk'), id=m_info)
 
         if menu.GetMenuItemCount() > 0:
             self.PopupMenu(menu)
@@ -2346,6 +2990,163 @@ class ObjectBrowser(wx.Panel):
                 self._exec(f'/deck {target_id}\n/fx {fx_name}')
             else:
                 self._exec(f'/fx {fx_name}')
+        dlg.Destroy()
+
+    # ------------------------------------------------------------------
+    # Context-menu helper dialogs
+    # ------------------------------------------------------------------
+
+    def _show_placeholder(self, title: str, message: str):
+        """Show an informational placeholder dialog for not-yet-wired features."""
+        wx.MessageBox(message, title, wx.OK | wx.ICON_INFORMATION, self)
+
+    def _show_value_editor(self, title: str, prompt: str, default: str,
+                           cmd_template: str):
+        """Show a text entry dialog and execute a command with the value.
+
+        *cmd_template* should contain ``{}`` where the user value goes.
+        """
+        dlg = wx.TextEntryDialog(self, prompt, title, default)
+        if dlg.ShowModal() == wx.ID_OK:
+            val = dlg.GetValue().strip()
+            if val:
+                self._exec(cmd_template.format(val))
+        dlg.Destroy()
+
+    def _show_waveform_picker(self, op_index):
+        """Show a picker for waveform types, optionally targeting an operator."""
+        waveforms = ['sine', 'saw', 'square', 'triangle', 'noise',
+                     'supersaw', 'additive', 'formant', 'harmonic',
+                     'physical', 'physical2', 'wavetable', 'compound',
+                     'pluck', 'string', 'reed', 'flute', 'drum', 'bell']
+        dlg = wx.SingleChoiceDialog(self, "Select waveform:",
+                                     "Set Waveform", waveforms)
+        if dlg.ShowModal() == wx.ID_OK:
+            wf = dlg.GetStringSelection()
+            if op_index is not None:
+                self._exec(f'/op {op_index}\n/wm {wf}')
+            else:
+                self._exec(f'/wm {wf}')
+        dlg.Destroy()
+
+    def _show_filter_type_picker(self, slot):
+        """Show a picker for filter types, optionally targeting a slot."""
+        ftypes = ['lp', 'hp', 'bp', 'notch', 'peak', 'lowshelf',
+                  'highshelf', 'allpass', 'acid', 'moog', 'comb',
+                  'formant', 'vowel']
+        dlg = wx.SingleChoiceDialog(self, "Select filter type:",
+                                     "Set Filter Type", ftypes)
+        if dlg.ShowModal() == wx.ID_OK:
+            ft = dlg.GetStringSelection()
+            if slot is not None:
+                self._exec(f'/fs {slot}\n/ft {ft}')
+            else:
+                self._exec(f'/ft {ft}')
+        dlg.Destroy()
+
+    def _show_routing_picker(self, op_index, route_type='fm'):
+        """Show a dialog to add a modulation routing."""
+        dlg = wx.TextEntryDialog(
+            self,
+            f"Enter {route_type.upper()} routing (source -> dest, e.g. 1 2):",
+            f"Add {route_type.upper()} Routing",
+            "1 2")
+        if dlg.ShowModal() == wx.ID_OK:
+            val = dlg.GetValue().strip()
+            if val:
+                self._exec(f'/{route_type} {val}')
+        dlg.Destroy()
+
+    def _show_voice_algo_picker(self):
+        """Show a picker for voice algorithms."""
+        algos = ['stack', 'unison', 'wide']
+        dlg = wx.SingleChoiceDialog(self, "Select voice algorithm:",
+                                     "Voice Algorithm", algos)
+        if dlg.ShowModal() == wx.ID_OK:
+            algo = dlg.GetStringSelection()
+            self._exec(f'/va {algo}')
+        dlg.Destroy()
+
+    def _show_key_scale_picker(self):
+        """Show a two-step picker for key and scale."""
+        notes = ['C', 'C#', 'D', 'D#', 'E', 'F',
+                 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        scales = ['major', 'minor', 'dorian', 'phrygian', 'lydian',
+                  'mixolydian', 'aeolian', 'locrian', 'pentatonic',
+                  'blues', 'harmonic_minor', 'melodic_minor', 'chromatic']
+        dlg1 = wx.SingleChoiceDialog(self, "Select root note:", "Key", notes)
+        if dlg1.ShowModal() == wx.ID_OK:
+            note = dlg1.GetStringSelection()
+            dlg1.Destroy()
+            dlg2 = wx.SingleChoiceDialog(self, "Select scale:", "Scale", scales)
+            if dlg2.ShowModal() == wx.ID_OK:
+                scale = dlg2.GetStringSelection()
+                self._exec(f'/key {note} {scale}')
+            dlg2.Destroy()
+        else:
+            dlg1.Destroy()
+
+    def _show_sr_picker(self):
+        """Show a picker for sample rate."""
+        rates = ['22050', '44100', '48000', '88200', '96000']
+        dlg = wx.SingleChoiceDialog(self, "Select sample rate:",
+                                     "Sample Rate", rates)
+        if dlg.ShowModal() == wx.ID_OK:
+            sr = dlg.GetStringSelection()
+            self._exec(f'/sr {sr}')
+        dlg.Destroy()
+
+    def _show_envelope_preset_picker(self):
+        """Show presets for common envelope shapes."""
+        presets = {
+            'Pluck': '0.001 0.2 0.0 0.1',
+            'Pad': '0.5 0.3 0.7 1.0',
+            'Organ': '0.01 0.01 1.0 0.05',
+            'String': '0.3 0.2 0.6 0.5',
+            'Percussive': '0.001 0.1 0.0 0.05',
+            'Swell': '1.0 0.0 1.0 0.5',
+        }
+        dlg = wx.SingleChoiceDialog(self, "Select envelope preset:",
+                                     "Envelope Preset", list(presets.keys()))
+        if dlg.ShowModal() == wx.ID_OK:
+            name = dlg.GetStringSelection()
+            self._exec(f'/env {presets[name]}')
+        dlg.Destroy()
+
+    def _show_conv_preset_picker(self):
+        """Show a picker for convolution reverb presets."""
+        presets = ['hall', 'room', 'plate', 'spring', 'chamber',
+                   'cathedral', 'arena', 'tunnel', 'parking',
+                   'bathroom', 'stairwell', 'studio', 'cave',
+                   'forest', 'canyon', 'underwater', 'telephone']
+        dlg = wx.SingleChoiceDialog(self, "Select convolution preset:",
+                                     "Convolution Preset", presets)
+        if dlg.ShowModal() == wx.ID_OK:
+            p = dlg.GetStringSelection()
+            self._exec(f'/conv preset {p}')
+        dlg.Destroy()
+
+    def _show_ir_file_picker(self):
+        """Show a file dialog to load an IR wav file."""
+        dlg = wx.FileDialog(self, "Load Impulse Response",
+                            wildcard="WAV files (*.wav)|*.wav|All files (*.*)|*.*",
+                            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST)
+        if dlg.ShowModal() == wx.ID_OK:
+            path = dlg.GetPath()
+            self._exec(f'/conv load {path}')
+        dlg.Destroy()
+
+    def _show_ir_descriptor_picker(self):
+        """Show a picker for IR transform descriptors."""
+        descriptors = ['bigger', 'smaller', 'brighter', 'darker',
+                       'warmer', 'colder', 'longer', 'shorter',
+                       'wider', 'narrower', 'metallic', 'wooden',
+                       'smooth', 'rough', 'airy']
+        dlg = wx.SingleChoiceDialog(self, "Select IR descriptor:",
+                                     "Transform Descriptor", descriptors)
+        if dlg.ShowModal() == wx.ID_OK:
+            desc = dlg.GetStringSelection()
+            self._exec(f'/irtransform descriptor {desc}')
         dlg.Destroy()
 
     # ------------------------------------------------------------------
