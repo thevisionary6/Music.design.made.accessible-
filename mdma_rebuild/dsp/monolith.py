@@ -512,7 +512,7 @@ def _generate_waveguide_string(t: np.ndarray, freq: float, amp: float, phase: fl
         Pluck position (0.0-0.5, affects harmonic content)
     """
     n_samples = len(t)
-    delay_len = max(2, int(sr / max(freq, 20)))
+    delay_len = max(2, int(sr / max(freq, 1)))
 
     # Initialize delay line with filtered noise burst
     rng = np.random.default_rng()
@@ -561,7 +561,7 @@ def _generate_waveguide_tube(t: np.ndarray, freq: float, amp: float, phase: floa
         Bore taper (0.0 = cylindrical/clarinet, 1.0 = conical/oboe)
     """
     n_samples = len(t)
-    delay_len = max(2, int(sr / max(freq, 20) / 2))  # Half-wavelength for tube
+    delay_len = max(2, int(sr / max(freq, 1) / 2))  # Half-wavelength for tube
 
     # Forward and backward traveling waves
     forward = np.zeros(delay_len, dtype=np.float64)
@@ -700,6 +700,8 @@ def _generate_wavetable(t: np.ndarray, freq: float, amp: float, phase: float,
         Position in wavetable (0.0-1.0, selects which frame to play)
     """
     if frames is None or len(frames) == 0:
+        import warnings
+        warnings.warn("Wavetable not loaded — falling back to sine. Use /wt load first.")
         return _generate_sine(t, freq, amp, phase)
 
     num_frames, frame_size = frames.shape
@@ -749,6 +751,8 @@ def _generate_compound(t: np.ndarray, freq: float, amp: float, phase: float,
         Only used in 2-layer mode for smooth transitions.
     """
     if layers is None or len(layers) == 0:
+        import warnings
+        warnings.warn("Compound wave has no layers — using default sine+saw. Define layers with /compound add.")
         layers = [
             {'wave': 'sine', 'amp': 1.0, 'detune': 0.0, 'phase': 0.0},
             {'wave': 'saw', 'amp': 1.0, 'detune': 0.0, 'phase': 0.0},
@@ -1012,11 +1016,29 @@ class MonolithEngine:
             if wave in WAVE_ALIASES:
                 wave = WAVE_ALIASES[wave]
             self.operators[idx]['wave'] = wave
-            
-            # Update any provided kwargs
+
+            # Ensure all Phase 2 defaults exist on older operators
+            _defaults = {
+                'pw': 0.5, 'even_harmonics': 8, 'odd_harmonics': 4,
+                'even_weight': 1.0, 'decay': 0.7, 'inharmonicity': 0.01,
+                'partials': 12, 'decay_curve': 'exp',
+                'num_saws': 7, 'detune_spread': 0.5, 'mix': 0.75,
+                'harmonics': None, 'num_harmonics': 16, 'rolloff': 1.0,
+                'vowel': 'a', 'odd_level': 1.0, 'even_level': 1.0,
+                'odd_decay': 0.8, 'even_decay': 0.8,
+                'damping': 0.996, 'brightness': 0.5, 'position': 0.28,
+                'reflection': 0.7, 'bore_shape': 0.5, 'tension': 0.5,
+                'strike_pos': 0.3, 'thickness': 0.5, 'material': 0.5,
+                'wavetable_name': '', 'frame_pos': 0.0,
+                'compound_name': '', 'layers': None, 'morph': 0.0,
+            }
+            for k, v in _defaults.items():
+                if k not in self.operators[idx]:
+                    self.operators[idx][k] = v
+
+            # Update any provided kwargs (now always succeeds)
             for key, value in kwargs.items():
-                if key in self.operators[idx]:
-                    self.operators[idx][key] = value
+                self.operators[idx][key] = value
 
     def set_param(self, idx: int, param: str, value: Any) -> None:
         """Set a specific parameter on an operator."""

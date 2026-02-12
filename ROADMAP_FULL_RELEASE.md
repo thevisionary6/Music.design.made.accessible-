@@ -1,9 +1,9 @@
 # MDMA Full Release Roadmap
 
 **Music Design Made Accessible**
-**Document Version:** 1.2
+**Document Version:** 1.3
 **Baseline:** v52.0 (2026-02-03)
-**Last Updated:** 2026-02-11 (Phase 1 & 2 complete)
+**Last Updated:** 2026-02-12 (Phases 1, 2 & 3 complete)
 **Target:** v1.0 Full Release
 
 ---
@@ -87,23 +87,113 @@ A fully visual synth-design experience — users can build patches from scratch,
 
 ---
 
-## Phase 3: Modulation, Impulse & Convolution
+## Phase 3: Modulation, Impulse & Convolution -- COMPLETE
 
 > **Goal:** Professional-grade modulation sources and convolution processing.
 > **Depends on:** Phase 2 (synth engine to modulate)
 > **Delivers:** Deep modulation routing and studio-quality convolution reverb.
+> **Completed:** 2026-02-12
 
 | # | Feature | Status | Description |
 |---|---------|--------|-------------|
-| 3.1 | Pulse/impulse importing for LFOs | **[NEW]** | Import audio files as LFO waveshapes — any waveform becomes a modulation source |
-| 3.2 | Impulse importing for envelopes | **[NEW]** | Import impulse recordings as envelope shapes — transient captures become amplitude contours |
-| 3.3 | Advanced convolution reverb engine | **[NEW]** | Full convolution reverb with IR loading, pre-delay, decay control, early/late reflection split, and stereo width |
-| 3.4 | Neural-enhanced convolution | **[NEW]** | AI processing layer that enhances or extends impulse responses — fill gaps, extend tails, denoise captured IRs |
-| 3.5 | AI-assisted impulse transformation | **[NEW]** | Transform impulse responses using AI descriptors — "make this room bigger," "add metallic quality," "darken the tail" |
-| 3.6 | Granular impulse tools | **[PARTIAL]** | Granular destruction, stretching, and resampling of impulse responses — granular engine exists, needs IR-specific workflow |
+| 3.1 | Pulse/impulse importing for LFOs | **[DONE]** | Import audio files as LFO waveshapes — any waveform becomes a modulation source. `/impulselfo load/file/apply/filter/clear` |
+| 3.2 | Impulse importing for envelopes | **[DONE]** | Import impulse recordings as envelope shapes — transient captures become amplitude contours. `/impenv load/file/apply/operator` |
+| 3.3 | Advanced convolution reverb engine | **[DONE]** | ConvolutionEngine class with early/late reflection split, stereo width (Haas decorrelation), IR bank, 17 presets. `/conv load/preset/apply/params/split/save` |
+| 3.4 | Neural-enhanced convolution | **[DONE]** | Spectral analysis + resynthesis for IR extension (decay curve extrapolation), spectral gating denoiser, gap-fill interpolation. `/irenhance extend/denoise/fill` |
+| 3.5 | AI-assisted impulse transformation | **[DONE]** | 15 semantic descriptors (bigger/darker/metallic/cathedral/ethereal/etc.) with spectral reshaping, resonance modeling, and chain support. `/irtransform <descriptor> [intensity]` |
+| 3.6 | Granular impulse tools | **[DONE]** | IR-specific granular workflow: stretch, morph (interleaved grains from 2 IRs), redesign (granular decomposition/resynthesis), freeze. `/irgranular stretch/morph/redesign/freeze` |
 
 ### Milestone Deliverable
 A modulation and convolution system where any audio can become a modulation source, convolution reverbs sound studio-grade, and AI can intelligently reshape acoustic spaces.
+
+### Phase 3 Implementation Notes
+
+**New DSP module:** `mdma_rebuild/dsp/convolution.py`
+- `impulse_to_lfo()`: Resamples impulse audio to single-cycle waveshape for table lookup LFO
+- `lfo_from_waveshape()`: Phase-accumulator LFO generator from arbitrary waveshape
+- `impulse_to_envelope()`: Envelope follower (attack/release smoothing) → amplitude contour
+- `ConvolutionEngine`: Advanced reverb with early/late split (configurable split point), Haas-effect stereo width, per-band EQ on IR, IR bank management
+- `ir_extend()`: Analyses tail decay rate + spectral shape, synthesises matching extension with crossfade
+- `ir_denoise()`: STFT-based spectral gating using noise floor estimation from tail
+- `ir_fill_gaps()`: Detects envelope dips below threshold, interpolates across gaps
+- `ir_transform()`: 15 descriptor mappings → spectral modifications (boost/cut/resonance/saturation/shift/reverse)
+- `granular_ir_stretch/morph/redesign()`: Wraps GranularEngine for IR-specific workflows
+
+**New commands module:** `mdma_rebuild/commands/convolution_cmds.py`
+- `/impulselfo` (aliases: `/ilfo`, `/lfoimport`): Import impulse as LFO + apply to operators/filter
+- `/impenv` (aliases: `/ienv`, `/envimport`): Import impulse as envelope + apply to buffer/operator
+- `/conv` (aliases: `/convolution`, `/convrev`): Full convolution reverb management
+- `/irenhance` (aliases: `/ire`, `/enhance`): Neural-inspired IR processing
+- `/irtransform` (aliases: `/irt`, `/transform`): Semantic descriptor transforms
+- `/irgranular` (aliases: `/irg`, `/irgrains`): Granular IR tools
+
+**GUI additions (mdma_gui.py v3.0.0):**
+- 6 new ACTIONS categories: impulse_lfo, impulse_env, convolution, ir_enhance, ir_transform, ir_granular
+- 6 new ObjectBrowser categories with live state display
+- InspectorPanel methods for convolution, IR bank, LFO shapes, impulse envelopes
+- Category summaries for all Phase 3 objects
+
+**Total new commands:** 18 (6 commands × 3 aliases each)
+**Total IR presets:** 17 (hall×4, room×3, plate×3, spring×3, shimmer×2, reverse×2)
+**Total descriptors:** 15 (bigger/smaller/brighter/darker/warmer/metallic/wooden/glass/cathedral/intimate/ethereal/haunted/telephone/underwater/vintage)
+
+### Phase 3 Readiness Notes (system audit 2026-02-12)
+
+**Existing foundation:**
+- `audiorate_cmds.py` already has `/audiorate interval`, `/audiorate filter`, `/audiorate pattern`, `/audiorate clear` — audio-rate LFO for both interval and filter modulation
+- `UmpulseBank` class in audiorate_cmds.py has `/ump load`, `/ump buffer`, `/ump use wave|ir`, `/ump wavetable` — impulse import pipeline exists
+- `MonolithEngine` has `set_interval_mod()`, `set_interval_lfo()`, `set_filter_mod()`, `set_op_filter_mod()` — engine hooks are ready
+- Enhanced chunking (`/chke`) supports 9 algorithms: auto, transient, beat, zero, equal, wavetable, energy, spectral, syllable
+- Granular engine exists in the codebase (Phase 3.6 marked PARTIAL)
+
+**Known gaps to resolve BEFORE Phase 3 implementation:**
+
+**A. Critical GUI–Engine gaps (27 ability gaps found):**
+
+| Priority | Gap | Engine | Commands | GUI |
+|----------|-----|--------|----------|-----|
+| HIGH | Preset Bank (0-127) | `save_preset/load_preset/list/delete` | `/preset` | MISSING — no save/load/delete controls |
+| HIGH | Audio-Rate Interval Mod | `set_interval_mod/set_interval_lfo` | `/audiorate interval` | MISSING — zero coverage |
+| HIGH | Audio-Rate Filter Mod | `set_filter_mod/set_op_filter_mod` | `/audiorate filter` | MISSING — zero coverage |
+| HIGH | HQ Mode Controls | 12 params (dc, subsonic, saturation, etc.) | `/hq` | DISPLAY ONLY — no toggle/edit |
+| HIGH | Filter Types (30) | 30 types in `_apply_filter` | `/ft` (all 30) | Only 6 in ACTIONS dropdown |
+| HIGH | Filter Envelope (ADSR) | Per-slot filter ADSR | `/fatk /fdec /fsus /frel` | MISSING — no filter ADSR controls |
+| HIGH | Algorithm Bank System | routing presets | `/bk /al` | PARTIAL — ObjectBrowser "Banks" empty |
+| HIGH | Per-Operator Envelope | operator_envelopes dict | `/venv` + level-aware ADSR | Read-only in inspector |
+| HIGH | Wavetable Management | load/list/delete methods | `/wt load/del/info` | DISPLAY ONLY — no load/delete |
+| HIGH | Compound Wave Mgmt | create/list/delete methods | `/compound new/add/del` | DISPLAY ONLY — no create/delete |
+| MEDIUM | Voice Algorithm | stack/unison/wide | `/va` | DISPLAY ONLY — no control |
+| MEDIUM | Stereo/Phase Spread | render params | `/stereo /vphase` | MISSING |
+| MEDIUM | Rand / VMod | voice variation params | `/rand /vmod` | MISSING |
+| MEDIUM | Waveform dropdown | 18 wave types | `/wm` (all 18) | 5 of 18 in ACTIONS |
+| MEDIUM | Umpulse System | UmpulseBank class | `/ump /impulse` | MISSING — no ObjectBrowser category |
+| MEDIUM | Enhanced Chunking | 9 algorithms | `/chke` | MISSING |
+| MEDIUM | Pattern Interval Mod | pattern-to-signal | `/audiorate pattern` | MISSING |
+| MEDIUM | Modulation Envelope | mod ADSR | `/menv` | MISSING |
+| MEDIUM | Filter Slot Count/Enable | 1-8 slots | `/fcount /fs /fe` | PARTIAL — no count/enable control |
+| MEDIUM | Modulation Routing | 5 types | `/fm /tfm /am /rm /pm /rt` | PARTIAL — text entry only |
+| MEDIUM | Wave Params in PatchBuilder | 40+ params | full `/wm key=val` | Missing many per-type params |
+| LOW | Musical Key/Scale | session key | `/key` | MISSING |
+| LOW | Noise / Note Sequence | engine | `/noise /ns` | MISSING |
+| LOW | Physical Model Params | phys/phys2 | `/phys /phys2` | Not in PatchBuilder |
+| LOW | Pulse Width | pw param | `/pw` | Display only |
+| LOW | Clear Modulation | clear_modulation() | `/audiorate clear` | MISSING |
+| LOW | OpInfo / WaveInfo | engine | `/opinfo /waveinfo` | Partial |
+
+**B. Phase 3 specific blockers:**
+- Feature 3.1 (LFO import): Needs `/ump` impulse system exposed in GUI. Currently zero GUI coverage of UmpulseBank.
+- Feature 3.2 (Envelope import): Same dependency — UmpulseBank has the import pipeline, GUI needs management panel.
+- Feature 3.3 (Convolution reverb): No convolution engine exists yet. Must build from scratch in dsp/.
+- Feature 3.4/3.5 (Neural/AI convolution): Depends on 3.3. AI model serving infrastructure needed.
+- Feature 3.6 (Granular impulse): Granular engine exists but needs IR-specific workflow wrapper.
+
+**C. Recommended pre-Phase 3 work:**
+1. Close the HIGH-priority GUI gaps — bring the GUI to parity with the CLI
+2. Wire audio-rate modulation into GUI (prerequisite for 3.1/3.2)
+3. Wire umpulse/impulse system into GUI (prerequisite for 3.1/3.2)
+4. Add ObjectBrowser categories for: Wavetables, Compound Waves, Umpulses, Audio-Rate Config
+5. Expand ACTIONS waveform dropdown from 5 → 18 types
+6. Expand ACTIONS filter type dropdown from 6 → 30 types
 
 ---
 
@@ -278,7 +368,7 @@ These phase groups can be developed concurrently:
 |-------|-------------|------------------|-------|
 | 1. Core Interface | 8 DONE | 0 | 8 |
 | 2. Monolith & Synthesis | 9 DONE | 0 | 9 |
-| 3. Modulation & Convolution | 5 | 1 | 6 |
+| 3. Modulation & Convolution | 6 DONE | 0 | 6 |
 | 4. Generative Systems | 2 | 3 | 5 |
 | 5. Advanced Sound Engines | 3 | 0 | 3 |
 | 6. MIDI, VST & Hardware | 4 | 0 | 4 |

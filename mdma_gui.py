@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MDMA GUI - Phase 2: Monolith Engine & Synthesis Expansion
+MDMA GUI - Phase 3: Modulation, Impulse & Convolution
 ==========================================================
 
 Full-featured wxPython interface for the MDMA audio engine.
@@ -19,7 +19,15 @@ Phase 2 features:
 - Extended wave types: supersaw, additive, formant, harmonic,
   waveguide (string/tube/membrane/plate), wavetable, compound
 
-Version: 2.0.0
+Phase 3 features:
+- Impulse-to-LFO waveshape conversion and application
+- Impulse-to-envelope amplitude contour extraction
+- Advanced convolution reverb with early/late split, stereo width
+- Neural-enhanced IR processing (extend, denoise, fill gaps)
+- AI-descriptor IR transformation (15 semantic descriptors)
+- Granular IR tools (stretch, morph, redesign, freeze)
+
+Version: 3.0.0
 Author: Based on spec by Cyrus
 Date: 2026-02-11
 
@@ -38,6 +46,7 @@ import os
 # wxPython import guard — give a clear message instead of a traceback
 try:
     import wx
+    import wx.adv
     import wx.lib.agw.aui as aui
 except ImportError:
     print("MDMA GUI requires wxPython.")
@@ -49,6 +58,7 @@ except ImportError:
     sys.exit(1)
 
 import io
+import numpy as np
 from contextlib import redirect_stdout, redirect_stderr
 from typing import Dict, List, Any, Optional, Callable
 from dataclasses import dataclass, field
@@ -100,7 +110,7 @@ class ActionDef:
     description: str = ""
 
 
-# Actions organized by object type
+# Actions organized by object type — FULL ENGINE PARITY
 ACTIONS: Dict[str, List[ActionDef]] = {
     'engine': [
         ActionDef(
@@ -149,6 +159,25 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             description='Set the tempo in beats per minute'
         ),
         ActionDef(
+            name='noise',
+            label='Generate Noise',
+            command_template='/noise {type} {duration}',
+            params=[
+                ActionParam('type', 'Type', 'enum', 'white', choices=['white', 'pink']),
+                ActionParam('duration', 'Duration (beats)', 'float', 1.0, min_val=0.1, max_val=32),
+            ],
+            description='Generate white or pink noise'
+        ),
+        ActionDef(
+            name='ns',
+            label='Note Sequence',
+            command_template='/ns {notes}',
+            params=[
+                ActionParam('notes', 'Notes (e.g. C4 D4 E4)', 'string', 'C4 E4 G4'),
+            ],
+            description='Generate a note sequence'
+        ),
+        ActionDef(
             name='version',
             label='Show Version',
             command_template='/version',
@@ -162,8 +191,14 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             label='Set Waveform',
             command_template='/wm {waveform}',
             params=[
-                ActionParam('waveform', 'Waveform', 'enum', 'sine', 
-                           choices=['sine', 'saw', 'square', 'triangle', 'noise']),
+                ActionParam('waveform', 'Waveform', 'enum', 'sine',
+                           choices=['sine', 'triangle', 'saw', 'pulse',
+                                    'noise', 'pink',
+                                    'physical', 'physical2',
+                                    'supersaw', 'additive', 'formant', 'harmonic',
+                                    'waveguide_string', 'waveguide_tube',
+                                    'waveguide_membrane', 'waveguide_plate',
+                                    'wavetable', 'compound']),
             ],
             description='Set the oscillator waveform'
         ),
@@ -186,8 +221,45 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             description='Set oscillator amplitude'
         ),
         ActionDef(
+            name='pw',
+            label='Pulse Width',
+            command_template='/pw {width}',
+            params=[
+                ActionParam('width', 'Pulse Width (0-1)', 'float', 0.5, min_val=0.01, max_val=0.99),
+            ],
+            description='Set pulse wave width (0.5 = square)'
+        ),
+        ActionDef(
+            name='phys_params',
+            label='Physical Model',
+            command_template='/phys {even} {odd} {weight} {decay}',
+            params=[
+                ActionParam('even', 'Even Harmonics', 'int', 8, min_val=0, max_val=32),
+                ActionParam('odd', 'Odd Harmonics', 'int', 4, min_val=0, max_val=32),
+                ActionParam('weight', 'Even Weight', 'float', 1.0, min_val=0, max_val=5),
+                ActionParam('decay', 'Harmonic Decay', 'float', 0.7, min_val=0.1, max_val=1),
+            ],
+            description='Configure physical model harmonic parameters'
+        ),
+        ActionDef(
+            name='opinfo',
+            label='Operator Info',
+            command_template='/opinfo all',
+            params=[],
+            description='Show detailed info for all operators'
+        ),
+        ActionDef(
+            name='waveinfo',
+            label='Wave Type Info',
+            command_template='/waveinfo',
+            params=[],
+            description='List all available wave types and their parameters'
+        ),
+    ],
+    'voice': [
+        ActionDef(
             name='voices',
-            label='Set Voice Count',
+            label='Voice Count',
             command_template='/vc {count}',
             params=[
                 ActionParam('count', 'Voices', 'int', 1, min_val=1, max_val=16),
@@ -195,13 +267,59 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             description='Set number of voices for unison'
         ),
         ActionDef(
-            name='detune',
-            label='Set Detune',
-            command_template='/dt {cents}',
+            name='va',
+            label='Voice Algorithm',
+            command_template='/va {algorithm}',
             params=[
-                ActionParam('cents', 'Detune (cents)', 'float', 0, min_val=0, max_val=100),
+                ActionParam('algorithm', 'Algorithm', 'enum', 'stack',
+                           choices=['stack', 'unison', 'wide']),
             ],
-            description='Set voice detuning in cents'
+            description='Set voice algorithm (stack=classic, unison=phase-random, wide=auto-stereo)'
+        ),
+        ActionDef(
+            name='detune',
+            label='Detune',
+            command_template='/dt {hz}',
+            params=[
+                ActionParam('hz', 'Detune (Hz)', 'float', 0, min_val=0, max_val=100),
+            ],
+            description='Set voice detuning in Hz'
+        ),
+        ActionDef(
+            name='stereo',
+            label='Stereo Spread',
+            command_template='/stereo {amount}',
+            params=[
+                ActionParam('amount', 'Spread (0-100)', 'float', 0, min_val=0, max_val=100),
+            ],
+            description='Set stereo spread width'
+        ),
+        ActionDef(
+            name='vphase',
+            label='Phase Spread',
+            command_template='/vphase {radians}',
+            params=[
+                ActionParam('radians', 'Phase (radians)', 'float', 0, min_val=0, max_val=6.28),
+            ],
+            description='Set per-voice phase offset'
+        ),
+        ActionDef(
+            name='rand',
+            label='Random Variation',
+            command_template='/rand {amount}',
+            params=[
+                ActionParam('amount', 'Random (0-100)', 'float', 0, min_val=0, max_val=100),
+            ],
+            description='Set amplitude/phase randomization'
+        ),
+        ActionDef(
+            name='vmod',
+            label='Voice Mod Scale',
+            command_template='/vmod {amount}',
+            params=[
+                ActionParam('amount', 'Mod Scale (0-100)', 'float', 0, min_val=0, max_val=100),
+            ],
+            description='Set per-voice modulation scaling'
         ),
     ],
     'filter': [
@@ -211,9 +329,19 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             command_template='/ft {filter_type}',
             params=[
                 ActionParam('filter_type', 'Filter Type', 'enum', 'lowpass',
-                           choices=['lowpass', 'highpass', 'bandpass', 'notch', 'moog', 'acid']),
+                           choices=['lowpass', 'highpass', 'bandpass', 'notch',
+                                    'peak', 'ringmod', 'allpass',
+                                    'comb_ff', 'comb_fb', 'comb_both',
+                                    'analog', 'acid',
+                                    'formant_a', 'formant_e', 'formant_i',
+                                    'formant_o', 'formant_u',
+                                    'lowshelf', 'highshelf',
+                                    'moog', 'svf_lp', 'svf_hp', 'svf_bp',
+                                    'bitcrush', 'downsample',
+                                    'dc_block', 'tilt',
+                                    'resonant', 'vocal', 'telephone']),
             ],
-            description='Set filter type'
+            description='Set filter type (30 types available)'
         ),
         ActionDef(
             name='cutoff',
@@ -232,6 +360,69 @@ ACTIONS: Dict[str, List[ActionDef]] = {
                 ActionParam('amount', 'Resonance (0-100)', 'float', 50.0, min_val=0, max_val=100),
             ],
             description='Set filter resonance'
+        ),
+        ActionDef(
+            name='fcount',
+            label='Filter Slot Count',
+            command_template='/fcount {count}',
+            params=[
+                ActionParam('count', 'Slots (1-8)', 'int', 1, min_val=1, max_val=8),
+            ],
+            description='Set number of active filter slots'
+        ),
+        ActionDef(
+            name='fsel',
+            label='Select Filter Slot',
+            command_template='/fs {slot}',
+            params=[
+                ActionParam('slot', 'Slot (0-7)', 'int', 0, min_val=0, max_val=7),
+            ],
+            description='Select active filter slot'
+        ),
+        ActionDef(
+            name='fenable',
+            label='Toggle Filter Enable',
+            command_template='/fen toggle',
+            params=[],
+            description='Toggle current filter slot on/off'
+        ),
+    ],
+    'filter_envelope': [
+        ActionDef(
+            name='fatk',
+            label='Filter Attack',
+            command_template='/fatk {time}',
+            params=[
+                ActionParam('time', 'Attack (sec)', 'float', 0.01, min_val=0, max_val=10),
+            ],
+            description='Set filter envelope attack'
+        ),
+        ActionDef(
+            name='fdec',
+            label='Filter Decay',
+            command_template='/fdec {time}',
+            params=[
+                ActionParam('time', 'Decay (sec)', 'float', 0.1, min_val=0, max_val=10),
+            ],
+            description='Set filter envelope decay'
+        ),
+        ActionDef(
+            name='fsus',
+            label='Filter Sustain',
+            command_template='/fsus {level}',
+            params=[
+                ActionParam('level', 'Sustain (0-1)', 'float', 0.8, min_val=0, max_val=1),
+            ],
+            description='Set filter envelope sustain level'
+        ),
+        ActionDef(
+            name='frel',
+            label='Filter Release',
+            command_template='/frel {time}',
+            params=[
+                ActionParam('time', 'Release (sec)', 'float', 0.1, min_val=0, max_val=10),
+            ],
+            description='Set filter envelope release'
         ),
     ],
     'envelope': [
@@ -271,6 +462,270 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             ],
             description='Set envelope release time'
         ),
+        ActionDef(
+            name='env_preset',
+            label='Envelope Preset',
+            command_template='/env {preset}',
+            params=[
+                ActionParam('preset', 'Preset', 'enum', 'pluck',
+                           choices=['pluck', 'pad', 'organ', 'perc', 'slow', 'fast', 'string', 'brass']),
+            ],
+            description='Load an envelope preset'
+        ),
+        ActionDef(
+            name='venv',
+            label='Per-Op Envelope Mode',
+            command_template='/venv {level}',
+            params=[
+                ActionParam('level', 'Level', 'enum', '1',
+                           choices=['1', '2']),
+            ],
+            description='Set envelope editing level (1=global, 2=per-operator)'
+        ),
+    ],
+    'hq': [
+        ActionDef(
+            name='hq_toggle',
+            label='Toggle HQ Mode',
+            command_template='/hq {state}',
+            params=[
+                ActionParam('state', 'State', 'enum', 'on', choices=['on', 'off']),
+            ],
+            description='Enable/disable high-quality mode'
+        ),
+        ActionDef(
+            name='hq_osc',
+            label='HQ Oscillators',
+            command_template='/hq osc {state}',
+            params=[
+                ActionParam('state', 'State', 'enum', 'on', choices=['on', 'off']),
+            ],
+            description='Toggle band-limited oscillators'
+        ),
+        ActionDef(
+            name='hq_dc',
+            label='DC Removal',
+            command_template='/hq dc {state}',
+            params=[
+                ActionParam('state', 'State', 'enum', 'on', choices=['on', 'off']),
+            ],
+            description='Toggle DC offset removal'
+        ),
+        ActionDef(
+            name='hq_sat',
+            label='Saturation',
+            command_template='/hq sat {drive}',
+            params=[
+                ActionParam('drive', 'Drive', 'float', 1.0, min_val=0, max_val=5),
+            ],
+            description='Set saturation drive amount'
+        ),
+        ActionDef(
+            name='hq_limit',
+            label='Limiter',
+            command_template='/hq limit {threshold}',
+            params=[
+                ActionParam('threshold', 'Threshold (dB)', 'float', -1.0, min_val=-20, max_val=0),
+            ],
+            description='Set limiter threshold'
+        ),
+    ],
+    'key': [
+        ActionDef(
+            name='key_set',
+            label='Set Key/Scale',
+            command_template='/key {note} {scale}',
+            params=[
+                ActionParam('note', 'Root Note', 'enum', 'C',
+                           choices=['C', 'C#', 'D', 'D#', 'E', 'F',
+                                    'F#', 'G', 'G#', 'A', 'A#', 'B']),
+                ActionParam('scale', 'Scale', 'enum', 'major',
+                           choices=['major', 'minor', 'dorian', 'phrygian',
+                                    'lydian', 'mixolydian', 'locrian',
+                                    'pentatonic', 'blues', 'harmonic', 'melodic']),
+            ],
+            description='Set musical key and scale'
+        ),
+    ],
+    'modulation': [
+        ActionDef(
+            name='fm',
+            label='Add FM Routing',
+            command_template='/fm {source} {target} {amount}',
+            params=[
+                ActionParam('source', 'Source Op', 'int', 2, min_val=1, max_val=16),
+                ActionParam('target', 'Target Op', 'int', 1, min_val=1, max_val=16),
+                ActionParam('amount', 'Amount (0-100)', 'float', 50, min_val=0, max_val=100),
+            ],
+            description='Add FM modulation routing'
+        ),
+        ActionDef(
+            name='am',
+            label='Add AM Routing',
+            command_template='/am {source} {target} {amount}',
+            params=[
+                ActionParam('source', 'Source Op', 'int', 2, min_val=1, max_val=16),
+                ActionParam('target', 'Target Op', 'int', 1, min_val=1, max_val=16),
+                ActionParam('amount', 'Amount (0-100)', 'float', 50, min_val=0, max_val=100),
+            ],
+            description='Add AM modulation routing'
+        ),
+        ActionDef(
+            name='rm',
+            label='Add RM Routing',
+            command_template='/rm {source} {target} {amount}',
+            params=[
+                ActionParam('source', 'Source Op', 'int', 2, min_val=1, max_val=16),
+                ActionParam('target', 'Target Op', 'int', 1, min_val=1, max_val=16),
+                ActionParam('amount', 'Amount (0-100)', 'float', 50, min_val=0, max_val=100),
+            ],
+            description='Add ring modulation routing'
+        ),
+        ActionDef(
+            name='pm',
+            label='Add PM Routing',
+            command_template='/pm {source} {target} {amount}',
+            params=[
+                ActionParam('source', 'Source Op', 'int', 2, min_val=1, max_val=16),
+                ActionParam('target', 'Target Op', 'int', 1, min_val=1, max_val=16),
+                ActionParam('amount', 'Amount (0-100)', 'float', 50, min_val=0, max_val=100),
+            ],
+            description='Add phase modulation routing'
+        ),
+        ActionDef(
+            name='clearalg',
+            label='Clear All Routings',
+            command_template='/clearalg',
+            params=[],
+            description='Clear all modulation routings'
+        ),
+        ActionDef(
+            name='ar_interval',
+            label='Interval LFO',
+            command_template='/audiorate interval {op} lfo {rate} {depth} {wave}',
+            params=[
+                ActionParam('op', 'Operator', 'int', 1, min_val=1, max_val=16),
+                ActionParam('rate', 'Rate (Hz)', 'float', 5.0, min_val=0.1, max_val=100),
+                ActionParam('depth', 'Depth (semitones)', 'float', 1.0, min_val=0, max_val=24),
+                ActionParam('wave', 'LFO Shape', 'enum', 'sine',
+                           choices=['sine', 'triangle', 'saw', 'square']),
+            ],
+            description='Set audio-rate interval LFO modulation'
+        ),
+        ActionDef(
+            name='ar_filter',
+            label='Filter LFO',
+            command_template='/audiorate filter lfo {rate} {depth}',
+            params=[
+                ActionParam('rate', 'Rate (Hz)', 'float', 2.0, min_val=0.1, max_val=100),
+                ActionParam('depth', 'Depth (octaves)', 'float', 1.0, min_val=0, max_val=8),
+            ],
+            description='Set audio-rate filter cutoff LFO'
+        ),
+        ActionDef(
+            name='ar_clear',
+            label='Clear Audio-Rate Mod',
+            command_template='/audiorate clear',
+            params=[],
+            description='Clear all audio-rate modulation sources'
+        ),
+    ],
+    'wavetable': [
+        ActionDef(
+            name='wt_load',
+            label='Load Wavetable',
+            command_template='/wt load {name} {path}',
+            params=[
+                ActionParam('name', 'Name', 'string', 'my_table'),
+                ActionParam('path', 'File Path (.wav)', 'string', ''),
+            ],
+            description='Load a wavetable from .wav file (Serum format)'
+        ),
+        ActionDef(
+            name='wt_use',
+            label='Use Wavetable',
+            command_template='/wt use {name}',
+            params=[
+                ActionParam('name', 'Wavetable Name', 'string', ''),
+            ],
+            description='Set current operator to use a loaded wavetable'
+        ),
+        ActionDef(
+            name='wt_frame',
+            label='Set Frame Position',
+            command_template='/wt frame {pos}',
+            params=[
+                ActionParam('pos', 'Position (0-1)', 'float', 0.0, min_val=0, max_val=1),
+            ],
+            description='Set wavetable frame position'
+        ),
+        ActionDef(
+            name='wt_del',
+            label='Delete Wavetable',
+            command_template='/wt del {name}',
+            params=[
+                ActionParam('name', 'Wavetable Name', 'string', ''),
+            ],
+            description='Delete a loaded wavetable'
+        ),
+        ActionDef(
+            name='wt_list',
+            label='List Wavetables',
+            command_template='/wt',
+            params=[],
+            description='List all loaded wavetables'
+        ),
+    ],
+    'compound': [
+        ActionDef(
+            name='comp_new',
+            label='New Compound',
+            command_template='/compound new {name}',
+            params=[
+                ActionParam('name', 'Name', 'string', 'my_compound'),
+            ],
+            description='Create a new compound wave definition'
+        ),
+        ActionDef(
+            name='comp_add',
+            label='Add Layer',
+            command_template='/compound add {name} {wave} {detune} {amp}',
+            params=[
+                ActionParam('name', 'Compound Name', 'string', ''),
+                ActionParam('wave', 'Layer Wave', 'enum', 'sine',
+                           choices=['sine', 'triangle', 'saw', 'pulse']),
+                ActionParam('detune', 'Detune (semitones)', 'float', 0.0, min_val=-24, max_val=24),
+                ActionParam('amp', 'Layer Amp', 'float', 1.0, min_val=0, max_val=2),
+            ],
+            description='Add a layer to a compound wave'
+        ),
+        ActionDef(
+            name='comp_use',
+            label='Use Compound',
+            command_template='/compound use {name}',
+            params=[
+                ActionParam('name', 'Compound Name', 'string', ''),
+            ],
+            description='Set current operator to use a compound wave'
+        ),
+        ActionDef(
+            name='comp_morph',
+            label='Set Morph',
+            command_template='/compound morph {pos}',
+            params=[
+                ActionParam('pos', 'Morph (0-1)', 'float', 0.0, min_val=0, max_val=1),
+            ],
+            description='Set morph position between two layers'
+        ),
+        ActionDef(
+            name='comp_del',
+            label='Delete Compound',
+            command_template='/compound del {name}',
+            params=[
+                ActionParam('name', 'Compound Name', 'string', ''),
+            ],
+            description='Delete a compound wave definition'
+        ),
     ],
     'fx': [
         ActionDef(
@@ -279,7 +734,7 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             command_template='/fx {effect}',
             params=[
                 ActionParam('effect', 'Effect', 'enum', 'reverb',
-                           choices=['reverb', 'delay', 'chorus', 'distortion', 'phaser', 
+                           choices=['reverb', 'delay', 'chorus', 'distortion', 'phaser',
                                    'flanger', 'compressor', 'eq', 'bitcrush']),
             ],
             description='Add an effect to the chain'
@@ -295,37 +750,338 @@ ACTIONS: Dict[str, List[ActionDef]] = {
     'preset': [
         ActionDef(
             name='use_preset',
-            label='Use Preset',
+            label='Use SyDef Preset',
             command_template='/use {name}',
             params=[
                 ActionParam('name', 'Preset Name', 'string', 'saw'),
             ],
-            description='Load and use a synth preset'
+            description='Load and use a synth definition preset'
         ),
         ActionDef(
             name='list_presets',
-            label='List Presets',
+            label='List SyDef Presets',
             command_template='/sydef list',
             params=[],
-            description='List all available presets'
+            description='List all available synth definitions'
+        ),
+        ActionDef(
+            name='preset_save',
+            label='Save Engine Preset',
+            command_template='/preset save {slot} {name}',
+            params=[
+                ActionParam('slot', 'Slot (0-127)', 'int', 0, min_val=0, max_val=127),
+                ActionParam('name', 'Name', 'string', 'my_preset'),
+            ],
+            description='Save current engine state to preset bank slot'
+        ),
+        ActionDef(
+            name='preset_load',
+            label='Load Engine Preset',
+            command_template='/preset load {slot}',
+            params=[
+                ActionParam('slot', 'Slot (0-127)', 'int', 0, min_val=0, max_val=127),
+            ],
+            description='Load engine state from preset bank slot'
+        ),
+        ActionDef(
+            name='preset_list',
+            label='List Engine Presets',
+            command_template='/preset',
+            params=[],
+            description='List all saved engine preset bank slots'
+        ),
+        ActionDef(
+            name='preset_del',
+            label='Delete Engine Preset',
+            command_template='/preset del {slot}',
+            params=[
+                ActionParam('slot', 'Slot (0-127)', 'int', 0, min_val=0, max_val=127),
+            ],
+            description='Delete preset from bank slot'
         ),
     ],
     'bank': [
         ActionDef(
             name='bank_select',
-            label='Select Bank',
-            command_template='/bank {number}',
+            label='Select Routing Bank',
+            command_template='/bk {name}',
             params=[
-                ActionParam('number', 'Bank Number', 'int', 1, min_val=1, max_val=8),
+                ActionParam('name', 'Bank Name', 'string', 'classic_fm'),
             ],
-            description='Select a sound bank'
+            description='Select a routing/algorithm bank'
         ),
         ActionDef(
             name='bank_list',
             label='List Banks',
-            command_template='/banks',
+            command_template='/bk list',
             params=[],
-            description='List all available banks'
+            description='List all available routing banks'
+        ),
+        ActionDef(
+            name='algo_list',
+            label='List Algorithms',
+            command_template='/al list',
+            params=[],
+            description='List algorithms in current bank'
+        ),
+        ActionDef(
+            name='algo_load',
+            label='Load Algorithm',
+            command_template='/al {index}',
+            params=[
+                ActionParam('index', 'Algorithm Index', 'int', 0, min_val=0, max_val=31),
+            ],
+            description='Load an algorithm from current bank'
+        ),
+    ],
+
+    # ------------------------------------------------------------------
+    # Phase 3: Modulation, Impulse & Convolution
+    # ------------------------------------------------------------------
+
+    'impulse_lfo': [
+        ActionDef(
+            name='ilfo_load',
+            label='Load Umpulse as LFO',
+            command_template='/impulselfo load {name}',
+            params=[ActionParam('name', 'Umpulse Name', 'string', '')],
+            description='Convert an umpulse into an LFO waveshape'
+        ),
+        ActionDef(
+            name='ilfo_file',
+            label='Load File as LFO',
+            command_template='/impulselfo file {path}',
+            params=[ActionParam('path', 'File Path', 'file', '')],
+            description='Load an audio file as LFO waveshape'
+        ),
+        ActionDef(
+            name='ilfo_apply',
+            label='Apply Impulse LFO',
+            command_template='/impulselfo apply {op} {rate} {depth}',
+            params=[
+                ActionParam('op', 'Operator', 'int', 0, min_val=0, max_val=15),
+                ActionParam('rate', 'Rate (Hz)', 'float', 4.0, min_val=0.01, max_val=100),
+                ActionParam('depth', 'Depth (semitones)', 'float', 12.0, min_val=0, max_val=48),
+            ],
+            description='Apply impulse LFO as interval modulation'
+        ),
+        ActionDef(
+            name='ilfo_filter',
+            label='Apply LFO to Filter',
+            command_template='/impulselfo filter {rate} {depth}',
+            params=[
+                ActionParam('rate', 'Rate (Hz)', 'float', 2.0, min_val=0.01, max_val=100),
+                ActionParam('depth', 'Depth (octaves)', 'float', 2.0, min_val=0, max_val=8),
+            ],
+            description='Apply impulse LFO as filter cutoff modulation'
+        ),
+        ActionDef(
+            name='ilfo_clear',
+            label='Clear LFO Mod',
+            command_template='/impulselfo clear',
+            params=[],
+            description='Clear all impulse LFO modulation'
+        ),
+    ],
+
+    'impulse_env': [
+        ActionDef(
+            name='ienv_load',
+            label='Load Umpulse as Envelope',
+            command_template='/impenv load {name}',
+            params=[ActionParam('name', 'Umpulse Name', 'string', '')],
+            description='Extract amplitude envelope from an umpulse'
+        ),
+        ActionDef(
+            name='ienv_file',
+            label='Load File as Envelope',
+            command_template='/impenv file {path}',
+            params=[ActionParam('path', 'File Path', 'file', '')],
+            description='Extract amplitude envelope from audio file'
+        ),
+        ActionDef(
+            name='ienv_apply',
+            label='Apply to Working Buffer',
+            command_template='/impenv apply {duration}',
+            params=[
+                ActionParam('duration', 'Duration (s)', 'float', 1.0, min_val=0.01, max_val=30),
+            ],
+            description='Apply impulse envelope to working buffer'
+        ),
+        ActionDef(
+            name='ienv_operator',
+            label='Apply to Operator',
+            command_template='/impenv operator {op} {duration}',
+            params=[
+                ActionParam('op', 'Operator', 'int', 0, min_val=0, max_val=15),
+                ActionParam('duration', 'Duration (s)', 'float', 1.0, min_val=0.01, max_val=30),
+            ],
+            description='Set impulse envelope as operator amplitude contour'
+        ),
+    ],
+
+    'convolution': [
+        ActionDef(
+            name='conv_load',
+            label='Load IR File',
+            command_template='/conv load {path}',
+            params=[ActionParam('path', 'IR File', 'file', '')],
+            description='Load impulse response from WAV file'
+        ),
+        ActionDef(
+            name='conv_preset',
+            label='Load IR Preset',
+            command_template='/conv preset {preset}',
+            params=[
+                ActionParam('preset', 'Preset', 'enum', 'hall',
+                            choices=['hall', 'hall_long', 'hall_bright', 'hall_dark',
+                                     'room', 'room_small', 'room_large',
+                                     'plate', 'plate_bright', 'plate_dark',
+                                     'spring', 'spring_tight', 'spring_loose',
+                                     'shimmer', 'shimmer_fifth',
+                                     'reverse', 'reverse_long']),
+            ],
+            description='Load a built-in IR preset'
+        ),
+        ActionDef(
+            name='conv_apply',
+            label='Apply Convolution',
+            command_template='/conv apply {wet} {dry}',
+            params=[
+                ActionParam('wet', 'Wet', 'float', 50, min_val=0, max_val=100),
+                ActionParam('dry', 'Dry', 'float', 50, min_val=0, max_val=100),
+            ],
+            description='Apply convolution reverb to working buffer'
+        ),
+        ActionDef(
+            name='conv_params',
+            label='Set Parameters',
+            command_template='/conv params wet={wet} dry={dry} pre_delay_ms={pre_delay} decay={decay} stereo_width={width}',
+            params=[
+                ActionParam('wet', 'Wet', 'float', 50, min_val=0, max_val=100),
+                ActionParam('dry', 'Dry', 'float', 50, min_val=0, max_val=100),
+                ActionParam('pre_delay', 'Pre-Delay (ms)', 'float', 0, min_val=0, max_val=500),
+                ActionParam('decay', 'Decay', 'float', 1.0, min_val=0.1, max_val=5),
+                ActionParam('width', 'Stereo Width', 'float', 50, min_val=0, max_val=100),
+            ],
+            description='Set convolution reverb parameters'
+        ),
+        ActionDef(
+            name='conv_split',
+            label='Early/Late Split',
+            command_template='/conv split {ms}',
+            params=[
+                ActionParam('ms', 'Split (ms)', 'float', 80, min_val=10, max_val=500),
+            ],
+            description='Set early/late reflection split point'
+        ),
+        ActionDef(
+            name='conv_save',
+            label='Save IR to Bank',
+            command_template='/conv save {name}',
+            params=[ActionParam('name', 'Name', 'string', '')],
+            description='Save current IR to the bank'
+        ),
+    ],
+
+    'ir_enhance': [
+        ActionDef(
+            name='ire_extend',
+            label='Extend IR',
+            command_template='/irenhance extend {target}',
+            params=[
+                ActionParam('target', 'Target Duration (s)', 'float', 5.0, min_val=0.1, max_val=30),
+            ],
+            description='Extend IR tail using neural-inspired decay analysis'
+        ),
+        ActionDef(
+            name='ire_denoise',
+            label='Denoise IR',
+            command_template='/irenhance denoise {threshold}',
+            params=[
+                ActionParam('threshold', 'Threshold (dB)', 'float', -60, min_val=-96, max_val=-20),
+            ],
+            description='Remove noise floor from recorded IR'
+        ),
+        ActionDef(
+            name='ire_fill',
+            label='Fill Gaps',
+            command_template='/irenhance fill {threshold}',
+            params=[
+                ActionParam('threshold', 'Gap Threshold (dB)', 'float', -40, min_val=-80, max_val=-10),
+            ],
+            description='Fill gaps/dropouts in recorded IR'
+        ),
+    ],
+
+    'ir_transform': [
+        ActionDef(
+            name='irt_apply',
+            label='Transform IR',
+            command_template='/irtransform {descriptor} {intensity}',
+            params=[
+                ActionParam('descriptor', 'Descriptor', 'enum', 'bigger',
+                            choices=['bigger', 'smaller', 'brighter', 'darker', 'warmer',
+                                     'metallic', 'wooden', 'glass', 'cathedral', 'intimate',
+                                     'ethereal', 'haunted', 'telephone', 'underwater', 'vintage']),
+                ActionParam('intensity', 'Intensity', 'float', 1.0, min_val=0, max_val=2),
+            ],
+            description='Transform IR using semantic descriptor'
+        ),
+        ActionDef(
+            name='irt_chain',
+            label='Chain Transforms',
+            command_template='/irtransform chain {transforms}',
+            params=[
+                ActionParam('transforms', 'Descriptors (space-separated)', 'string', 'bigger darker'),
+            ],
+            description='Chain multiple descriptor transformations'
+        ),
+    ],
+
+    'ir_granular': [
+        ActionDef(
+            name='irg_stretch',
+            label='Granular Stretch',
+            command_template='/irgranular stretch {factor} {grain_ms} {density}',
+            params=[
+                ActionParam('factor', 'Stretch Factor', 'float', 2.0, min_val=0.25, max_val=8),
+                ActionParam('grain_ms', 'Grain Size (ms)', 'float', 40, min_val=5, max_val=200),
+                ActionParam('density', 'Density', 'float', 8, min_val=1, max_val=32),
+            ],
+            description='Stretch IR using granular processing'
+        ),
+        ActionDef(
+            name='irg_morph',
+            label='Morph IRs',
+            command_template='/irgranular morph {ir_a} {ir_b} {position}',
+            params=[
+                ActionParam('ir_a', 'IR A Name', 'string', ''),
+                ActionParam('ir_b', 'IR B Name', 'string', ''),
+                ActionParam('position', 'Morph Position', 'float', 0.5, min_val=0, max_val=1),
+            ],
+            description='Morph between two IRs using granular interleaving'
+        ),
+        ActionDef(
+            name='irg_redesign',
+            label='Redesign IR',
+            command_template='/irgranular redesign {grain_ms} {density} {scatter} {reverse_prob}',
+            params=[
+                ActionParam('grain_ms', 'Grain Size (ms)', 'float', 20, min_val=5, max_val=200),
+                ActionParam('density', 'Density', 'float', 6, min_val=1, max_val=32),
+                ActionParam('scatter', 'Scatter', 'float', 0.3, min_val=0, max_val=1),
+                ActionParam('reverse_prob', 'Reverse Probability', 'float', 0.2, min_val=0, max_val=1),
+            ],
+            description='Redesign IR with granular decomposition and resynthesis'
+        ),
+        ActionDef(
+            name='irg_freeze',
+            label='Freeze IR',
+            command_template='/irgranular freeze {position}',
+            params=[
+                ActionParam('position', 'Freeze Position', 'float', 0.5, min_val=0, max_val=1),
+            ],
+            description='Freeze IR at a specific position'
         ),
     ],
 }
@@ -452,6 +1208,25 @@ class CommandExecutor:
             'output_bit_depth': getattr(s, 'output_bit_depth', 16),
             'track_count': len(getattr(s, 'tracks', [])),
             'effects': list(getattr(s, 'effects', [])),
+            # Voice params
+            'stereo_spread': getattr(s, 'stereo_spread', 0),
+            'phase_spread': getattr(s, 'phase_spread', 0),
+            'rand': getattr(s, 'rand', 0),
+            'v_mod': getattr(s, 'v_mod', 0),
+            # Filter envelope
+            'filter_attack': getattr(s, 'filter_attack', 0.01),
+            'filter_decay': getattr(s, 'filter_decay', 0.1),
+            'filter_sustain': getattr(s, 'filter_sustain', 0.8),
+            'filter_release': getattr(s, 'filter_release', 0.1),
+            'filter_count': getattr(s, 'filter_count', 1),
+            # HQ sub-params
+            'hq_oscillators': getattr(s, 'hq_oscillators', False),
+            'hq_dc_removal': getattr(s, 'hq_dc_removal', False),
+            'hq_saturation': getattr(s, 'hq_saturation', 0),
+            'hq_limiter': getattr(s, 'hq_limiter', 0),
+            # Key / scale
+            'key_note': getattr(s, 'key_note', 'C'),
+            'key_scale': getattr(s, 'key_scale', 'major'),
         }
 
     def _get_sydefs(self) -> dict:
@@ -657,13 +1432,63 @@ class CommandExecutor:
                    'decay': e.get('decay', getattr(s, 'decay', 0.1)),
                    'sustain': e.get('sustain', getattr(s, 'sustain', 0.8)),
                    'release': e.get('release', getattr(s, 'release', 0.1))}
+        wave = op.get('wave', 'sine')
+        # Collect wave-specific params
+        wave_params = {}
+        if wave == 'pulse':
+            wave_params['pw'] = op.get('pw', 0.5)
+        elif wave in ('physical', 'physical2'):
+            wave_params['even_harmonics'] = op.get('even_harmonics', 8)
+            wave_params['odd_harmonics'] = op.get('odd_harmonics', 4)
+            wave_params['even_weight'] = op.get('even_weight', 1.0)
+            wave_params['decay'] = op.get('decay', 0.7)
+            wave_params['inharmonicity'] = op.get('inharmonicity', 0.01)
+            wave_params['partials'] = op.get('partials', 12)
+        elif wave == 'supersaw':
+            wave_params['num_saws'] = op.get('num_saws', 7)
+            wave_params['detune_spread'] = op.get('detune_spread', 0.5)
+            wave_params['mix'] = op.get('mix', 0.75)
+        elif wave == 'additive':
+            wave_params['num_harmonics'] = op.get('num_harmonics', 16)
+            wave_params['rolloff'] = op.get('rolloff', 1.0)
+        elif wave == 'formant':
+            wave_params['vowel'] = op.get('vowel', 'a')
+        elif wave == 'harmonic':
+            wave_params['odd_level'] = op.get('odd_level', 1.0)
+            wave_params['even_level'] = op.get('even_level', 1.0)
+            wave_params['odd_decay'] = op.get('odd_decay', 0.7)
+            wave_params['even_decay'] = op.get('even_decay', 0.7)
+            wave_params['num_harmonics'] = op.get('num_harmonics', 16)
+        elif wave == 'waveguide_string':
+            wave_params['damping'] = op.get('damping', 0.996)
+            wave_params['brightness'] = op.get('brightness', 0.5)
+            wave_params['position'] = op.get('position', 0.5)
+        elif wave == 'waveguide_tube':
+            wave_params['damping'] = op.get('damping', 0.996)
+            wave_params['reflection'] = op.get('reflection', 0.98)
+            wave_params['bore_shape'] = op.get('bore_shape', 'cylindrical')
+        elif wave == 'waveguide_membrane':
+            wave_params['tension'] = op.get('tension', 0.5)
+            wave_params['damping'] = op.get('damping', 0.996)
+            wave_params['strike_pos'] = op.get('strike_pos', 0.5)
+        elif wave == 'waveguide_plate':
+            wave_params['thickness'] = op.get('thickness', 0.5)
+            wave_params['damping'] = op.get('damping', 0.996)
+            wave_params['material'] = op.get('material', 'steel')
+        elif wave == 'wavetable':
+            wave_params['wavetable_name'] = op.get('wavetable_name', '')
+            wave_params['frame_pos'] = op.get('frame_pos', 0.0)
+        elif wave == 'compound':
+            wave_params['compound_name'] = op.get('compound_name', '')
+            wave_params['morph'] = op.get('morph', 0.0)
         return {
             'index': index,
-            'wave': op.get('wave', 'sine'),
+            'wave': wave,
             'freq': op.get('freq', 440.0),
             'amp': op.get('amp', 0.8),
             'is_current': index == getattr(s, 'current_operator', 0),
             'envelope': env,
+            'wave_params': wave_params,
         }
 
     def get_filter_slot_details(self, slot: int) -> Dict[str, Any]:
@@ -826,6 +1651,42 @@ class CommandExecutor:
                                      'deck': dk_id, 'start': dur - 2, 'end': dur})
                 deck_sections.extend(sections)
 
+        # Wavetables
+        wavetables = []
+        if hasattr(s, 'engine') and hasattr(s.engine, 'wavetables'):
+            for name in sorted(s.engine.wavetables.keys()):
+                wt = s.engine.wavetables[name]
+                frames = len(wt) if hasattr(wt, '__len__') else 0
+                wavetables.append({'label': f"{name} ({frames} frames)",
+                                   'name': name, 'type': 'wavetable'})
+
+        # Compound waves
+        compounds = []
+        if hasattr(s, 'engine') and hasattr(s.engine, 'compound_waves'):
+            for name in sorted(s.engine.compound_waves.keys()):
+                cw = s.engine.compound_waves[name]
+                layers = len(cw.get('layers', [])) if isinstance(cw, dict) else 0
+                compounds.append({'label': f"{name} ({layers} layers)",
+                                  'name': name, 'type': 'compound'})
+
+        # Modulation routings
+        routings = []
+        if hasattr(s, 'engine') and hasattr(s.engine, 'algorithms'):
+            for i, entry in enumerate(s.engine.algorithms):
+                try:
+                    algo_type, src, tgt, amt = entry
+                    routings.append({
+                        'label': f"{algo_type}: Op{src} → Op{tgt} ({amt:.1f})",
+                        'index': i, 'type': 'routing',
+                        'algo_type': algo_type, 'src': src, 'tgt': tgt,
+                        'amt': amt,
+                    })
+                except (ValueError, TypeError):
+                    routings.append({
+                        'label': f"Routing {i}: {entry}",
+                        'index': i, 'type': 'routing',
+                    })
+
         return {
             'tracks': tracks,
             'buffers': buffers,
@@ -839,6 +1700,9 @@ class CommandExecutor:
             'user_functions': funcs,
             'chains': chains,
             'deck_sections': deck_sections,
+            'wavetables': wavetables,
+            'compounds': compounds,
+            'routings': routings,
         }
 
 
@@ -859,16 +1723,29 @@ class ObjectBrowser(wx.Panel):
 
     # Top-level categories — each is its own branch in the tree.
     CATEGORIES = [
-        ('engine',   'Engine'),
-        ('synth',    'Synthesizer'),
-        ('filter',   'Filter'),
-        ('envelope', 'Envelope'),
-        ('tracks',   'Tracks'),
-        ('buffers',  'Buffers'),
-        ('decks',    'Decks'),
-        ('fx',       'Effects'),
-        ('preset',   'Presets'),
-        ('bank',     'Banks'),
+        ('engine',          'Engine'),
+        ('synth',           'Synthesizer'),
+        ('voice',           'Voice'),
+        ('filter',          'Filter'),
+        ('filter_envelope', 'Filter Envelope'),
+        ('envelope',        'Envelope'),
+        ('hq',              'HQ Mode'),
+        ('key',             'Key / Scale'),
+        ('modulation',      'Modulation'),
+        ('wavetable',       'Wavetables'),
+        ('compound',        'Compound Waves'),
+        ('convolution',     'Convolution Reverb'),
+        ('impulse_lfo',     'Impulse LFOs'),
+        ('impulse_env',     'Impulse Envelopes'),
+        ('ir_enhance',      'IR Enhancement'),
+        ('ir_transform',    'IR Transform'),
+        ('ir_granular',     'IR Granular'),
+        ('tracks',          'Tracks'),
+        ('buffers',         'Buffers'),
+        ('decks',           'Decks'),
+        ('fx',              'Effects'),
+        ('preset',          'Presets'),
+        ('bank',            'Banks'),
     ]
 
     def __init__(self, parent, on_select_callback, executor: CommandExecutor,
@@ -967,6 +1844,30 @@ class ObjectBrowser(wx.Panel):
                                          'slot': fi['slot'],
                                          'id': 'filter'})
 
+        # ---- Voice ----
+        if state:
+            vc = state.get('voice_count', 1)
+            va = state.get('voice_algorithm', 0)
+            va_name = {0: 'stack', 1: 'unison', 2: 'wide'}.get(va, str(va))
+            voice_lbl = f"Voice  ({vc} voices, {va_name})"
+        else:
+            voice_lbl = "Voice"
+        voice_cat = self.tree.AppendItem(root, voice_lbl)
+        self.tree.SetItemData(voice_cat, {'type': 'category', 'id': 'voice'})
+        self.category_items['voice'] = voice_cat
+        if state:
+            for lbl_v in [
+                f"Voices: {state.get('voice_count', 1)}",
+                f"Algorithm: {va_name}",
+                f"Detune: {state.get('detune', 0):.2f} Hz",
+                f"Stereo Spread: {state.get('stereo_spread', 0):.0f}",
+                f"Phase Spread: {state.get('phase_spread', 0):.2f} rad",
+                f"Random: {state.get('rand', 0):.0f}",
+                f"V-Mod: {state.get('v_mod', 0):.0f}",
+            ]:
+                sub = self.tree.AppendItem(voice_cat, lbl_v)
+                self.tree.SetItemData(sub, {'type': 'voice_prop', 'id': 'voice'})
+
         # ---- Envelope ----
         if state:
             env_lbl = (f"Envelope  (A{state.get('attack',0):.2f} "
@@ -984,6 +1885,143 @@ class ObjectBrowser(wx.Panel):
                     f"{param.capitalize()}: {state.get(param, 0):.3f}")
                 self.tree.SetItemData(sub, {'type': 'envelope_param',
                                              'param': param, 'id': 'envelope'})
+
+        # ---- Filter Envelope ----
+        if state:
+            fenv_lbl = (f"Filter Envelope  (A{state.get('filter_attack',0.01):.2f} "
+                        f"D{state.get('filter_decay',0.1):.2f} "
+                        f"S{state.get('filter_sustain',0.8):.2f} "
+                        f"R{state.get('filter_release',0.1):.2f})")
+        else:
+            fenv_lbl = "Filter Envelope"
+        fenv = self.tree.AppendItem(root, fenv_lbl)
+        self.tree.SetItemData(fenv, {'type': 'category', 'id': 'filter_envelope'})
+        self.category_items['filter_envelope'] = fenv
+        if state:
+            for p, k in [('Attack', 'filter_attack'), ('Decay', 'filter_decay'),
+                         ('Sustain', 'filter_sustain'), ('Release', 'filter_release')]:
+                sub = self.tree.AppendItem(fenv, f"{p}: {state.get(k, 0):.3f}")
+                self.tree.SetItemData(sub, {'type': 'fenv_param', 'param': k,
+                                             'id': 'filter_envelope'})
+
+        # ---- HQ Mode ----
+        hq_on = state.get('hq_mode', False) if state else False
+        hq_cat = self.tree.AppendItem(root, f"HQ Mode  ({'ON' if hq_on else 'OFF'})")
+        self.tree.SetItemData(hq_cat, {'type': 'category', 'id': 'hq'})
+        self.category_items['hq'] = hq_cat
+        if state:
+            for lbl_h in [
+                f"HQ Mode: {'ON' if hq_on else 'OFF'}",
+                f"Oscillators: {'ON' if state.get('hq_oscillators') else 'OFF'}",
+                f"DC Removal: {'ON' if state.get('hq_dc_removal') else 'OFF'}",
+                f"Saturation: {state.get('hq_saturation', 0)}",
+                f"Limiter: {state.get('hq_limiter', 0)}",
+            ]:
+                sub = self.tree.AppendItem(hq_cat, lbl_h)
+                self.tree.SetItemData(sub, {'type': 'hq_prop', 'id': 'hq'})
+
+        # ---- Key / Scale ----
+        key_n = state.get('key_note', 'C') if state else 'C'
+        key_s = state.get('key_scale', 'major') if state else 'major'
+        key_cat = self.tree.AppendItem(root, f"Key / Scale  ({key_n} {key_s})")
+        self.tree.SetItemData(key_cat, {'type': 'category', 'id': 'key'})
+        self.category_items['key'] = key_cat
+
+        # ---- Modulation ----
+        routing_items = rich.get('routings', [])
+        mod_cat = self.tree.AppendItem(root,
+            f"Modulation  ({len(routing_items)} routings)")
+        self.tree.SetItemData(mod_cat, {'type': 'category', 'id': 'modulation'})
+        self.category_items['modulation'] = mod_cat
+        for ri in routing_items:
+            sub = self.tree.AppendItem(mod_cat, ri['label'])
+            self.tree.SetItemData(sub, {'type': 'routing', 'index': ri['index'],
+                                         'id': 'modulation'})
+
+        # ---- Wavetables ----
+        wt_items = rich.get('wavetables', [])
+        wt_cat = self.tree.AppendItem(root, f"Wavetables  ({len(wt_items)})")
+        self.tree.SetItemData(wt_cat, {'type': 'category', 'id': 'wavetable'})
+        self.category_items['wavetable'] = wt_cat
+        for wi in wt_items:
+            sub = self.tree.AppendItem(wt_cat, wi['label'])
+            self.tree.SetItemData(sub, {'type': 'wavetable', 'name': wi['name'],
+                                         'id': 'wavetable'})
+
+        # ---- Compound Waves ----
+        cw_items = rich.get('compounds', [])
+        cw_cat = self.tree.AppendItem(root, f"Compound Waves  ({len(cw_items)})")
+        self.tree.SetItemData(cw_cat, {'type': 'category', 'id': 'compound'})
+        self.category_items['compound'] = cw_cat
+        for ci_item in cw_items:
+            sub = self.tree.AppendItem(cw_cat, ci_item['label'])
+            self.tree.SetItemData(sub, {'type': 'compound', 'name': ci_item['name'],
+                                         'id': 'compound'})
+
+        # ---- Phase 3: Convolution Reverb ----
+        try:
+            from mdma_rebuild.dsp.convolution import get_convolution_engine
+            ce = get_convolution_engine()
+            ce_info = ce.get_info()
+            ir_status = ce_info['ir_name'] if ce_info['ir_loaded'] else 'none'
+            conv_cat = self.tree.AppendItem(root,
+                f"Convolution Reverb  (IR: {ir_status})")
+            self.tree.SetItemData(conv_cat, {'type': 'category', 'id': 'convolution'})
+            self.category_items['convolution'] = conv_cat
+            if ce_info['ir_loaded']:
+                for lbl_c in [
+                    f"IR: {ce_info['ir_name']} ({ce_info['ir_duration']:.2f}s)",
+                    f"Wet/Dry: {ce_info['wet']:.0f}/{ce_info['dry']:.0f}",
+                    f"Pre-Delay: {ce_info['pre_delay_ms']:.0f}ms",
+                    f"Decay: {ce_info['decay']:.2f}x",
+                    f"Stereo Width: {ce_info['stereo_width']:.0f}",
+                    f"Early/Late: {ce_info['early_level']:.0f}/{ce_info['late_level']:.0f}",
+                ]:
+                    sub = self.tree.AppendItem(conv_cat, lbl_c)
+                    self.tree.SetItemData(sub, {'type': 'conv_prop', 'id': 'convolution'})
+            # Bank entries
+            for bn in ce_info.get('bank_names', []):
+                sub = self.tree.AppendItem(conv_cat, f"Bank: {bn}")
+                self.tree.SetItemData(sub, {'type': 'ir_bank_entry', 'name': bn,
+                                             'id': 'convolution'})
+        except Exception:
+            conv_cat = self.tree.AppendItem(root, "Convolution Reverb")
+            self.tree.SetItemData(conv_cat, {'type': 'category', 'id': 'convolution'})
+            self.category_items['convolution'] = conv_cat
+
+        # ---- Phase 3: Impulse LFOs ----
+        lfo_shapes = {}
+        if self.executor.session and hasattr(self.executor.session, '_lfo_waveshapes'):
+            lfo_shapes = self.executor.session._lfo_waveshapes
+        ilfo_cat = self.tree.AppendItem(root,
+            f"Impulse LFOs  ({len(lfo_shapes)})")
+        self.tree.SetItemData(ilfo_cat, {'type': 'category', 'id': 'impulse_lfo'})
+        self.category_items['impulse_lfo'] = ilfo_cat
+        for name in sorted(lfo_shapes.keys()):
+            sub = self.tree.AppendItem(ilfo_cat, f"{name} ({len(lfo_shapes[name])} samples)")
+            self.tree.SetItemData(sub, {'type': 'lfo_shape', 'name': name,
+                                         'id': 'impulse_lfo'})
+
+        # ---- Phase 3: Impulse Envelopes ----
+        imp_envs = {}
+        if self.executor.session and hasattr(self.executor.session, '_imp_envelopes'):
+            imp_envs = self.executor.session._imp_envelopes
+        ienv_cat = self.tree.AppendItem(root,
+            f"Impulse Envelopes  ({len(imp_envs)})")
+        self.tree.SetItemData(ienv_cat, {'type': 'category', 'id': 'impulse_env'})
+        self.category_items['impulse_env'] = ienv_cat
+        for name in sorted(imp_envs.keys()):
+            sub = self.tree.AppendItem(ienv_cat, f"{name} ({len(imp_envs[name])} samples)")
+            self.tree.SetItemData(sub, {'type': 'imp_env_shape', 'name': name,
+                                         'id': 'impulse_env'})
+
+        # ---- Phase 3: IR Enhancement / Transform / Granular ----
+        for cat_id, label in [('ir_enhance', 'IR Enhancement'),
+                               ('ir_transform', 'IR Transform'),
+                               ('ir_granular', 'IR Granular')]:
+            cat = self.tree.AppendItem(root, label)
+            self.tree.SetItemData(cat, {'type': 'category', 'id': cat_id})
+            self.category_items[cat_id] = cat
 
         # ---- Tracks ----
         track_items = rich.get('tracks', [])
@@ -1091,6 +2129,19 @@ class ObjectBrowser(wx.Panel):
         bank_cat = self.tree.AppendItem(root, "Banks")
         self.tree.SetItemData(bank_cat, {'type': 'category', 'id': 'bank'})
         self.category_items['bank'] = bank_cat
+        # Preset bank slots
+        s = self.executor.session
+        if s and hasattr(s, 'engine') and hasattr(s.engine, 'preset_bank'):
+            pb = s.engine.preset_bank
+            if pb:
+                pb_grp = self.tree.AppendItem(bank_cat,
+                    f"Preset Bank ({len(pb)} saved)")
+                self.tree.SetItemData(pb_grp, {'type': 'group', 'id': 'bank'})
+                for slot_num in sorted(pb.keys()):
+                    name = pb[slot_num].get('name', f'slot_{slot_num}') if isinstance(pb[slot_num], dict) else f'slot_{slot_num}'
+                    sub = self.tree.AppendItem(pb_grp, f"Slot {slot_num}: {name}")
+                    self.tree.SetItemData(sub, {'type': 'preset_slot',
+                                                 'slot': slot_num, 'id': 'bank'})
 
         self.tree.ExpandAll()
 
@@ -1126,6 +2177,9 @@ class ObjectBrowser(wx.Panel):
         menu = wx.Menu()
         obj_type = data.get('type', '')
 
+        # ==============================================================
+        # Track
+        # ==============================================================
         if obj_type == 'track':
             idx = data.get('index', 0)
             m_play = wx.NewIdRef()
@@ -1155,16 +2209,21 @@ class ObjectBrowser(wx.Panel):
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/btw {i+1}'), id=m_bounce)
             self.Bind(wx.EVT_MENU,
-                lambda e, i=idx: self._exec(f'/tclr {i+1}'), id=m_clear)
+                lambda e, i=idx: self._exec(f'/tsel {i+1}\n/rc'), id=m_clear)
 
+        # ==============================================================
+        # Buffer
+        # ==============================================================
         elif obj_type == 'buffer':
             idx = data.get('index', 1)
             m_play = wx.NewIdRef()
             m_to_work = wx.NewIdRef()
+            m_to_track = wx.NewIdRef()
             m_fx = wx.NewIdRef()
             m_clear = wx.NewIdRef()
             menu.Append(m_play, f"Play Buffer {idx}")
-            menu.Append(m_to_work, "Copy to Working Buffer")
+            menu.Append(m_to_work, "Load to Working Buffer")
+            menu.Append(m_to_track, "Write to Current Track")
             menu.AppendSeparator()
             menu.Append(m_fx, "Apply Effect...")
             menu.AppendSeparator()
@@ -1173,17 +2232,27 @@ class ObjectBrowser(wx.Panel):
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/pb {i}'), id=m_play)
             self.Bind(wx.EVT_MENU,
-                lambda e, i=idx: self._exec(f'/bu {i}'), id=m_to_work)
+                lambda e, i=idx: self._exec(f'/w {i}'), id=m_to_work)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/w {i}\n/ta'), id=m_to_track)
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._show_fx_picker('buffer', i), id=m_fx)
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/clr {i}'), id=m_clear)
 
+        # ==============================================================
+        # Working Buffer
+        # ==============================================================
         elif obj_type == 'working_buffer':
             m_play = wx.NewIdRef()
+            m_to_track = wx.NewIdRef()
+            m_to_buf = wx.NewIdRef()
             m_fx = wx.NewIdRef()
             m_clear = wx.NewIdRef()
             menu.Append(m_play, "Play Working Buffer")
+            menu.AppendSeparator()
+            menu.Append(m_to_track, "Commit to Current Track")
+            menu.Append(m_to_buf, "Commit to Buffer")
             menu.AppendSeparator()
             menu.Append(m_fx, "Apply Effect...")
             menu.AppendSeparator()
@@ -1191,9 +2260,16 @@ class ObjectBrowser(wx.Panel):
 
             self.Bind(wx.EVT_MENU, lambda e: self._exec('/p'), id=m_play)
             self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/ta'), id=m_to_track)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/a'), id=m_to_buf)
+            self.Bind(wx.EVT_MENU,
                 lambda e: self._show_fx_picker('working', 0), id=m_fx)
             self.Bind(wx.EVT_MENU, lambda e: self._exec('/wbc'), id=m_clear)
 
+        # ==============================================================
+        # Deck
+        # ==============================================================
         elif obj_type == 'deck':
             idx = data.get('index', 1)
             m_play = wx.NewIdRef()
@@ -1210,13 +2286,36 @@ class ObjectBrowser(wx.Panel):
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._show_fx_picker('deck', i), id=m_fx)
             self.Bind(wx.EVT_MENU,
-                lambda e, i=idx: self._exec(f'/deck {i} clear'), id=m_clear)
+                lambda e, i=idx: self._show_placeholder(
+                    "Clear Deck",
+                    f"Use /deck {i} load to reload, or unload audio manually."),
+                id=m_clear)
 
+        # ==============================================================
+        # Deck Section
+        # ==============================================================
+        elif obj_type == 'deck_section':
+            dk = data.get('deck', 1)
+            start = data.get('start', 0)
+            end = data.get('end', 0)
+            m_select = wx.NewIdRef()
+            m_play = wx.NewIdRef()
+            menu.Append(m_select, f"Select Deck {dk}")
+            menu.Append(m_play, f"Play Deck {dk}")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, d=dk: self._exec(f'/deck {d}'), id=m_select)
+            self.Bind(wx.EVT_MENU,
+                lambda e, d=dk: self._exec(f'/pd {d}'), id=m_play)
+
+        # ==============================================================
+        # Effect
+        # ==============================================================
         elif obj_type == 'effect':
             idx = data.get('index', 0)
             m_remove = wx.NewIdRef()
             m_clear_all = wx.NewIdRef()
-            menu.Append(m_remove, f"Remove This Effect")
+            menu.Append(m_remove, "Remove This Effect")
             menu.AppendSeparator()
             menu.Append(m_clear_all, "Clear All Effects")
 
@@ -1225,40 +2324,402 @@ class ObjectBrowser(wx.Panel):
             self.Bind(wx.EVT_MENU,
                 lambda e: self._exec('/fxc'), id=m_clear_all)
 
+        # ==============================================================
+        # Operator
+        # ==============================================================
         elif obj_type == 'operator':
             idx = data.get('index', 0)
             m_select = wx.NewIdRef()
             m_gen = wx.NewIdRef()
+            m_wave = wx.NewIdRef()
+            m_fm = wx.NewIdRef()
             menu.Append(m_select, f"Select Operator {idx}")
-            menu.Append(m_gen, "Generate Tone on This Operator")
+            menu.Append(m_gen, "Generate Tone (440Hz)")
+            menu.AppendSeparator()
+            menu.Append(m_wave, "Set Waveform...")
+            menu.Append(m_fm, "Add FM Routing...")
 
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/op {i}'), id=m_select)
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/op {i}\n/tone 440 1'),
                 id=m_gen)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_waveform_picker(i), id=m_wave)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_routing_picker(i), id=m_fm)
 
+        # ==============================================================
+        # Filter Slot
+        # ==============================================================
+        elif obj_type == 'filter_slot':
+            slot = data.get('slot', 0)
+            m_select = wx.NewIdRef()
+            m_type = wx.NewIdRef()
+            m_cutoff = wx.NewIdRef()
+            m_res = wx.NewIdRef()
+            m_clear = wx.NewIdRef()
+            menu.Append(m_select, f"Select Filter {slot}")
+            menu.AppendSeparator()
+            menu.Append(m_type, "Set Filter Type...")
+            menu.Append(m_cutoff, "Set Cutoff...")
+            menu.Append(m_res, "Set Resonance...")
+            menu.AppendSeparator()
+            menu.Append(m_clear, "Clear Filter")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, s=slot: self._exec(f'/fs {s}'), id=m_select)
+            self.Bind(wx.EVT_MENU,
+                lambda e, s=slot: self._show_filter_type_picker(s), id=m_type)
+            self.Bind(wx.EVT_MENU,
+                lambda e, s=slot: self._show_value_editor(
+                    "Cutoff Frequency", "Enter cutoff (Hz):", "4500",
+                    f'/fs {s}\n/cut {{}}'), id=m_cutoff)
+            self.Bind(wx.EVT_MENU,
+                lambda e, s=slot: self._show_value_editor(
+                    "Resonance", "Enter resonance (0-1):", "0.5",
+                    f'/fs {s}\n/res {{}}'), id=m_res)
+            self.Bind(wx.EVT_MENU,
+                lambda e, s=slot: self._show_placeholder(
+                    "Clear Filter",
+                    f"Filter slot {s} — use /fs {s} then /ft lp to reset type."),
+                id=m_clear)
+
+        # ==============================================================
+        # Routing (modulation)
+        # ==============================================================
+        elif obj_type == 'routing':
+            idx = data.get('index', 0)
+            m_edit = wx.NewIdRef()
+            m_clear = wx.NewIdRef()
+            menu.Append(m_edit, f"Edit Routing {idx}...")
+            menu.AppendSeparator()
+            menu.Append(m_clear, "Clear All Routings")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_placeholder(
+                    "Edit Routing",
+                    f"Routing {i} editing — use /route command for full control."),
+                id=m_edit)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/rt clear'), id=m_clear)
+
+        # ==============================================================
+        # Wavetable
+        # ==============================================================
+        elif obj_type == 'wavetable':
+            name = data.get('name', '')
+            m_use = wx.NewIdRef()
+            m_del = wx.NewIdRef()
+            menu.Append(m_use, f"Use Wavetable: {name}")
+            menu.AppendSeparator()
+            menu.Append(m_del, "Delete Wavetable")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/wm wavetable\n/wt use {n}'),
+                id=m_use)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/wt del {n}'), id=m_del)
+
+        # ==============================================================
+        # Compound Wave
+        # ==============================================================
+        elif obj_type == 'compound':
+            name = data.get('name', '')
+            m_use = wx.NewIdRef()
+            m_del = wx.NewIdRef()
+            menu.Append(m_use, f"Use Compound: {name}")
+            menu.AppendSeparator()
+            menu.Append(m_del, "Delete Compound")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/wm compound\n/compound use {n}'),
+                id=m_use)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/compound del {n}'),
+                id=m_del)
+
+        # ==============================================================
+        # SyDef (preset)
+        # ==============================================================
         elif obj_type == 'sydef':
             name = data.get('name', '')
             m_use = wx.NewIdRef()
+            m_del = wx.NewIdRef()
             menu.Append(m_use, f"Use Preset: {name}")
             self.Bind(wx.EVT_MENU,
                 lambda e, n=name: self._exec(f'/use {n}'), id=m_use)
 
+        # ==============================================================
+        # Chain
+        # ==============================================================
         elif obj_type == 'chain':
             name = data.get('name', '')
             m_apply = wx.NewIdRef()
+            m_del = wx.NewIdRef()
             menu.Append(m_apply, f"Apply Chain: {name}")
             self.Bind(wx.EVT_MENU,
-                lambda e, n=name: self._exec(f'/chain {n} apply'), id=m_apply)
+                lambda e, n=name: self._exec(f'/chain load {n}'), id=m_apply)
 
+        # ==============================================================
+        # User Function
+        # ==============================================================
+        elif obj_type == 'user_function':
+            name = data.get('name', '')
+            m_run = wx.NewIdRef()
+            m_edit = wx.NewIdRef()
+            m_del = wx.NewIdRef()
+            menu.Append(m_run, f"Run: {name}")
+            menu.Append(m_edit, "Edit Definition...")
+            menu.AppendSeparator()
+            menu.Append(m_del, "Delete Function")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/run {n}'), id=m_run)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._show_placeholder(
+                    "Edit Function",
+                    f"Function '{n}' — use /fn to redefine."), id=m_edit)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._show_placeholder(
+                    "Delete Function",
+                    f"Function '{n}' — use /fn to redefine or overwrite."),
+                id=m_del)
+
+        # ==============================================================
+        # Preset Slot (bank)
+        # ==============================================================
+        elif obj_type == 'preset_slot':
+            slot = data.get('slot', 0)
+            m_load = wx.NewIdRef()
+            m_info = wx.NewIdRef()
+            menu.Append(m_load, f"Load Slot {slot}")
+            menu.Append(m_info, "Show Slot Info")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, s=slot: self._show_placeholder(
+                    "Load Preset Slot",
+                    f"Slot {s} — use /preset <name> to load a saved preset."),
+                id=m_load)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/bk'), id=m_info)
+
+        # ==============================================================
+        # IR Bank Entry (convolution)
+        # ==============================================================
+        elif obj_type == 'ir_bank_entry':
+            name = data.get('name', '')
+            m_use = wx.NewIdRef()
+            m_info = wx.NewIdRef()
+            menu.Append(m_use, f"Use IR: {name}")
+            menu.Append(m_info, "IR Bank Info")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/conv use {n}'), id=m_use)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/conv bank'), id=m_info)
+
+        # ==============================================================
+        # LFO Shape (impulse LFO)
+        # ==============================================================
+        elif obj_type == 'lfo_shape':
+            name = data.get('name', '')
+            m_apply_op = wx.NewIdRef()
+            m_apply_filt = wx.NewIdRef()
+            m_info = wx.NewIdRef()
+            m_clear = wx.NewIdRef()
+            menu.Append(m_apply_op, "Apply to Operator...")
+            menu.Append(m_apply_filt, "Apply to Filter...")
+            menu.AppendSeparator()
+            menu.Append(m_info, "Info")
+            menu.Append(m_clear, "Clear LFO Modulation")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._show_value_editor(
+                    "Apply LFO", "Operator index:", "0",
+                    f'/impulselfo load {n}\n/impulselfo apply {{}} 4.0'),
+                id=m_apply_op)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._show_value_editor(
+                    "Apply to Filter", "Filter rate (Hz):", "2.0",
+                    f'/impulselfo load {n}\n/impulselfo filter {{}}'),
+                id=m_apply_filt)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/impulselfo info'), id=m_info)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/impulselfo clear'), id=m_clear)
+
+        # ==============================================================
+        # Impulse Envelope Shape
+        # ==============================================================
+        elif obj_type == 'imp_env_shape':
+            name = data.get('name', '')
+            m_apply_buf = wx.NewIdRef()
+            m_apply_op = wx.NewIdRef()
+            m_info = wx.NewIdRef()
+            menu.Append(m_apply_buf, "Apply to Working Buffer")
+            menu.Append(m_apply_op, "Apply to Operator...")
+            menu.AppendSeparator()
+            menu.Append(m_info, "Info")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(
+                    f'/impenv load {n}\n/impenv apply'), id=m_apply_buf)
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._show_value_editor(
+                    "Apply Envelope", "Operator index:", "0",
+                    f'/impenv load {n}\n/impenv operator {{}}'),
+                id=m_apply_op)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/impenv info'), id=m_info)
+
+        # ==============================================================
+        # Convolution Property
+        # ==============================================================
+        elif obj_type == 'conv_prop':
+            m_edit = wx.NewIdRef()
+            m_presets = wx.NewIdRef()
+            m_clear = wx.NewIdRef()
+            menu.Append(m_edit, "Edit Parameters...")
+            menu.Append(m_presets, "Load Preset...")
+            menu.AppendSeparator()
+            menu.Append(m_clear, "Clear Convolution")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/conv info'), id=m_edit)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._show_conv_preset_picker(), id=m_presets)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/conv clear'), id=m_clear)
+
+        # ==============================================================
+        # Envelope Parameter (quick-edit)
+        # ==============================================================
+        elif obj_type == 'envelope_param':
+            param = data.get('param', 'attack')
+            cmd_map = {'attack': '/atk', 'decay': '/dec',
+                       'sustain': '/sus', 'release': '/rel'}
+            cmd = cmd_map.get(param, '/env')
+            m_edit = wx.NewIdRef()
+            m_reset = wx.NewIdRef()
+            menu.Append(m_edit, f"Set {param.capitalize()}...")
+            menu.Append(m_reset, f"Reset {param.capitalize()}")
+
+            defaults = {'attack': '0.01', 'decay': '0.1',
+                        'sustain': '0.8', 'release': '0.1'}
+            self.Bind(wx.EVT_MENU,
+                lambda e, c=cmd, p=param: self._show_value_editor(
+                    f"Set {p.capitalize()}", f"Enter {p} value:", "0.1",
+                    c + ' {}'), id=m_edit)
+            self.Bind(wx.EVT_MENU,
+                lambda e, c=cmd, d=defaults.get(param, '0.1'):
+                    self._exec(f'{c} {d}'), id=m_reset)
+
+        # ==============================================================
+        # Filter Envelope Parameter (quick-edit)
+        # ==============================================================
+        elif obj_type == 'fenv_param':
+            param = data.get('param', 'filter_attack')
+            short = param.replace('filter_', '')
+            cmd_map = {'filter_attack': '/fatk', 'filter_decay': '/fdec',
+                       'filter_sustain': '/fsus', 'filter_release': '/frel'}
+            cmd = cmd_map.get(param, '/fenv')
+            m_edit = wx.NewIdRef()
+            m_reset = wx.NewIdRef()
+            menu.Append(m_edit, f"Set Filter {short.capitalize()}...")
+            menu.Append(m_reset, f"Reset Filter {short.capitalize()}")
+
+            defaults = {'filter_attack': '0.01', 'filter_decay': '0.1',
+                        'filter_sustain': '0.8', 'filter_release': '0.1'}
+            self.Bind(wx.EVT_MENU,
+                lambda e, c=cmd, s=short: self._show_value_editor(
+                    f"Filter {s.capitalize()}", f"Enter {s} value:", "0.1",
+                    c + ' {}'), id=m_edit)
+            self.Bind(wx.EVT_MENU,
+                lambda e, c=cmd, d=defaults.get(param, '0.1'):
+                    self._exec(f'{c} {d}'), id=m_reset)
+
+        # ==============================================================
+        # Voice Property
+        # ==============================================================
+        elif obj_type == 'voice_prop':
+            m_voices = wx.NewIdRef()
+            m_algo = wx.NewIdRef()
+            m_detune = wx.NewIdRef()
+            menu.Append(m_voices, "Set Voice Count...")
+            menu.Append(m_algo, "Set Algorithm...")
+            menu.Append(m_detune, "Set Detune...")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._show_value_editor(
+                    "Voices", "Number of voices:", "4",
+                    '/v {}'), id=m_voices)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._show_voice_algo_picker(), id=m_algo)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._show_value_editor(
+                    "Detune", "Detune amount (Hz):", "0.5",
+                    '/dt {}'), id=m_detune)
+
+        # ==============================================================
+        # HQ Property
+        # ==============================================================
+        elif obj_type == 'hq_prop':
+            m_on = wx.NewIdRef()
+            m_off = wx.NewIdRef()
+            m_dc = wx.NewIdRef()
+            m_osc_smooth = wx.NewIdRef()
+            m_osc_fast = wx.NewIdRef()
+            m_info = wx.NewIdRef()
+            menu.Append(m_on, "Enable HQ Mode")
+            menu.Append(m_off, "Disable HQ Mode")
+            menu.AppendSeparator()
+            menu.Append(m_dc, "Toggle DC Removal")
+            menu.Append(m_osc_smooth, "HQ Oscillators: Smooth")
+            menu.Append(m_osc_fast, "HQ Oscillators: Fast")
+            menu.AppendSeparator()
+            menu.Append(m_info, "HQ Info")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/hq on'), id=m_on)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/hq off'), id=m_off)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/hq dc'), id=m_dc)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/hq osc smooth'), id=m_osc_smooth)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/hq osc fast'), id=m_osc_fast)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/hq'), id=m_info)
+
+        # ==============================================================
+        # Engine Property
+        # ==============================================================
+        elif obj_type == 'engine_prop':
+            m_bpm = wx.NewIdRef()
+            m_sr = wx.NewIdRef()
+            menu.Append(m_bpm, "Set BPM...")
+            menu.Append(m_sr, "Set Sample Rate...")
+
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._show_value_editor(
+                    "BPM", "Enter BPM:", "128", '/bpm {}'), id=m_bpm)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._show_sr_picker(), id=m_sr)
+
+        # ==============================================================
+        # Category-level context menus
+        # ==============================================================
         elif obj_type == 'category':
             cat_id = data.get('id', '')
+
             if cat_id == 'tracks':
                 m_new = wx.NewIdRef()
                 menu.Append(m_new, "Add New Track")
                 self.Bind(wx.EVT_MENU,
-                    lambda e: self._exec('/new track'), id=m_new)
+                    lambda e: self._exec('/tn'), id=m_new)
+
             elif cat_id == 'fx':
                 m_add = wx.NewIdRef()
                 m_clear = wx.NewIdRef()
@@ -1269,22 +2730,275 @@ class ObjectBrowser(wx.Panel):
                 self.Bind(wx.EVT_MENU,
                     lambda e: self._exec('/fxc'), id=m_clear)
 
+            elif cat_id == 'synth':
+                m_add_op = wx.NewIdRef()
+                m_wave = wx.NewIdRef()
+                menu.Append(m_add_op, "Set Operator Count...")
+                menu.Append(m_wave, "Set Waveform...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Operators", "Number of operators:", "4",
+                        '/mod {}'), id=m_add_op)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_waveform_picker(None), id=m_wave)
+
+            elif cat_id == 'filter':
+                m_add = wx.NewIdRef()
+                m_type = wx.NewIdRef()
+                menu.Append(m_add, "Add Filter Slot")
+                menu.Append(m_type, "Set Filter Type...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_placeholder(
+                        "Add Filter",
+                        "Use /fs <slot> to select a filter slot."), id=m_add)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_filter_type_picker(None), id=m_type)
+
+            elif cat_id == 'envelope':
+                m_preset = wx.NewIdRef()
+                m_reset = wx.NewIdRef()
+                menu.Append(m_preset, "Apply Envelope Preset...")
+                menu.Append(m_reset, "Reset Envelope")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_envelope_preset_picker(), id=m_preset)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/env 0.01 0.1 0.8 0.1'), id=m_reset)
+
+            elif cat_id == 'filter_envelope':
+                m_reset = wx.NewIdRef()
+                menu.Append(m_reset, "Reset Filter Envelope")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/fatk 0.01\n/fdec 0.1\n/fsus 0.8\n/frel 0.1'),
+                    id=m_reset)
+
+            elif cat_id == 'voice':
+                m_reset = wx.NewIdRef()
+                m_voices = wx.NewIdRef()
+                menu.Append(m_voices, "Set Voice Count...")
+                menu.Append(m_reset, "Reset Voice Settings")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Voices", "Number of voices:", "1", '/v {}'),
+                    id=m_voices)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/v 1\n/va stack\n/dt 0'),
+                    id=m_reset)
+
+            elif cat_id == 'hq':
+                m_on = wx.NewIdRef()
+                m_off = wx.NewIdRef()
+                m_info = wx.NewIdRef()
+                menu.Append(m_on, "Enable HQ Mode")
+                menu.Append(m_off, "Disable HQ Mode")
+                menu.AppendSeparator()
+                menu.Append(m_info, "HQ Info")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/hq on'), id=m_on)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/hq off'), id=m_off)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/hq'), id=m_info)
+
+            elif cat_id == 'key':
+                m_set = wx.NewIdRef()
+                menu.Append(m_set, "Set Key / Scale...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_key_scale_picker(), id=m_set)
+
+            elif cat_id == 'modulation':
+                m_add_fm = wx.NewIdRef()
+                m_add_am = wx.NewIdRef()
+                m_clear = wx.NewIdRef()
+                menu.Append(m_add_fm, "Add FM Routing...")
+                menu.Append(m_add_am, "Add AM Routing...")
+                menu.AppendSeparator()
+                menu.Append(m_clear, "Clear All Routings")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_routing_picker(None, 'fm'),
+                    id=m_add_fm)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_routing_picker(None, 'am'),
+                    id=m_add_am)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/rt clear'), id=m_clear)
+
+            elif cat_id == 'wavetable':
+                m_load = wx.NewIdRef()
+                menu.Append(m_load, "Generate Wavetable...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_placeholder(
+                        "Wavetable",
+                        "Use /wt <file> to generate a wavetable from audio."),
+                    id=m_load)
+
+            elif cat_id == 'compound':
+                m_create = wx.NewIdRef()
+                menu.Append(m_create, "Create Compound Wave...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_placeholder(
+                        "Compound Wave",
+                        "Use /compound <name> <wave1> <wave2> ... to define."),
+                    id=m_create)
+
+            elif cat_id == 'convolution':
+                m_load = wx.NewIdRef()
+                m_preset = wx.NewIdRef()
+                m_clear = wx.NewIdRef()
+                menu.Append(m_load, "Load IR File...")
+                menu.Append(m_preset, "Load Preset...")
+                menu.AppendSeparator()
+                menu.Append(m_clear, "Clear Convolution")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_ir_file_picker(), id=m_load)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_conv_preset_picker(), id=m_preset)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/conv clear'), id=m_clear)
+
+            elif cat_id == 'impulse_lfo':
+                m_load = wx.NewIdRef()
+                m_list = wx.NewIdRef()
+                menu.Append(m_load, "Load LFO from File...")
+                menu.Append(m_list, "List LFO Shapes")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_placeholder(
+                        "Load LFO",
+                        "Use /impulselfo file <path> <name> to import."),
+                    id=m_load)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/impulselfo list'), id=m_list)
+
+            elif cat_id == 'impulse_env':
+                m_load = wx.NewIdRef()
+                m_list = wx.NewIdRef()
+                menu.Append(m_load, "Load Envelope from File...")
+                menu.Append(m_list, "List Envelopes")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_placeholder(
+                        "Load Envelope",
+                        "Use /impenv file <path> <name> to import."),
+                    id=m_load)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/impenv list'), id=m_list)
+
+            elif cat_id == 'ir_enhance':
+                m_extend = wx.NewIdRef()
+                m_denoise = wx.NewIdRef()
+                m_fill = wx.NewIdRef()
+                menu.Append(m_extend, "Extend IR Tail...")
+                menu.Append(m_denoise, "Denoise IR")
+                menu.Append(m_fill, "Fill IR Gaps")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Extend IR", "Target duration (seconds):", "3.0",
+                        '/irenhance extend {}'), id=m_extend)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/irenhance denoise'), id=m_denoise)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/irenhance fill'), id=m_fill)
+
+            elif cat_id == 'ir_transform':
+                m_desc = wx.NewIdRef()
+                m_list = wx.NewIdRef()
+                menu.Append(m_desc, "Transform by Descriptor...")
+                menu.Append(m_list, "List Descriptors")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_ir_descriptor_picker(), id=m_desc)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/irtransform list'), id=m_list)
+
+            elif cat_id == 'ir_granular':
+                m_stretch = wx.NewIdRef()
+                m_morph = wx.NewIdRef()
+                m_redesign = wx.NewIdRef()
+                menu.Append(m_stretch, "Stretch IR...")
+                menu.Append(m_morph, "Morph IR...")
+                menu.Append(m_redesign, "Redesign IR")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Stretch", "Stretch factor:", "2.0",
+                        '/irgranular stretch {}'), id=m_stretch)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Morph", "Morph amount (0-1):", "0.5",
+                        '/irgranular morph {}'), id=m_morph)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/irgranular redesign'), id=m_redesign)
+
+            elif cat_id == 'engine':
+                m_bpm = wx.NewIdRef()
+                m_sr = wx.NewIdRef()
+                menu.Append(m_bpm, "Set BPM...")
+                menu.Append(m_sr, "Set Sample Rate...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "BPM", "Enter BPM:", "128", '/bpm {}'), id=m_bpm)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_sr_picker(), id=m_sr)
+
+            elif cat_id == 'buffers':
+                m_commit = wx.NewIdRef()
+                menu.Append(m_commit, "Commit Working to Buffer")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/a'), id=m_commit)
+
+            elif cat_id == 'decks':
+                m_new = wx.NewIdRef()
+                menu.Append(m_new, "Add Deck")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/deck+'), id=m_new)
+
+            elif cat_id == 'preset':
+                m_save = wx.NewIdRef()
+                m_load = wx.NewIdRef()
+                menu.Append(m_save, "Save Current as Preset...")
+                menu.Append(m_load, "Load Preset...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Save Preset", "Enter preset name:", "my_preset",
+                        '/preset save {}'), id=m_save)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_placeholder(
+                        "Load Preset",
+                        "Use /preset load <name> or /use <name>."),
+                    id=m_load)
+
+            elif cat_id == 'bank':
+                m_save = wx.NewIdRef()
+                m_info = wx.NewIdRef()
+                menu.Append(m_save, "Save Routing Bank...")
+                menu.Append(m_info, "Bank Info")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Save Bank", "Enter bank name:", "my_bank",
+                        '/bk save {}'), id=m_save)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/bk list'), id=m_info)
+
         if menu.GetMenuItemCount() > 0:
             self.PopupMenu(menu)
         menu.Destroy()
 
     def _exec(self, command: str):
-        """Execute a command via the executor and log to console."""
+        """Execute one or more newline-separated commands via the executor."""
+        commands = [c.strip() for c in command.split('\n') if c.strip()]
+        last_ok = True
+        for cmd in commands:
+            if self.console_cb:
+                self.console_cb(f">>> {cmd}\n", 'command')
+            stdout, stderr, ok = self.executor.execute(cmd)
+            last_ok = ok
+            if self.console_cb:
+                if stdout:
+                    self.console_cb(stdout, 'stdout')
+                if stderr:
+                    self.console_cb(stderr, 'stderr')
+                status = "OK" if ok else "ERROR"
+                self.console_cb(f"[{status}]\n", 'success' if ok else 'error')
+            if not ok:
+                break
         if self.console_cb:
-            self.console_cb(f">>> {command}\n", 'command')
-        stdout, stderr, ok = self.executor.execute(command)
-        if self.console_cb:
-            if stdout:
-                self.console_cb(stdout, 'stdout')
-            if stderr:
-                self.console_cb(stderr, 'stderr')
-            status = "OK" if ok else "ERROR"
-            self.console_cb(f"[{status}]\n\n", 'success' if ok else 'error')
+            self.console_cb("\n", 'stdout')
         self.populate_tree()
 
     def _show_fx_picker(self, target_type: str, target_id: int):
@@ -1304,6 +3018,160 @@ class ObjectBrowser(wx.Panel):
                 self._exec(f'/deck {target_id}\n/fx {fx_name}')
             else:
                 self._exec(f'/fx {fx_name}')
+        dlg.Destroy()
+
+    # ------------------------------------------------------------------
+    # Context-menu helper dialogs
+    # ------------------------------------------------------------------
+
+    def _show_placeholder(self, title: str, message: str):
+        """Show an informational placeholder dialog for not-yet-wired features."""
+        wx.MessageBox(message, title, wx.OK | wx.ICON_INFORMATION, self)
+
+    def _show_value_editor(self, title: str, prompt: str, default: str,
+                           cmd_template: str):
+        """Show a text entry dialog and execute a command with the value.
+
+        *cmd_template* should contain ``{}`` where the user value goes.
+        """
+        dlg = wx.TextEntryDialog(self, prompt, title, default)
+        if dlg.ShowModal() == wx.ID_OK:
+            val = dlg.GetValue().strip()
+            if val:
+                self._exec(cmd_template.format(val))
+        dlg.Destroy()
+
+    def _show_waveform_picker(self, op_index):
+        """Show a picker for waveform types, optionally targeting an operator."""
+        waveforms = ['sine', 'saw', 'square', 'triangle', 'noise',
+                     'supersaw', 'additive', 'formant', 'harmonic',
+                     'physical', 'physical2', 'wavetable', 'compound',
+                     'pluck', 'string', 'reed', 'flute', 'drum', 'bell']
+        dlg = wx.SingleChoiceDialog(self, "Select waveform:",
+                                     "Set Waveform", waveforms)
+        if dlg.ShowModal() == wx.ID_OK:
+            wf = dlg.GetStringSelection()
+            if op_index is not None:
+                self._exec(f'/op {op_index}\n/wm {wf}')
+            else:
+                self._exec(f'/wm {wf}')
+        dlg.Destroy()
+
+    def _show_filter_type_picker(self, slot):
+        """Show a picker for filter types, optionally targeting a slot."""
+        ftypes = ['lp', 'hp', 'bp', 'notch', 'peak', 'lowshelf',
+                  'highshelf', 'allpass', 'acid', 'moog', 'comb',
+                  'formant', 'vowel']
+        dlg = wx.SingleChoiceDialog(self, "Select filter type:",
+                                     "Set Filter Type", ftypes)
+        if dlg.ShowModal() == wx.ID_OK:
+            ft = dlg.GetStringSelection()
+            if slot is not None:
+                self._exec(f'/fs {slot}\n/ft {ft}')
+            else:
+                self._exec(f'/ft {ft}')
+        dlg.Destroy()
+
+    def _show_routing_picker(self, op_index, route_type='fm'):
+        """Show a dialog to add a modulation routing."""
+        dlg = wx.TextEntryDialog(
+            self,
+            f"Enter {route_type.upper()} routing (source -> dest, e.g. 1 2):",
+            f"Add {route_type.upper()} Routing",
+            "1 2")
+        if dlg.ShowModal() == wx.ID_OK:
+            val = dlg.GetValue().strip()
+            if val:
+                self._exec(f'/{route_type} {val}')
+        dlg.Destroy()
+
+    def _show_voice_algo_picker(self):
+        """Show a picker for voice algorithms."""
+        algos = ['stack', 'unison', 'wide']
+        dlg = wx.SingleChoiceDialog(self, "Select voice algorithm:",
+                                     "Voice Algorithm", algos)
+        if dlg.ShowModal() == wx.ID_OK:
+            algo = dlg.GetStringSelection()
+            self._exec(f'/va {algo}')
+        dlg.Destroy()
+
+    def _show_key_scale_picker(self):
+        """Show a two-step picker for key and scale."""
+        notes = ['C', 'C#', 'D', 'D#', 'E', 'F',
+                 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        scales = ['major', 'minor', 'dorian', 'phrygian', 'lydian',
+                  'mixolydian', 'aeolian', 'locrian', 'pentatonic',
+                  'blues', 'harmonic_minor', 'melodic_minor', 'chromatic']
+        dlg1 = wx.SingleChoiceDialog(self, "Select root note:", "Key", notes)
+        if dlg1.ShowModal() == wx.ID_OK:
+            note = dlg1.GetStringSelection()
+            dlg1.Destroy()
+            dlg2 = wx.SingleChoiceDialog(self, "Select scale:", "Scale", scales)
+            if dlg2.ShowModal() == wx.ID_OK:
+                scale = dlg2.GetStringSelection()
+                self._exec(f'/key {note} {scale}')
+            dlg2.Destroy()
+        else:
+            dlg1.Destroy()
+
+    def _show_sr_picker(self):
+        """Show a placeholder for sample rate setting."""
+        self._show_placeholder(
+            "Sample Rate",
+            "Sample rate is set at session creation.\n"
+            "Use the console: set sample_rate <rate>")
+
+    def _show_envelope_preset_picker(self):
+        """Show presets for common envelope shapes."""
+        presets = {
+            'Pluck': '0.001 0.2 0.0 0.1',
+            'Pad': '0.5 0.3 0.7 1.0',
+            'Organ': '0.01 0.01 1.0 0.05',
+            'String': '0.3 0.2 0.6 0.5',
+            'Percussive': '0.001 0.1 0.0 0.05',
+            'Swell': '1.0 0.0 1.0 0.5',
+        }
+        dlg = wx.SingleChoiceDialog(self, "Select envelope preset:",
+                                     "Envelope Preset", list(presets.keys()))
+        if dlg.ShowModal() == wx.ID_OK:
+            name = dlg.GetStringSelection()
+            self._exec(f'/env {presets[name]}')
+        dlg.Destroy()
+
+    def _show_conv_preset_picker(self):
+        """Show a picker for convolution reverb presets."""
+        presets = ['hall', 'room', 'plate', 'spring', 'chamber',
+                   'cathedral', 'arena', 'tunnel', 'parking',
+                   'bathroom', 'stairwell', 'studio', 'cave',
+                   'forest', 'canyon', 'underwater', 'telephone']
+        dlg = wx.SingleChoiceDialog(self, "Select convolution preset:",
+                                     "Convolution Preset", presets)
+        if dlg.ShowModal() == wx.ID_OK:
+            p = dlg.GetStringSelection()
+            self._exec(f'/conv preset {p}')
+        dlg.Destroy()
+
+    def _show_ir_file_picker(self):
+        """Show a file dialog to load an IR wav file."""
+        dlg = wx.FileDialog(self, "Load Impulse Response",
+                            wildcard="WAV files (*.wav)|*.wav|All files (*.*)|*.*",
+                            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST)
+        if dlg.ShowModal() == wx.ID_OK:
+            path = dlg.GetPath()
+            self._exec(f'/conv load {path}')
+        dlg.Destroy()
+
+    def _show_ir_descriptor_picker(self):
+        """Show a picker for IR transform descriptors."""
+        descriptors = ['bigger', 'smaller', 'brighter', 'darker',
+                       'warmer', 'colder', 'longer', 'shorter',
+                       'wider', 'narrower', 'metallic', 'wooden',
+                       'smooth', 'rough', 'airy']
+        dlg = wx.SingleChoiceDialog(self, "Select IR descriptor:",
+                                     "Transform Descriptor", descriptors)
+        if dlg.ShowModal() == wx.ID_OK:
+            desc = dlg.GetStringSelection()
+            self._exec(f'/irtransform {desc}')
         dlg.Destroy()
 
     # ------------------------------------------------------------------
@@ -1707,6 +3575,20 @@ class InspectorPanel(wx.Panel):
             self._inspect_chain(data)
         elif obj_type == 'deck_section':
             self._inspect_deck_section(data)
+        elif obj_type == 'routing':
+            self._inspect_routing(data)
+        elif obj_type == 'wavetable':
+            self._inspect_wavetable(data)
+        elif obj_type == 'compound':
+            self._inspect_compound(data)
+        elif obj_type == 'conv_prop':
+            self._inspect_convolution(data)
+        elif obj_type == 'ir_bank_entry':
+            self._inspect_ir_bank(data)
+        elif obj_type == 'lfo_shape':
+            self._inspect_lfo_shape(data)
+        elif obj_type == 'imp_env_shape':
+            self._inspect_imp_env_shape(data)
         elif obj_type == 'category':
             self._inspect_category(data)
         else:
@@ -1793,7 +3675,7 @@ class InspectorPanel(wx.Panel):
             self._add_prop("Samples:", str(details.get('samples', 0)))
 
         self._add_action_btn("Play", f"/pb {idx}")
-        self._add_action_btn("To Working", f"/bu {idx}")
+        self._add_action_btn("To Working", f"/w {idx}")
         self._add_action_btn("Clear", f"/clr {idx}")
 
     def _inspect_working_buffer(self, data):
@@ -1832,10 +3714,11 @@ class InspectorPanel(wx.Panel):
     def _inspect_operator(self, data):
         idx = data.get('index', 0)
         details = self.executor.get_operator_details(idx)
-        self.title.SetLabel(f"Operator {idx}")
+        wave = details.get('wave', 'sine')
+        self.title.SetLabel(f"Operator {idx}: {wave}")
         self.subtitle.SetLabel("Operator Properties")
 
-        self._add_prop("Waveform:", details.get('wave', 'sine'))
+        self._add_prop("Waveform:", wave)
         self._add_prop("Frequency:", f"{details.get('freq', 440):.1f} Hz")
         self._add_prop("Amplitude:", f"{details.get('amp', 0.8):.2f}")
         self._add_prop("Current:", "Yes" if details.get('is_current') else "No")
@@ -1845,8 +3728,18 @@ class InspectorPanel(wx.Panel):
                 f"A{env['attack']:.3f} D{env['decay']:.3f} "
                 f"S{env['sustain']:.3f} R{env['release']:.3f}")
 
+        # Wave-specific parameters
+        wp = details.get('wave_params', {})
+        if wp:
+            self._add_prop("", "--- Wave Parameters ---")
+            for k, v in wp.items():
+                if isinstance(v, float):
+                    self._add_prop(f"{k}:", f"{v:.4f}")
+                else:
+                    self._add_prop(f"{k}:", str(v))
+
         self._add_action_btn("Select", f"/op {idx}")
-        self._add_action_btn("Generate", f"/op {idx}")
+        self._add_action_btn("Generate", f"/tone 440 1")
 
     def _inspect_filter_slot(self, data):
         slot = data.get('slot', 0)
@@ -1860,7 +3753,17 @@ class InspectorPanel(wx.Panel):
         self._add_prop("Enabled:", "Yes" if details.get('enabled') else "No")
         self._add_prop("Selected:", "Yes" if details.get('is_selected') else "No")
 
-        self._add_action_btn("Select", f"/fsel {slot}")
+        # Filter envelope (from engine state)
+        state = self.executor.get_engine_state()
+        if state:
+            self._add_prop("", "--- Filter Envelope ---")
+            self._add_prop("F.Attack:", f"{state.get('filter_attack', 0.01):.3f}s")
+            self._add_prop("F.Decay:", f"{state.get('filter_decay', 0.1):.3f}s")
+            self._add_prop("F.Sustain:", f"{state.get('filter_sustain', 0.8):.3f}")
+            self._add_prop("F.Release:", f"{state.get('filter_release', 0.1):.3f}s")
+
+        self._add_action_btn("Select", f"/fs {slot}")
+        self._add_action_btn("Toggle", "/fen toggle")
 
     def _inspect_effect(self, data):
         idx = data.get('index', 0)
@@ -1886,7 +3789,7 @@ class InspectorPanel(wx.Panel):
         self.subtitle.SetLabel("Effect Chain")
 
         self._add_prop("Name:", name)
-        self._add_action_btn("Apply", f"/chain {name} apply")
+        self._add_action_btn("Apply", f"/chain load {name}")
 
     def _inspect_deck_section(self, data):
         deck = data.get('deck', 0)
@@ -1900,15 +3803,199 @@ class InspectorPanel(wx.Panel):
         self._add_prop("End:", f"{end:.1f}s")
         self._add_prop("Duration:", f"{end - start:.1f}s")
 
+    def _inspect_routing(self, data):
+        idx = data.get('index', 0)
+        self.title.SetLabel(f"Routing #{idx}")
+        self.subtitle.SetLabel("Modulation Routing")
+
+        self._add_prop("Type:", data.get('algo_type', ''))
+        self._add_prop("Source:", f"Op {data.get('src', 0)}")
+        self._add_prop("Target:", f"Op {data.get('tgt', 0)}")
+        self._add_prop("Amount:", f"{data.get('amt', 0):.3f}")
+
+        self._add_action_btn("Clear All", "/clearalg")
+
+    def _inspect_wavetable(self, data):
+        name = data.get('name', '')
+        self.title.SetLabel(f"Wavetable: {name}")
+        self.subtitle.SetLabel("Loaded Wavetable")
+
+        self._add_prop("Name:", name)
+        s = self.executor.session
+        if s and hasattr(s, 'engine') and hasattr(s.engine, 'wavetables'):
+            wt = s.engine.wavetables.get(name)
+            if wt is not None and hasattr(wt, '__len__'):
+                self._add_prop("Frames:", str(len(wt)))
+
+        self._add_action_btn("Use", f"/wt use {name}")
+        self._add_action_btn("Delete", f"/wt del {name}")
+
+    def _inspect_compound(self, data):
+        name = data.get('name', '')
+        self.title.SetLabel(f"Compound: {name}")
+        self.subtitle.SetLabel("Compound Wave")
+
+        self._add_prop("Name:", name)
+        s = self.executor.session
+        if s and hasattr(s, 'engine') and hasattr(s.engine, 'compound_waves'):
+            cw = s.engine.compound_waves.get(name)
+            if isinstance(cw, dict):
+                layers = cw.get('layers', [])
+                self._add_prop("Layers:", str(len(layers)))
+                for i, layer in enumerate(layers):
+                    wave_l = layer.get('wave', 'sine') if isinstance(layer, dict) else str(layer)
+                    self._add_prop(f"  Layer {i}:", wave_l)
+
+        self._add_action_btn("Use", f"/compound use {name}")
+        self._add_action_btn("Delete", f"/compound del {name}")
+
+    def _inspect_convolution(self, data):
+        self.title.SetLabel("Convolution Reverb")
+        self.subtitle.SetLabel("Convolution Engine State")
+        try:
+            from mdma_rebuild.dsp.convolution import get_convolution_engine
+            ce = get_convolution_engine()
+            info = ce.get_info()
+            if info['ir_loaded']:
+                self._add_prop("IR:", info['ir_name'])
+                self._add_prop("Duration:", f"{info['ir_duration']:.2f}s")
+            self._add_prop("Wet/Dry:", f"{info['wet']:.0f}/{info['dry']:.0f}")
+            self._add_prop("Pre-Delay:", f"{info['pre_delay_ms']:.0f}ms")
+            self._add_prop("Decay:", f"{info['decay']:.2f}x")
+            self._add_prop("Width:", f"{info['stereo_width']:.0f}")
+            self._add_prop("Early:", f"{info['early_level']:.0f}")
+            self._add_prop("Late:", f"{info['late_level']:.0f}")
+            self._add_prop("Split:", f"{info['early_late_split_ms']:.0f}ms")
+        except Exception:
+            self._add_prop("Status:", "Engine not available")
+
+    def _inspect_ir_bank(self, data):
+        name = data.get('name', '')
+        self.title.SetLabel(f"IR: {name}")
+        self.subtitle.SetLabel("Impulse Response in Bank")
+        self._add_prop("Name:", name)
+        self._add_action_btn("Use", f"/conv use {name}")
+
+    def _inspect_lfo_shape(self, data):
+        name = data.get('name', '')
+        self.title.SetLabel(f"LFO Shape: {name}")
+        self.subtitle.SetLabel("Impulse-derived LFO Waveshape")
+        self._add_prop("Name:", name)
+        s = self.executor.session
+        if s and hasattr(s, '_lfo_waveshapes') and name in s._lfo_waveshapes:
+            shape = s._lfo_waveshapes[name]
+            self._add_prop("Samples:", str(len(shape)))
+            self._add_prop("Peak:", f"{np.max(np.abs(shape)):.3f}")
+        self._add_action_btn("Apply Op0", f"/impulselfo apply 0 4 12")
+
+    def _inspect_imp_env_shape(self, data):
+        name = data.get('name', '')
+        self.title.SetLabel(f"Envelope: {name}")
+        self.subtitle.SetLabel("Impulse-derived Amplitude Envelope")
+        self._add_prop("Name:", name)
+        s = self.executor.session
+        if s and hasattr(s, '_imp_envelopes') and name in s._imp_envelopes:
+            env = s._imp_envelopes[name]
+            self._add_prop("Samples:", str(len(env)))
+            sr = getattr(s, 'sample_rate', 48000)
+            self._add_prop("Duration:", f"{len(env)/sr:.3f}s")
+        self._add_action_btn("Apply Buffer", f"/impenv apply 1.0")
+
     def _inspect_category(self, data):
         cat_id = data.get('id', '')
         names = {'engine': 'Engine', 'synth': 'Synthesizer',
-                 'filter': 'Filter', 'envelope': 'Envelope',
+                 'voice': 'Voice', 'filter': 'Filter',
+                 'filter_envelope': 'Filter Envelope',
+                 'envelope': 'Envelope', 'hq': 'HQ Mode',
+                 'key': 'Key / Scale', 'modulation': 'Modulation',
+                 'wavetable': 'Wavetables', 'compound': 'Compound Waves',
+                 'convolution': 'Convolution Reverb',
+                 'impulse_lfo': 'Impulse LFOs',
+                 'impulse_env': 'Impulse Envelopes',
+                 'ir_enhance': 'IR Enhancement',
+                 'ir_transform': 'IR Transform',
+                 'ir_granular': 'IR Granular',
                  'tracks': 'Tracks', 'buffers': 'Buffers',
                  'decks': 'Decks', 'fx': 'Effects',
                  'preset': 'Presets', 'bank': 'Banks'}
         self.title.SetLabel(names.get(cat_id, cat_id.title()))
         self.subtitle.SetLabel("Category")
+
+        # Show summary for new categories
+        state = self.executor.get_engine_state()
+        if not state:
+            return
+
+        if cat_id == 'voice':
+            vc = state.get('voice_count', 1)
+            va = state.get('voice_algorithm', 0)
+            va_name = {0: 'stack', 1: 'unison', 2: 'wide'}.get(va, str(va))
+            self._add_prop("Voices:", str(vc))
+            self._add_prop("Algorithm:", va_name)
+            self._add_prop("Detune:", f"{state.get('detune', 0):.2f} Hz")
+            self._add_prop("Stereo:", f"{state.get('stereo_spread', 0):.0f}")
+            self._add_prop("Phase:", f"{state.get('phase_spread', 0):.2f} rad")
+            self._add_prop("Random:", f"{state.get('rand', 0):.0f}")
+            self._add_prop("V-Mod:", f"{state.get('v_mod', 0):.0f}")
+        elif cat_id == 'hq':
+            self._add_prop("HQ Mode:", "ON" if state.get('hq_mode') else "OFF")
+            self._add_prop("Oscillators:", "ON" if state.get('hq_oscillators') else "OFF")
+            self._add_prop("DC Removal:", "ON" if state.get('hq_dc_removal') else "OFF")
+            self._add_prop("Saturation:", str(state.get('hq_saturation', 0)))
+            self._add_prop("Limiter:", str(state.get('hq_limiter', 0)))
+            self._add_action_btn("Toggle HQ", "/hq on")
+        elif cat_id == 'key':
+            self._add_prop("Note:", state.get('key_note', 'C'))
+            self._add_prop("Scale:", state.get('key_scale', 'major'))
+        elif cat_id == 'filter_envelope':
+            self._add_prop("Attack:", f"{state.get('filter_attack', 0.01):.3f}s")
+            self._add_prop("Decay:", f"{state.get('filter_decay', 0.1):.3f}s")
+            self._add_prop("Sustain:", f"{state.get('filter_sustain', 0.8):.3f}")
+            self._add_prop("Release:", f"{state.get('filter_release', 0.1):.3f}s")
+        elif cat_id == 'convolution':
+            try:
+                from mdma_rebuild.dsp.convolution import get_convolution_engine
+                info = get_convolution_engine().get_info()
+                self._add_prop("IR:", info['ir_name'] or 'none')
+                self._add_prop("Wet/Dry:", f"{info['wet']:.0f}/{info['dry']:.0f}")
+                self._add_prop("Bank:", f"{info['bank_count']} IRs")
+            except Exception:
+                self._add_prop("Status:", "Not available")
+            self._add_action_btn("Preset: Hall", "/conv preset hall")
+        elif cat_id == 'impulse_lfo':
+            s = self.executor.session
+            if s and hasattr(s, '_lfo_waveshapes'):
+                n = len(s._lfo_waveshapes)
+                self._add_prop("Shapes:", str(n))
+                cur = getattr(s, '_current_lfo_name', '')
+                if cur:
+                    self._add_prop("Current:", cur)
+        elif cat_id == 'impulse_env':
+            s = self.executor.session
+            if s and hasattr(s, '_imp_envelopes'):
+                n = len(s._imp_envelopes)
+                self._add_prop("Envelopes:", str(n))
+                cur = getattr(s, '_current_imp_env_name', '')
+                if cur:
+                    self._add_prop("Current:", cur)
+        elif cat_id in ('ir_enhance', 'ir_transform', 'ir_granular'):
+            try:
+                from mdma_rebuild.dsp.convolution import get_convolution_engine
+                ce = get_convolution_engine()
+                if ce.ir is not None:
+                    self._add_prop("Active IR:", ce.ir_name)
+                    self._add_prop("Duration:", f"{len(ce.ir)/ce.sr:.2f}s")
+                else:
+                    self._add_prop("Status:", "Load an IR first (/conv)")
+            except Exception:
+                self._add_prop("Status:", "Not available")
+            if cat_id == 'ir_transform':
+                try:
+                    from mdma_rebuild.dsp.convolution import list_descriptors
+                    descs = list_descriptors()
+                    self._add_prop("Descriptors:", f"{len(descs)} available")
+                except Exception:
+                    self._add_prop("Descriptors:", "Module not available")
 
 
 class StepGridPanel(wx.Panel):
@@ -2273,9 +4360,11 @@ class PatchBuilderPanel(wx.Panel):
 
     def _exec(self, cmd):
         try:
-            result = self.executor.run(cmd)
-            if result:
-                self.console_cb(result + '\n', 'info')
+            stdout, stderr, ok = self.executor.execute(cmd)
+            if stdout and stdout.strip():
+                self.console_cb(stdout, 'info')
+            if stderr and stderr.strip():
+                self.console_cb(stderr, 'error')
             self.sync_cb()
             self.refresh()
         except Exception as e:
@@ -2322,6 +4411,8 @@ class PatchBuilderPanel(wx.Panel):
             return
 
         engine = self.executor.session.engine
+        if not hasattr(engine, 'operators') or not hasattr(engine, 'algorithms'):
+            return
 
         # Populate operators
         for idx in sorted(engine.operators.keys()):
@@ -2337,19 +4428,43 @@ class PatchBuilderPanel(wx.Panel):
             params = []
             if wave == 'pulse':
                 params.append(f"pw={op.get('pw', 0.5):.2f}")
+            elif wave in ('physical', 'physical2'):
+                params.append(f"even={op.get('even_harmonics', 8)}")
+                params.append(f"odd={op.get('odd_harmonics', 4)}")
+                params.append(f"wt={op.get('even_weight', 1.0):.1f}")
+                params.append(f"dec={op.get('decay', 0.7):.2f}")
+                if wave == 'physical2':
+                    params.append(f"inh={op.get('inharmonicity', 0.01):.3f}")
+                    params.append(f"parts={op.get('partials', 12)}")
             elif wave == 'supersaw':
                 params.append(f"saws={op.get('num_saws', 7)}")
                 params.append(f"spread={op.get('detune_spread', 0.5):.2f}")
-            elif wave == 'harmonic':
-                params.append(f"odd={op.get('odd_level', 1.0):.1f}")
-                params.append(f"even={op.get('even_level', 1.0):.1f}")
+                params.append(f"mix={op.get('mix', 0.75):.2f}")
             elif wave == 'additive':
                 params.append(f"nharm={op.get('num_harmonics', 16)}")
                 params.append(f"rolloff={op.get('rolloff', 1.0):.1f}")
             elif wave == 'formant':
                 params.append(f"vowel={op.get('vowel', 'a')}")
-            elif wave.startswith('waveguide_'):
+            elif wave == 'harmonic':
+                params.append(f"odd={op.get('odd_level', 1.0):.1f}")
+                params.append(f"even={op.get('even_level', 1.0):.1f}")
+                params.append(f"nharm={op.get('num_harmonics', 16)}")
+            elif wave == 'waveguide_string':
                 params.append(f"damp={op.get('damping', 0.996):.3f}")
+                params.append(f"bright={op.get('brightness', 0.5):.2f}")
+                params.append(f"pos={op.get('position', 0.5):.2f}")
+            elif wave == 'waveguide_tube':
+                params.append(f"damp={op.get('damping', 0.996):.3f}")
+                params.append(f"refl={op.get('reflection', 0.98):.2f}")
+                params.append(f"bore={op.get('bore_shape', 'cylindrical')}")
+            elif wave == 'waveguide_membrane':
+                params.append(f"tens={op.get('tension', 0.5):.2f}")
+                params.append(f"damp={op.get('damping', 0.996):.3f}")
+                params.append(f"strike={op.get('strike_pos', 0.5):.2f}")
+            elif wave == 'waveguide_plate':
+                params.append(f"thick={op.get('thickness', 0.5):.2f}")
+                params.append(f"damp={op.get('damping', 0.996):.3f}")
+                params.append(f"mat={op.get('material', 'steel')}")
             elif wave == 'wavetable':
                 params.append(f"table={op.get('wavetable_name', '')}")
                 params.append(f"frame={op.get('frame_pos', 0.0):.2f}")
@@ -2404,6 +4519,12 @@ class RoutingPanel(wx.Panel):
             return
 
         engine = self.executor.session.engine
+        if not hasattr(engine, 'operators') or not hasattr(engine, 'algorithms'):
+            gc.SetFont(gc.CreateFont(wx.Font(12, wx.FONTFAMILY_DEFAULT,
+                        wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL), Theme.FG_DIM))
+            gc.DrawText("Engine not initialized", 20, h // 2)
+            return
+
         ops = sorted(engine.operators.keys())
 
         if not ops:
@@ -2544,18 +4665,22 @@ class OscillatorListPanel(wx.Panel):
 
     def _on_add_op(self, event):
         """Add a new operator."""
-        if not self.executor.session:
+        if not self.executor.session or not hasattr(self.executor.session, 'engine'):
             return
         engine = self.executor.session.engine
+        if not hasattr(engine, 'operators'):
+            return
         # Find next available index
         existing = set(engine.operators.keys())
         new_idx = 1
         while new_idx in existing:
             new_idx += 1
         try:
-            result = self.executor.run(f"/op {new_idx}")
-            if result:
-                self.console_cb(result + '\n', 'info')
+            stdout, stderr, ok = self.executor.execute(f"/op {new_idx}")
+            if stdout and stdout.strip():
+                self.console_cb(stdout, 'info')
+            if stderr and stderr.strip():
+                self.console_cb(stderr, 'error')
             self.sync_cb()
             self.refresh()
         except Exception as e:
@@ -2569,6 +4694,9 @@ class OscillatorListPanel(wx.Panel):
             return
 
         engine = self.executor.session.engine
+        if not hasattr(engine, 'operators'):
+            return
+
         filter_sel = self.wave_filter.GetStringSelection()
 
         # Category mapping
@@ -2639,9 +4767,11 @@ class OscillatorListPanel(wx.Panel):
 
     def _select_op(self, idx):
         try:
-            result = self.executor.run(f"/op {idx}")
-            if result:
-                self.console_cb(result + '\n', 'info')
+            stdout, stderr, ok = self.executor.execute(f"/op {idx}")
+            if stdout and stdout.strip():
+                self.console_cb(stdout, 'info')
+            if stderr and stderr.strip():
+                self.console_cb(stderr, 'error')
             self.sync_cb()
         except Exception as e:
             self.console_cb(f"ERROR: {e}\n", 'error')
@@ -2660,7 +4790,7 @@ class MDMAFrame(wx.Frame):
     +-------------+--------------------------------+
     """
 
-    VERSION = "2.0.0"
+    VERSION = "3.0.0"
 
     def __init__(self):
         super().__init__(None, title="MDMA - Music Design Made Accessible",
@@ -2692,7 +4822,7 @@ class MDMAFrame(wx.Frame):
         self.Centre()
 
         # Welcome message
-        self.console.append(f"MDMA GUI v{self.VERSION} - Phase 2: Monolith Engine\n", 'info')
+        self.console.append(f"MDMA GUI v{self.VERSION} - Phase 3: Modulation & Convolution\n", 'info')
         self.console.append("=" * 55 + "\n", 'info')
 
         # Warn if engine failed to load
@@ -2895,29 +5025,37 @@ class MDMAFrame(wx.Frame):
             return
 
         # Status bar field 0: core engine state
-        buf_sec = state.get('buffer_seconds', 0)
-        status = (
-            f"BPM: {state['bpm']:.0f}  |  "
-            f"Buffer: {buf_sec:.2f}s  |  "
-            f"{state['waveform']} @ {state['frequency']:.0f}Hz  |  "
-            f"Voices: {state['voice_count']} ({state['voice_algorithm']})"
-        )
-        self.SetStatusText(status, 0)
+        try:
+            buf_sec = state.get('buffer_seconds', 0)
+            status = (
+                f"BPM: {state.get('bpm', 128):.0f}  |  "
+                f"Buffer: {buf_sec:.2f}s  |  "
+                f"{state.get('waveform', '---')} @ "
+                f"{state.get('frequency', 440):.0f}Hz  |  "
+                f"Voices: {state.get('voice_count', 1)} "
+                f"({state.get('voice_algorithm', 0)})"
+            )
+            self.SetStatusText(status, 0)
 
-        # Status bar field 1: filter + FX
-        filter_status = (
-            f"Filter: {state['filter_type']} {state['filter_cutoff']:.0f}Hz  |  "
-            f"FX: {len(state['effects'])}"
-        )
-        self.SetStatusText(filter_status, 1)
+            # Status bar field 1: filter + FX
+            fx_list = state.get('effects', [])
+            filter_status = (
+                f"Filter: {state.get('filter_type', 'lp')} "
+                f"{state.get('filter_cutoff', 4500):.0f}Hz  |  "
+                f"FX: {len(fx_list)}"
+            )
+            self.SetStatusText(filter_status, 1)
 
-        # Status bar field 2: HQ + tracks
-        hq_status = (
-            f"HQ: {'ON' if state['hq_mode'] else 'OFF'} "
-            f"{state['output_format'].upper()} {state['output_bit_depth']}bit  |  "
-            f"Tracks: {state['track_count']}"
-        )
-        self.SetStatusText(hq_status, 2)
+            # Status bar field 2: HQ + tracks
+            hq_status = (
+                f"HQ: {'ON' if state.get('hq_mode') else 'OFF'} "
+                f"{state.get('output_format', 'wav').upper()} "
+                f"{state.get('output_bit_depth', 16)}bit  |  "
+                f"Tracks: {state.get('track_count', 0)}"
+            )
+            self.SetStatusText(hq_status, 2)
+        except Exception:
+            pass  # Silently handle missing state keys
 
         # Rebuild browser tree with fresh data
         self.browser.populate_tree()
@@ -2943,13 +5081,17 @@ class MDMAFrame(wx.Frame):
             return
 
         # Update status bar only (lightweight)
-        buf_sec = state.get('buffer_seconds', 0)
-        self.SetStatusText(
-            f"BPM: {state['bpm']:.0f}  |  "
-            f"Buffer: {buf_sec:.2f}s  |  "
-            f"{state['waveform']} @ {state['frequency']:.0f}Hz  |  "
-            f"Voices: {state['voice_count']} ({state['voice_algorithm']})",
-            0)
+        try:
+            buf_sec = state.get('buffer_seconds', 0)
+            self.SetStatusText(
+                f"BPM: {state.get('bpm', 128):.0f}  |  "
+                f"Buffer: {buf_sec:.2f}s  |  "
+                f"{state.get('waveform', '---')} @ "
+                f"{state.get('frequency', 440):.0f}Hz  |  "
+                f"Voices: {state.get('voice_count', 1)} "
+                f"({state.get('voice_algorithm', 0)})", 0)
+        except Exception:
+            pass
 
     def on_manual_refresh(self):
         """Full refresh triggered by F5."""
@@ -2983,9 +5125,29 @@ class MDMAFrame(wx.Frame):
             self.action_panel.set_category('synth')
         elif obj_type == 'filter_slot':
             self.action_panel.set_category('filter')
+        elif obj_type in ('fenv_param',):
+            self.action_panel.set_category('filter_envelope')
+        elif obj_type in ('voice_prop',):
+            self.action_panel.set_category('voice')
+        elif obj_type in ('hq_prop',):
+            self.action_panel.set_category('hq')
+        elif obj_type in ('routing',):
+            self.action_panel.set_category('modulation')
+        elif obj_type == 'wavetable':
+            self.action_panel.set_category('wavetable')
+        elif obj_type == 'compound':
+            self.action_panel.set_category('compound')
+        elif obj_type in ('conv_prop', 'ir_bank_entry'):
+            self.action_panel.set_category('convolution')
+        elif obj_type == 'lfo_shape':
+            self.action_panel.set_category('impulse_lfo')
+        elif obj_type == 'imp_env_shape':
+            self.action_panel.set_category('impulse_env')
         elif obj_type in ('effect',):
             self.action_panel.set_category('fx')
         elif obj_type in ('sydef', 'user_function', 'chain'):
+            self.action_panel.set_category('preset')
+        elif obj_type in ('preset_slot',):
             self.action_panel.set_category('preset')
 
         # Update inspector with full object details
@@ -3061,8 +5223,11 @@ class MDMAFrame(wx.Frame):
         info.SetDescription(
             "Music Design Made Accessible\n\n"
             "Phase 1: Core Interface & Workflow\n"
-            "Object tree, inspector, step grid, context menus,\n"
-            "selection-based FX, and accessibility markers.")
+            "Phase 2: Monolith Engine & Synthesis Expansion\n"
+            "Phase 3: Modulation, Impulse & Convolution\n\n"
+            "Advanced convolution reverb, impulse-to-LFO/envelope,\n"
+            "neural IR enhancement, AI descriptor transforms,\n"
+            "granular IR tools, 15 semantic descriptors.")
         info.SetCopyright("(C) 2026")
         wx.adv.AboutBox(info)
 

@@ -178,6 +178,24 @@ def build_command_table():
         'ump': 'audiorate_cmds',
         'impulse': 'audiorate_cmds',
         'chke': 'audiorate_cmds',
+
+        # Phase 3: Convolution & impulse commands - convolution_cmds owns
+        'conv': 'convolution_cmds',
+        'convolution': 'convolution_cmds',
+        'convrev': 'convolution_cmds',
+        'impulselfo': 'convolution_cmds',
+        'ilfo': 'convolution_cmds',
+        'lfoimport': 'convolution_cmds',
+        'impenv': 'convolution_cmds',
+        'ienv': 'convolution_cmds',
+        'envimport': 'convolution_cmds',
+        'irenhance': 'convolution_cmds',
+        'ire': 'convolution_cmds',
+        'irtransform': 'convolution_cmds',
+        'irt': 'convolution_cmds',
+        'irgranular': 'convolution_cmds',
+        'irg': 'convolution_cmds',
+        'irgrains': 'convolution_cmds',
     }
     
     def get_module_name(module):
@@ -333,6 +351,15 @@ def build_command_table():
     try:
         from mdma_rebuild.commands.audiorate_cmds import get_audiorate_commands
         register_from_dict(get_audiorate_commands(), 'audiorate_cmds')
+    except ImportError:
+        pass
+
+    # ================================================================
+    # PHASE 8.55: Load Phase 3 convolution & impulse commands
+    # ================================================================
+    try:
+        from mdma_rebuild.commands.convolution_cmds import get_convolution_commands
+        register_from_dict(get_convolution_commands(), 'convolution_cmds')
     except ImportError:
         pass
     
