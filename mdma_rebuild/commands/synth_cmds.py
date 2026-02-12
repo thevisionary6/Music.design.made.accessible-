@@ -2304,11 +2304,11 @@ def cmd_harm(session: Session, args: List[str]) -> str:
         return '\n'.join(lines)
 
     try:
-        odd_lvl = _parse_float(args[0]) if len(args) > 0 else 1.0
-        even_lvl = _parse_float(args[1]) if len(args) > 1 else 1.0
+        odd_lvl = max(0.0, min(2.0, _parse_float(args[0]))) if len(args) > 0 else 1.0
+        even_lvl = max(0.0, min(2.0, _parse_float(args[1]))) if len(args) > 1 else 1.0
         nharm = _parse_int(args[2]) if len(args) > 2 else 16
-        odecay = _parse_float(args[3]) if len(args) > 3 else 0.8
-        edecay = _parse_float(args[4]) if len(args) > 4 else 0.8
+        odecay = max(0.1, min(1.0, _parse_float(args[3]))) if len(args) > 3 else 0.8
+        edecay = max(0.1, min(1.0, _parse_float(args[4]))) if len(args) > 4 else 0.8
         session.engine.set_param(op_idx, 'odd_level', odd_lvl)
         session.engine.set_param(op_idx, 'even_level', even_lvl)
         session.engine.set_param(op_idx, 'num_harmonics', max(1, min(64, nharm)))
@@ -2370,9 +2370,9 @@ def cmd_waveguide(session: Session, args: List[str]) -> str:
         'bright': 'brightness', 'brightness': 'brightness',
         'pos': 'position', 'position': 'position',
         'reflect': 'reflection', 'reflection': 'reflection',
-        'bore': 'bore_shape',
+        'bore': 'bore_shape', 'bore_shape': 'bore_shape',
         'tension': 'tension',
-        'strike': 'strike_pos',
+        'strike': 'strike_pos', 'strike_pos': 'strike_pos',
         'thick': 'thickness', 'thickness': 'thickness',
         'mat': 'material', 'material': 'material',
     }

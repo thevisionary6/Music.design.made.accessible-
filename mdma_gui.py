@@ -2273,9 +2273,11 @@ class PatchBuilderPanel(wx.Panel):
 
     def _exec(self, cmd):
         try:
-            result = self.executor.run(cmd)
-            if result:
-                self.console_cb(result + '\n', 'info')
+            stdout, stderr, ok = self.executor.execute(cmd)
+            if stdout and stdout.strip():
+                self.console_cb(stdout, 'info')
+            if stderr and stderr.strip():
+                self.console_cb(stderr, 'error')
             self.sync_cb()
             self.refresh()
         except Exception as e:
@@ -2553,9 +2555,11 @@ class OscillatorListPanel(wx.Panel):
         while new_idx in existing:
             new_idx += 1
         try:
-            result = self.executor.run(f"/op {new_idx}")
-            if result:
-                self.console_cb(result + '\n', 'info')
+            stdout, stderr, ok = self.executor.execute(f"/op {new_idx}")
+            if stdout and stdout.strip():
+                self.console_cb(stdout, 'info')
+            if stderr and stderr.strip():
+                self.console_cb(stderr, 'error')
             self.sync_cb()
             self.refresh()
         except Exception as e:
@@ -2639,9 +2643,11 @@ class OscillatorListPanel(wx.Panel):
 
     def _select_op(self, idx):
         try:
-            result = self.executor.run(f"/op {idx}")
-            if result:
-                self.console_cb(result + '\n', 'info')
+            stdout, stderr, ok = self.executor.execute(f"/op {idx}")
+            if stdout and stdout.strip():
+                self.console_cb(stdout, 'info')
+            if stderr and stderr.strip():
+                self.console_cb(stderr, 'error')
             self.sync_cb()
         except Exception as e:
             self.console_cb(f"ERROR: {e}\n", 'error')
