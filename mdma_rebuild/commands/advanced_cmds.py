@@ -2466,8 +2466,45 @@ def cmd_g(session: Session, args: List[str]) -> str:
     variant = args[1] if len(args) > 1 else '1'
     create_clip = 'c' in [a.lower() for a in args]
     
-    # Check if it's a stubbed generator
+    # Check if it's a stubbed generator — try Phase 4 beat_gen first
     if algo in STUB_GENERATORS:
+        try:
+            from ..dsp import beat_gen
+            _STUB_TO_BEATGEN = {
+                'tom': ('tom', {'variant': variant}),
+                'cym': ('cymbal', {'variant': variant}),
+                'clp': ('clap', {'variant': variant}),
+                'snp': ('snap', {'variant': variant}),
+                'shk': ('shaker', {'variant': variant}),
+                'stb': ('stab', {'variant': variant}),
+                'bel': ('bell', {'variant': variant}),
+                'bas': ('bass_hit', {'variant': variant}),
+                'rsr': ('riser', {'variant': variant}),
+                'dwn': ('downlifter', {'variant': variant}),
+                'sil': ('silence', {}),
+                'clk': ('click_track', {}),
+                'swp': ('sweep', {'variant': variant}),
+            }
+            if algo in _STUB_TO_BEATGEN:
+                gen_name, gen_params = _STUB_TO_BEATGEN[algo]
+                if gen_name in beat_gen.GENERATORS:
+                    gen_func = beat_gen.GENERATORS[gen_name]
+                    buf = gen_func(sr=session.sample_rate, **gen_params)
+                    session.last_buffer = buf
+                    peak = np.max(np.abs(buf))
+                    dur = len(buf) / session.sample_rate
+                    lines = [f"OK: {algo} generated (via beat_gen.{gen_name})"]
+                    lines.append(f"  {dur:.3f}s, peak={peak:.3f}")
+                    if create_clip:
+                        clip_name = f"gen_{algo}_{session.clip_count}"
+                        session.clip_count += 1
+                        session.clips[clip_name] = buf.copy()
+                        session.current_clip = clip_name
+                        lines.append(f"  -> clip '{clip_name}'")
+                    return '\n'.join(lines)
+        except (ImportError, Exception):
+            pass
+        # Fall through to stub message if beat_gen not available
         return (f"STUB: /g {algo} - {STUB_GENERATORS[algo]}\n"
                 f"  Variants: 1-4 (depending on type)\n"
                 f"  Section J2: Not yet implemented\n"

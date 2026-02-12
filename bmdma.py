@@ -56,6 +56,7 @@ _import_module('buffer_cmds')
 _import_module('math_cmds')  # Custom arithmetic and utility commands
 _import_module('param_cmds')  # Parameter system v45
 _import_module('hq_cmds')     # HQ audio settings v45
+_import_module('gen_cmds')    # Phase 4 generative commands
 
 # AI commands are optional
 AI_AVAILABLE = False
@@ -75,6 +76,7 @@ playback_cmds = _CMD_MODULES.get('playback_cmds')
 buffer_cmds = _CMD_MODULES.get('buffer_cmds')
 param_cmds = _CMD_MODULES.get('param_cmds')
 hq_cmds = _CMD_MODULES.get('hq_cmds')
+gen_cmds = _CMD_MODULES.get('gen_cmds')
 
 
 def build_command_table():
@@ -196,6 +198,16 @@ def build_command_table():
         'irgranular': 'convolution_cmds',
         'irg': 'convolution_cmds',
         'irgrains': 'convolution_cmds',
+
+        # Phase 4: Generative commands - gen_cmds owns
+        'beat': 'gen_cmds',
+        'loop': 'gen_cmds',
+        'xform': 'gen_cmds',
+        'transform': 'gen_cmds',
+        'adapt': 'gen_cmds',
+        'theory': 'gen_cmds',
+        'gen2': 'gen_cmds',
+        'generate': 'gen_cmds',
     }
     
     def get_module_name(module):
@@ -386,6 +398,15 @@ def build_command_table():
             pass
     
     # ================================================================
+    # PHASE 8.8: Load Phase 4 generative commands
+    # ================================================================
+    try:
+        from mdma_rebuild.commands.gen_cmds import get_gen_commands
+        register_from_dict(get_gen_commands(), 'gen_cmds')
+    except ImportError:
+        pass
+
+    # ================================================================
     # PHASE 9: Load AI commands (highest priority)
     # ================================================================
     ai_mod = _CMD_MODULES.get('ai_cmds')
@@ -542,6 +563,22 @@ def show_help():
     print("  /apat <notes>  Pattern entire buffer")
     print("  /pag [n]       List/detail algorithms")
     print("  /arp <chord>   Arpeggio (maj,min,7,maj7,min7)")
+    print()
+
+    print("GENERATIVE (Phase 4):")
+    print("  /beat <genre> [bars] [bpm]  Generate drum beat")
+    print("  /beat fill <type>           Generate fill (buildup/roll/crash)")
+    print("  /loop <genre> [layers...]   Generate full loop")
+    print("  /gen2 melody [key] [scale]  Generate melody")
+    print("  /gen2 chord_prog [key]      Generate chord progression")
+    print("  /gen2 bassline [key] [genre] Generate bassline")
+    print("  /gen2 arp <chord>           Arpeggiate chord")
+    print("  /gen2 drone [key] [dur]     Ambient drone")
+    print("  /xform <transform>          Apply musical transform")
+    print("  /xform preset <name>        Apply transform preset")
+    print("  /adapt key <note> [scale]   Adapt to new key")
+    print("  /adapt tempo <bpm>          Adapt to new tempo")
+    print("  /theory scales/chords/prog  Music theory queries")
     print()
     
     print("FX CHAINS (by position):")

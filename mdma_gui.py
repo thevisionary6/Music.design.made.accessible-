@@ -1789,6 +1789,7 @@ class ObjectBrowser(wx.Panel):
         ('fx',              'Effects'),
         ('preset',          'Presets'),
         ('bank',            'Banks'),
+        ('generative',      'Generative'),
     ]
 
     def __init__(self, parent, on_select_callback, executor: CommandExecutor,
@@ -2188,6 +2189,67 @@ class ObjectBrowser(wx.Panel):
                     sub = self.tree.AppendItem(pb_grp, f"Slot {slot_num}: {name}")
                     self.tree.SetItemData(sub, {'type': 'preset_slot',
                                                  'slot': slot_num, 'id': 'bank'})
+
+        # ---- Generative (Phase 4) ----
+        gen_cat = self.tree.AppendItem(root, "Generative")
+        self.tree.SetItemData(gen_cat, {'type': 'category', 'id': 'generative'})
+        self.category_items['generative'] = gen_cat
+
+        # Beat generation subcategory
+        gen_beat = self.tree.AppendItem(gen_cat, "Beat Generation")
+        self.tree.SetItemData(gen_beat, {'type': 'gen_section', 'section': 'beat',
+                                          'id': 'generative'})
+        try:
+            from mdma_rebuild.dsp import beat_gen
+            for gname in sorted(beat_gen.GENRE_TEMPLATES.keys()):
+                tmpl = beat_gen.GENRE_TEMPLATES[gname]
+                sub = self.tree.AppendItem(gen_beat,
+                    f"{gname.title()} ({tmpl.bpm} BPM)")
+                self.tree.SetItemData(sub, {'type': 'gen_genre', 'genre': gname,
+                                             'bpm': tmpl.bpm, 'id': 'generative'})
+        except ImportError:
+            pass
+
+        # Loop generation subcategory
+        gen_loop = self.tree.AppendItem(gen_cat, "Loop Generation")
+        self.tree.SetItemData(gen_loop, {'type': 'gen_section', 'section': 'loop',
+                                          'id': 'generative'})
+        for layer in ['drums', 'bass', 'chords', 'melody', 'full']:
+            sub = self.tree.AppendItem(gen_loop, f"Layer: {layer.title()}")
+            self.tree.SetItemData(sub, {'type': 'gen_layer', 'layer': layer,
+                                         'id': 'generative'})
+
+        # Transforms subcategory
+        gen_xform = self.tree.AppendItem(gen_cat, "Transforms")
+        self.tree.SetItemData(gen_xform, {'type': 'gen_section', 'section': 'xform',
+                                           'id': 'generative'})
+        try:
+            from mdma_rebuild.dsp import transforms as tf
+            for pname in sorted(tf.AUDIO_TRANSFORM_PRESETS.keys()):
+                sub = self.tree.AppendItem(gen_xform, f"Preset: {pname}")
+                self.tree.SetItemData(sub, {'type': 'gen_xform_preset',
+                                             'preset': pname, 'id': 'generative'})
+        except ImportError:
+            pass
+
+        # Music Theory subcategory
+        gen_theory = self.tree.AppendItem(gen_cat, "Music Theory")
+        self.tree.SetItemData(gen_theory, {'type': 'gen_section', 'section': 'theory',
+                                            'id': 'generative'})
+        for item in ['Scales', 'Chords', 'Progressions']:
+            sub = self.tree.AppendItem(gen_theory, item)
+            self.tree.SetItemData(sub, {'type': 'gen_theory_item',
+                                         'query': item.lower(), 'id': 'generative'})
+
+        # Content Generation subcategory
+        gen_content = self.tree.AppendItem(gen_cat, "Content Generation")
+        self.tree.SetItemData(gen_content, {'type': 'gen_section', 'section': 'gen2',
+                                             'id': 'generative'})
+        for item in ['Melody', 'Chord Progression', 'Bassline', 'Arpeggio', 'Drone']:
+            sub = self.tree.AppendItem(gen_content, item)
+            sub_cmd = item.lower().replace(' ', '_')
+            self.tree.SetItemData(sub, {'type': 'gen_content_item',
+                                         'content_type': sub_cmd, 'id': 'generative'})
 
         self.tree.ExpandAll()
 
@@ -2779,6 +2841,93 @@ class ObjectBrowser(wx.Panel):
                 lambda e: self._show_sr_picker(), id=m_sr)
 
         # ==============================================================
+        # Generative Items
+        # ==============================================================
+        elif obj_type == 'gen_genre':
+            genre = data.get('genre', 'house')
+            m_gen4 = wx.NewIdRef()
+            m_gen8 = wx.NewIdRef()
+            m_fill = wx.NewIdRef()
+            menu.Append(m_gen4, f"Generate 4-bar {genre.title()} Beat")
+            menu.Append(m_gen8, f"Generate 8-bar {genre.title()} Beat")
+            menu.AppendSeparator()
+            menu.Append(m_fill, f"Generate {genre.title()} Fill")
+            self.Bind(wx.EVT_MENU,
+                lambda e, g=genre: self._exec(f'/beat {g} 4'), id=m_gen4)
+            self.Bind(wx.EVT_MENU,
+                lambda e, g=genre: self._exec(f'/beat {g} 8'), id=m_gen8)
+            self.Bind(wx.EVT_MENU,
+                lambda e, g=genre: self._exec(f'/beat fill buildup'), id=m_fill)
+
+        elif obj_type == 'gen_layer':
+            layer = data.get('layer', 'drums')
+            m_gen = wx.NewIdRef()
+            menu.Append(m_gen, f"Generate Loop with {layer.title()}")
+            self.Bind(wx.EVT_MENU,
+                lambda e, l=layer: self._exec(f'/loop house {l}'), id=m_gen)
+
+        elif obj_type == 'gen_xform_preset':
+            preset = data.get('preset', 'reverse')
+            m_apply = wx.NewIdRef()
+            menu.Append(m_apply, f"Apply '{preset}' Transform")
+            self.Bind(wx.EVT_MENU,
+                lambda e, p=preset: self._exec(f'/xform preset {p}'), id=m_apply)
+
+        elif obj_type == 'gen_theory_item':
+            query = data.get('query', 'scales')
+            m_show = wx.NewIdRef()
+            menu.Append(m_show, f"Show {query.title()}")
+            self.Bind(wx.EVT_MENU,
+                lambda e, q=query: self._exec(f'/theory {q}'), id=m_show)
+
+        elif obj_type == 'gen_content_item':
+            ctype = data.get('content_type', 'melody')
+            m_gen = wx.NewIdRef()
+            menu.Append(m_gen, f"Generate {ctype.replace('_', ' ').title()}")
+            self.Bind(wx.EVT_MENU,
+                lambda e, c=ctype: self._exec(f'/gen2 {c}'), id=m_gen)
+
+        elif obj_type == 'gen_section':
+            section = data.get('section', '')
+            if section == 'beat':
+                m_gen = wx.NewIdRef()
+                menu.Append(m_gen, "Generate Beat...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_gen_beat_dialog(), id=m_gen)
+            elif section == 'loop':
+                m_gen = wx.NewIdRef()
+                menu.Append(m_gen, "Generate Loop...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_gen_loop_dialog(), id=m_gen)
+            elif section == 'xform':
+                m_list = wx.NewIdRef()
+                menu.Append(m_list, "List Transforms")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/xform'), id=m_list)
+            elif section == 'theory':
+                m_scales = wx.NewIdRef()
+                m_chords = wx.NewIdRef()
+                menu.Append(m_scales, "Show Scales")
+                menu.Append(m_chords, "Show Chords")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/theory scales'), id=m_scales)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/theory chords'), id=m_chords)
+            elif section == 'gen2':
+                m_mel = wx.NewIdRef()
+                m_chd = wx.NewIdRef()
+                m_bas = wx.NewIdRef()
+                menu.Append(m_mel, "Generate Melody")
+                menu.Append(m_chd, "Generate Chord Progression")
+                menu.Append(m_bas, "Generate Bassline")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/gen2 melody'), id=m_mel)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/gen2 chord_prog'), id=m_chd)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/gen2 bassline'), id=m_bas)
+
+        # ==============================================================
         # Category-level context menus
         # ==============================================================
         elif obj_type == 'category':
@@ -3068,6 +3217,25 @@ class ObjectBrowser(wx.Panel):
                 self.Bind(wx.EVT_MENU,
                     lambda e: self._exec('/bk list'), id=m_info)
 
+            elif cat_id == 'generative':
+                m_beat = wx.NewIdRef()
+                m_loop = wx.NewIdRef()
+                m_melody = wx.NewIdRef()
+                m_theory = wx.NewIdRef()
+                menu.Append(m_beat, "Generate Beat...")
+                menu.Append(m_melody, "Generate Melody...")
+                menu.Append(m_loop, "Generate Full Loop...")
+                menu.AppendSeparator()
+                menu.Append(m_theory, "Music Theory Info")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_gen_beat_dialog(), id=m_beat)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/gen2 melody'), id=m_melody)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_gen_loop_dialog(), id=m_loop)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/theory scales'), id=m_theory)
+
         if menu.GetMenuItemCount() > 0:
             self.PopupMenu(menu)
         menu.Destroy()
@@ -3301,6 +3469,45 @@ class ObjectBrowser(wx.Panel):
             val = dlg.GetValue().strip()
             if val:
                 self._exec(cmd_template.format(val))
+        dlg.Destroy()
+
+    def _show_gen_beat_dialog(self):
+        """Show dialog for generating a drum beat."""
+        try:
+            from mdma_rebuild.dsp import beat_gen
+            genres = sorted(beat_gen.GENRE_TEMPLATES.keys())
+        except ImportError:
+            genres = ['house', 'techno', 'hiphop', 'trap', 'dnb', 'lofi']
+        dlg = wx.SingleChoiceDialog(self, "Select genre:", "Generate Beat",
+                                     [g.title() for g in genres])
+        if dlg.ShowModal() == wx.ID_OK:
+            genre = genres[dlg.GetSelection()]
+            bars_dlg = wx.TextEntryDialog(self, "Number of bars:", "Bars", "4")
+            if bars_dlg.ShowModal() == wx.ID_OK:
+                bars = bars_dlg.GetValue().strip() or '4'
+                self._exec(f'/beat {genre} {bars}')
+            bars_dlg.Destroy()
+        dlg.Destroy()
+
+    def _show_gen_loop_dialog(self):
+        """Show dialog for generating a full loop."""
+        try:
+            from mdma_rebuild.dsp import beat_gen
+            genres = sorted(beat_gen.GENRE_TEMPLATES.keys())
+        except ImportError:
+            genres = ['house', 'techno', 'hiphop', 'trap', 'dnb', 'lofi']
+        dlg = wx.SingleChoiceDialog(self, "Select genre:", "Generate Loop",
+                                     [g.title() for g in genres])
+        if dlg.ShowModal() == wx.ID_OK:
+            genre = genres[dlg.GetSelection()]
+            layers = ['full', 'drums', 'drums bass', 'drums bass chords',
+                      'drums melody', 'bass chords melody']
+            layer_dlg = wx.SingleChoiceDialog(self, "Select layers:",
+                                               "Loop Layers", layers)
+            if layer_dlg.ShowModal() == wx.ID_OK:
+                layer_choice = layers[layer_dlg.GetSelection()]
+                self._exec(f'/loop {genre} {layer_choice}')
+            layer_dlg.Destroy()
         dlg.Destroy()
 
     # ------------------------------------------------------------------
@@ -4031,6 +4238,9 @@ class InspectorPanel(wx.Panel):
             self._inspect_imp_env_shape(data)
         elif obj_type == 'category':
             self._inspect_category(data)
+        elif obj_type in ('gen_genre', 'gen_layer', 'gen_xform_preset',
+                          'gen_theory_item', 'gen_content_item', 'gen_section'):
+            self._inspect_generative(data)
         else:
             self.title.SetLabel("Inspector")
             self.subtitle.SetLabel(f"Object type: {obj_type}")
@@ -4381,6 +4591,112 @@ class InspectorPanel(wx.Panel):
             self._add_prop("Duration:", f"{len(env)/sr:.3f}s")
         self._add_action_btn("Apply Buffer", f"/impenv apply 1.0")
 
+    def _inspect_generative(self, data):
+        """Display detail view for generative items."""
+        obj_type = data.get('type', '')
+
+        if obj_type == 'gen_genre':
+            genre = data.get('genre', 'house')
+            bpm = data.get('bpm', 128)
+            self.title.SetLabel(f"{genre.title()} Beat")
+            self.subtitle.SetLabel("Genre Template")
+            self._add_prop("Genre:", genre.title())
+            self._add_prop("Default BPM:", str(bpm))
+            try:
+                from mdma_rebuild.dsp import beat_gen
+                tmpl = beat_gen.GENRE_TEMPLATES.get(genre)
+                if tmpl:
+                    self._add_prop("Steps:", str(tmpl.steps))
+                    self._add_prop("Swing:", f"{tmpl.swing:.0f}%")
+                    n_instruments = len(tmpl.hits)
+                    self._add_prop("Instruments:", str(n_instruments))
+            except ImportError:
+                pass
+            self._add_separator("Actions")
+            self._add_action_btn("Generate 4 Bars", f"/beat {genre} 4")
+            self._add_action_btn("Generate 8 Bars", f"/beat {genre} 8")
+            self._add_action_btn("Generate Fill", "/beat fill buildup")
+
+        elif obj_type == 'gen_layer':
+            layer = data.get('layer', 'drums')
+            self.title.SetLabel(f"{layer.title()} Layer")
+            self.subtitle.SetLabel("Loop Layer")
+            self._add_prop("Layer:", layer.title())
+            layer_desc = {
+                'drums': 'Rhythmic drum pattern from genre template',
+                'bass': 'Bass line following chord progression',
+                'chords': 'Chord pad with voice-led progressions',
+                'melody': 'Melodic line from scale with contour',
+                'full': 'All layers combined (drums + bass + chords + melody)',
+            }
+            self._add_prop("Description:", layer_desc.get(layer, 'Audio layer'))
+            self._add_separator("Actions")
+            self._add_action_btn("Generate Loop", f"/loop house {layer}")
+
+        elif obj_type == 'gen_xform_preset':
+            preset = data.get('preset', 'reverse')
+            self.title.SetLabel(f"Transform: {preset}")
+            self.subtitle.SetLabel("Audio Transform Preset")
+            try:
+                from mdma_rebuild.dsp import transforms as tf
+                steps = tf.AUDIO_TRANSFORM_PRESETS.get(preset, [])
+                self._add_prop("Steps:", str(len(steps)))
+                for i, (name, params) in enumerate(steps):
+                    p_str = ', '.join(f'{k}={v}' for k, v in params.items())
+                    self._add_prop(f"  Step {i+1}:", f"{name}({p_str})" if p_str else name)
+            except ImportError:
+                pass
+            self._add_separator("Actions")
+            self._add_action_btn("Apply Transform", f"/xform preset {preset}")
+
+        elif obj_type == 'gen_theory_item':
+            query = data.get('query', 'scales')
+            self.title.SetLabel(query.title())
+            self.subtitle.SetLabel("Music Theory")
+            try:
+                from mdma_rebuild.dsp import music_theory as mt
+                if query == 'scales':
+                    self._add_prop("Available:", str(len(mt.SCALES)))
+                    for name in sorted(mt.SCALES.keys())[:12]:
+                        intervals = mt.SCALES[name]
+                        self._add_prop(f"  {name}:", str(intervals))
+                elif query == 'chords':
+                    self._add_prop("Available:", str(len(mt.CHORDS)))
+                    for name in sorted(mt.CHORDS.keys())[:12]:
+                        intervals = mt.CHORDS[name]
+                        self._add_prop(f"  {name}:", str(intervals))
+                elif query == 'progressions':
+                    self._add_prop("Available:", str(len(mt.PROGRESSIONS)))
+                    for name in sorted(mt.PROGRESSIONS.keys())[:8]:
+                        self._add_prop(f"  {name}:", str(mt.PROGRESSIONS[name]))
+            except ImportError:
+                self._add_prop("Status:", "Module not available")
+            self._add_separator("Actions")
+            self._add_action_btn("Show All", f"/theory {query}")
+
+        elif obj_type == 'gen_content_item':
+            ctype = data.get('content_type', 'melody')
+            self.title.SetLabel(ctype.replace('_', ' ').title())
+            self.subtitle.SetLabel("Content Generator")
+            desc = {
+                'melody': 'Generate melodic sequences from scale with contour shaping',
+                'chord_prog': 'Render chord progressions with voice-leading',
+                'bassline': 'Genre-aware bassline generation',
+                'arpeggio': 'Arpeggiate chords in patterns',
+                'drone': 'Ambient drone with detuned oscillators',
+            }
+            self._add_prop("Description:", desc.get(ctype, 'Generate audio content'))
+            self._add_separator("Actions")
+            self._add_action_btn("Generate", f"/gen2 {ctype}")
+
+        elif obj_type == 'gen_section':
+            section = data.get('section', '')
+            titles = {'beat': 'Beat Generation', 'loop': 'Loop Generation',
+                      'xform': 'Transforms', 'theory': 'Music Theory',
+                      'gen2': 'Content Generation'}
+            self.title.SetLabel(titles.get(section, section.title()))
+            self.subtitle.SetLabel("Generative Section")
+
     def _inspect_category(self, data):
         cat_id = data.get('id', '')
         names = {'engine': 'Engine', 'synth': 'Synthesizer',
@@ -4397,7 +4713,8 @@ class InspectorPanel(wx.Panel):
                  'ir_granular': 'IR Granular',
                  'tracks': 'Tracks', 'buffers': 'Buffers',
                  'decks': 'Decks', 'fx': 'Effects',
-                 'preset': 'Presets', 'bank': 'Banks'}
+                 'preset': 'Presets', 'bank': 'Banks',
+                 'generative': 'Generative'}
         self.title.SetLabel(names.get(cat_id, cat_id.title()))
         self.subtitle.SetLabel("Category")
 
@@ -4503,6 +4820,34 @@ class InspectorPanel(wx.Panel):
                     self._add_prop("Descriptors:", f"{len(descs)} available")
                 except Exception:
                     self._add_prop("Descriptors:", "Module not available")
+        elif cat_id == 'generative':
+            try:
+                from mdma_rebuild.dsp import beat_gen
+                n_genres = len(beat_gen.GENRE_TEMPLATES)
+                n_gens = len(beat_gen.GENERATORS)
+                self._add_prop("Genre Templates:", str(n_genres))
+                self._add_prop("Sound Generators:", str(n_gens))
+            except ImportError:
+                self._add_prop("Beat Gen:", "Not available")
+            try:
+                from mdma_rebuild.dsp import transforms as tf
+                n_note = len(tf.TRANSFORM_PRESETS)
+                n_audio = len(tf.AUDIO_TRANSFORM_PRESETS)
+                self._add_prop("Note Presets:", str(n_note))
+                self._add_prop("Audio Presets:", str(n_audio))
+            except ImportError:
+                self._add_prop("Transforms:", "Not available")
+            try:
+                from mdma_rebuild.dsp import music_theory as mt
+                self._add_prop("Scales:", str(len(mt.SCALES)))
+                self._add_prop("Chord Types:", str(len(mt.CHORDS)))
+            except ImportError:
+                self._add_prop("Music Theory:", "Not available")
+            self._add_separator("Quick Actions")
+            self._add_action_btn("Generate Beat", "/beat house 4")
+            self._add_action_btn("Generate Loop", "/loop house full")
+            self._add_action_btn("Generate Melody", "/gen2 melody")
+            self._add_action_btn("List Scales", "/theory scales")
 
 
 class StepGridPanel(wx.Panel):
@@ -5661,6 +6006,9 @@ class MDMAFrame(wx.Frame):
             self.action_panel.set_category('preset')
         elif obj_type in ('preset_slot',):
             self.action_panel.set_category('preset')
+        elif obj_type in ('gen_genre', 'gen_layer', 'gen_xform_preset',
+                          'gen_theory_item', 'gen_content_item', 'gen_section'):
+            pass  # Inspector handles display; no action panel category needed
 
         # Update inspector with full object details
         self.inspector.inspect(data)
