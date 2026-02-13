@@ -332,6 +332,7 @@ class Session:
         # --- Phase T: Auto-save (T.6) ---
         self._autosave_enabled: bool = False
         self._autosave_interval: int = 5  # minutes
+        self._autosave_timer = None  # threading.Timer instance
 
 
     # ------------ Track timeline helpers (simplified) ------------

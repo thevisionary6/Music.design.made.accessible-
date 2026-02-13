@@ -1095,9 +1095,22 @@ def cmd_save(session: Session, args: List[str]) -> str:
             'release': session.release,
         },
         
+        # Per-operator envelopes
+        'operator_envelopes': getattr(session, 'operator_envelopes', {}),
+
+        # Filter state
+        'filter_count': getattr(session, 'filter_count', 1),
+        'selected_filter': getattr(session, 'selected_filter', 0),
+        'filter_types': {str(k): v for k, v in getattr(session, 'filter_types', {}).items()},
+        'filter_cutoffs': {str(k): v for k, v in getattr(session, 'filter_cutoffs', {}).items()},
+        'filter_resonances': {str(k): v for k, v in getattr(session, 'filter_resonances', {}).items()},
+        'filter_enabled': {str(k): v for k, v in getattr(session, 'filter_enabled', {}).items()},
+        'selected_filter_envelope': getattr(session, 'selected_filter_envelope', 0),
+        'filter_envelopes': getattr(session, 'filter_envelopes', {}),
+
         # Effects chain
         'effects': session.effects if hasattr(session, 'effects') else [],
-        
+
         # FX chains
         'buffer_fx_chain': getattr(session, 'buffer_fx_chain', []),
         'track_fx_chain': getattr(session, 'track_fx_chain', []),
@@ -1301,9 +1314,37 @@ def cmd_load(session: Session, args: List[str]) -> str:
     session.sustain = env.get('sustain', 0.8)
     session.release = env.get('release', 0.2)
     
+    # Restore per-operator envelopes
+    session.operator_envelopes = data.get('operator_envelopes', {})
+    # Convert string keys back to int (JSON serialization may stringify them)
+    if session.operator_envelopes:
+        session.operator_envelopes = {
+            int(k): v for k, v in session.operator_envelopes.items()
+        }
+
+    # Restore filter state
+    session.filter_count = data.get('filter_count', 1)
+    session.selected_filter = data.get('selected_filter', 0)
+    ft = data.get('filter_types')
+    if ft:
+        session.filter_types = {int(k): v for k, v in ft.items()}
+    fc = data.get('filter_cutoffs')
+    if fc:
+        session.filter_cutoffs = {int(k): v for k, v in fc.items()}
+    fr = data.get('filter_resonances')
+    if fr:
+        session.filter_resonances = {int(k): v for k, v in fr.items()}
+    fe = data.get('filter_enabled')
+    if fe:
+        session.filter_enabled = {int(k): v for k, v in fe.items()}
+    session.selected_filter_envelope = data.get('selected_filter_envelope', 0)
+    fenv = data.get('filter_envelopes', {})
+    if fenv:
+        session.filter_envelopes = {int(k): v for k, v in fenv.items()}
+
     # Restore effects
     session.effects = data.get('effects', [])
-    
+
     # Restore FX chains
     session.buffer_fx_chain = data.get('buffer_fx_chain', [])
     session.track_fx_chain = data.get('track_fx_chain', [])
@@ -1430,6 +1471,23 @@ def cmd_load(session: Session, args: List[str]) -> str:
     session._redo_stack = []
     session._track_undo_stacks = {}
     session._track_redo_stacks = {}
+
+    # Cancel any existing autosave timer and restart if enabled
+    old_timer = getattr(session, '_autosave_timer', None)
+    if old_timer is not None:
+        old_timer.cancel()
+        session._autosave_timer = None
+    if session._autosave_enabled:
+        try:
+            from .phase_t_cmds import _autosave_tick
+            import threading
+            t = threading.Timer(session._autosave_interval * 60,
+                                _autosave_tick, args=(session,))
+            t.daemon = True
+            session._autosave_timer = t
+            t.start()
+        except ImportError:
+            pass
 
     # Restore working buffer
     wb_b64 = data.get('working_buffer')

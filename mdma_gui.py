@@ -2324,6 +2324,12 @@ class ObjectBrowser(wx.Panel):
 
     def populate_tree(self):
         """Build the full object tree from live session data."""
+        # Preserve current selection for restoration after rebuild
+        prev_sel_data = None
+        prev_item = self.tree.GetSelection()
+        if prev_item and prev_item.IsOk():
+            prev_sel_data = self.tree.GetItemData(prev_item)
+
         self.tree.DeleteAllItems()
         root = self.tree.AddRoot("MDMA Session")
         self.category_items = {}
@@ -2814,6 +2820,55 @@ class ObjectBrowser(wx.Panel):
                                          'id': 'phase_t'})
 
         self.tree.ExpandAll()
+
+        # Restore previous selection by matching type+id
+        if prev_sel_data:
+            self._restore_selection(self.tree.GetRootItem(), prev_sel_data)
+
+    def _restore_selection(self, parent, target_data):
+        """Walk tree to find and select item matching target_data."""
+        if not parent.IsOk():
+            return False
+        item, cookie = self.tree.GetFirstChild(parent)
+        while item.IsOk():
+            data = self.tree.GetItemData(item)
+            if data and self._data_matches(data, target_data):
+                self.tree.SelectItem(item)
+                return True
+            # Recurse into children
+            if self.tree.ItemHasChildren(item):
+                if self._restore_selection(item, target_data):
+                    return True
+            item, cookie = self.tree.GetNextChild(parent, cookie)
+        return False
+
+    @staticmethod
+    def _data_matches(a, b):
+        """Check if two tree item data dicts refer to the same logical object."""
+        if not a or not b:
+            return False
+        if a.get('type') != b.get('type'):
+            return False
+        t = a['type']
+        # Match by specific keys depending on type
+        if t == 'track':
+            return a.get('index') == b.get('index')
+        if t == 'buffer':
+            return a.get('buffer_index') == b.get('buffer_index')
+        if t in ('operator', 'op'):
+            return a.get('op_index') == b.get('op_index')
+        if t in ('filter', 'filter_slot'):
+            return a.get('filter_index') == b.get('filter_index')
+        if t in ('deck', 'deck_section'):
+            return a.get('deck') == b.get('deck')
+        if t == 'phase_t_cmd':
+            return a.get('command') == b.get('command')
+        if t == 'category':
+            return a.get('id') == b.get('id')
+        if t == 'gen_section':
+            return a.get('section') == b.get('section')
+        # Fallback: match by id
+        return a.get('id') == b.get('id') and a.get('id') is not None
 
     # ------------------------------------------------------------------
     # Selection
@@ -5011,7 +5066,8 @@ class InspectorPanel(wx.Panel):
         elif obj_type == 'category':
             self._inspect_category(data)
         elif obj_type in ('gen_genre', 'gen_layer', 'gen_xform_preset',
-                          'gen_theory_item', 'gen_content_item', 'gen_section'):
+                          'gen_theory_item', 'gen_content_item', 'gen_section',
+                          'gen_breed_item', 'gen_tta_item', 'phase_t_cmd'):
             self._inspect_generative(data)
         else:
             self.title.SetLabel("Inspector")
@@ -7100,8 +7156,20 @@ class MDMAFrame(wx.Frame):
         except Exception:
             pass  # Silently handle missing state keys
 
-        # Rebuild browser tree with fresh data
+        # Rebuild browser tree with fresh data (preserves selection)
         self.browser.populate_tree()
+
+        # Re-inspect selected item so inspector shows fresh data
+        sel = self.browser.tree.GetSelection()
+        if sel and sel.IsOk():
+            data = self.browser.tree.GetItemData(sel)
+            if data:
+                self.inspector.inspect(data)
+        else:
+            # No selection after rebuild — clear inspector to avoid stale data
+            self.inspector.title.SetLabel("Inspector")
+            self.inspector.subtitle.SetLabel("Select an item in the tree")
+            self.inspector.current_data = None
 
         # Update step grid
         self.step_grid.update_from_session()
@@ -7198,7 +7266,8 @@ class MDMAFrame(wx.Frame):
         elif obj_type in ('preset_slot',):
             self.action_panel.set_category('preset')
         elif obj_type in ('gen_genre', 'gen_layer', 'gen_xform_preset',
-                          'gen_theory_item', 'gen_content_item', 'gen_section'):
+                          'gen_theory_item', 'gen_content_item', 'gen_section',
+                          'gen_breed_item', 'gen_tta_item', 'phase_t_cmd'):
             pass  # Inspector handles display; no action panel category needed
 
         # Update inspector with full object details
