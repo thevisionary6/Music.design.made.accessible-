@@ -199,6 +199,29 @@ def build_command_table():
         'irg': 'convolution_cmds',
         'irgrains': 'convolution_cmds',
 
+        # Phase T: System audit commands - phase_t_cmds owns
+        'undo': 'phase_t_cmds',
+        'redo': 'phase_t_cmds',
+        'snapshot': 'phase_t_cmds',
+        'section': 'phase_t_cmds',
+        'pchain': 'phase_t_cmds',
+        'export': 'phase_t_cmds',
+        'master_gain': 'phase_t_cmds',
+        'mgain': 'phase_t_cmds',
+        'crossover': 'phase_t_cmds',
+        'xover': 'phase_t_cmds',
+        'dup': 'phase_t_cmds',
+        'duplicate': 'phase_t_cmds',
+        'metronome': 'phase_t_cmds',
+        'metro': 'phase_t_cmds',
+        'commit': 'phase_t_cmds',
+        'cm': 'phase_t_cmds',
+        'autosave': 'phase_t_cmds',
+        'pos': 'phase_t_cmds',
+        'seek': 'phase_t_cmds',
+        'swap': 'phase_t_cmds',
+        'filefx': 'phase_t_cmds',
+
         # Phase 4: Generative commands - gen_cmds owns
         'beat': 'gen_cmds',
         'loop': 'gen_cmds',
@@ -407,6 +430,15 @@ def build_command_table():
         pass
 
     # ================================================================
+    # PHASE 8.9: Load Phase T commands (system audit / song-ready)
+    # ================================================================
+    try:
+        from mdma_rebuild.commands.phase_t_cmds import get_phase_t_commands
+        register_from_dict(get_phase_t_commands(), 'phase_t_cmds')
+    except ImportError:
+        pass
+
+    # ================================================================
     # PHASE 9: Load AI commands (highest priority)
     # ================================================================
     ai_mod = _CMD_MODULES.get('ai_cmds')
@@ -581,6 +613,26 @@ def show_help():
     print("  /theory scales/chords/prog  Music theory queries")
     print()
     
+    print("PHASE T — SONG-READY TOOLS:")
+    print("  /undo [track N]    Undo last operation")
+    print("  /redo [track N]    Redo undone operation")
+    print("  /snapshot          Save/restore parameter snapshot")
+    print("  /section add/list  Song section markers")
+    print("  /pchain <b> <r>... Chain buffers into sequence")
+    print("  /export stems      Export all tracks as stems")
+    print("  /export track <n>  Export single track")
+    print("  /master_gain <dB>  Set master gain")
+    print("  /crossover <a> <b> Crossover two buffers")
+    print("  /dup [src] [dst]   Duplicate buffer")
+    print("  /metronome [bars]  Generate click track")
+    print("  /swap <a> <b>      Swap two buffers")
+    print("  /commit [track]    Commit working buffer to track")
+    print("  /pos [sec|bar]     Show/set write position")
+    print("  /seek <pos>        Jump to position")
+    print("  /autosave on/off   Toggle auto-save")
+    print("  /filefx add/clear  Manage file FX chain")
+    print()
+
     print("FX CHAINS (by position):")
     print("  /bfx           Buffer FX (add/rm/apply/clear)")
     print("  /tfx           Track FX")

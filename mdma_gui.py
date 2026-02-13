@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-MDMA GUI - Phase 4: Generative Systems + Genetic Breeding
-==========================================================
+MDMA GUI - Phase T: Song-Ready System Audit
+==============================================
 
 Full-featured wxPython interface for the MDMA audio engine.
 
@@ -35,7 +35,20 @@ Phase 4 features:
 - Step grid click-drag selection highlighting
 - Accessible step text field (screen reader character navigation)
 
-Version: 4.0.0
+Phase T features (Song-Ready):
+- Undo/redo for working buffer and tracks
+- Parameter snapshot save/restore
+- Song section markers (add, list, goto, copy, move)
+- Pattern chaining (/pchain) and commit-to-track (/commit)
+- Stem export, track export, section export
+- Master gain control
+- /crossover command wired to genetic breeding engine
+- Buffer duplicate (/dup), swap (/swap), metronome (/click)
+- Write position display/control (/pos, /seek)
+- Auto-save toggle, file FX chain management
+- Phase T object tree category with full inspector support
+
+Version: 4.1.0
 Author: Based on spec by Cyrus
 Date: 2026-02-13
 
@@ -45,7 +58,7 @@ Requirements:
 Usage:
     python mdma_gui.py
 
-BUILD ID: mdma_gui_v4.0.0_phase4
+BUILD ID: mdma_gui_v4.1.0_phaseT
 """
 
 import sys
@@ -1401,6 +1414,184 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             description='Configure genetic breeding parameters'
         ),
     ],
+
+    # -------------------------------------------------------------------
+    # Phase T — Song-Ready Tools
+    # -------------------------------------------------------------------
+    'phase_t_undo': [
+        ActionDef(
+            name='undo_working',
+            label='Undo Working Buffer',
+            command_template='/undo',
+            params=[],
+            description='Undo last operation on working buffer'
+        ),
+        ActionDef(
+            name='redo_working',
+            label='Redo Working Buffer',
+            command_template='/redo',
+            params=[],
+            description='Redo previously undone operation'
+        ),
+        ActionDef(
+            name='undo_track',
+            label='Undo Track',
+            command_template='/undo track {track_n}',
+            params=[
+                ActionParam('track_n', 'Track Number', 'int', 1, min_val=1, max_val=16),
+            ],
+            description='Undo last operation on a track'
+        ),
+        ActionDef(
+            name='snapshot_save',
+            label='Save Snapshot',
+            command_template='/snapshot save',
+            params=[],
+            description='Save current session parameters as a snapshot'
+        ),
+        ActionDef(
+            name='snapshot_restore',
+            label='Restore Snapshot',
+            command_template='/snapshot restore {index}',
+            params=[
+                ActionParam('index', 'Snapshot Index', 'int', -1),
+            ],
+            description='Restore session parameters from a saved snapshot'
+        ),
+    ],
+    'phase_t_structure': [
+        ActionDef(
+            name='section_add',
+            label='Add Song Section',
+            command_template='/section add {name} {start_bar} {end_bar}',
+            params=[
+                ActionParam('name', 'Section Name', 'text', 'intro'),
+                ActionParam('start_bar', 'Start Bar', 'int', 0, min_val=0),
+                ActionParam('end_bar', 'End Bar', 'int', 8, min_val=1),
+            ],
+            description='Define a named song section by bar range'
+        ),
+        ActionDef(
+            name='section_list',
+            label='List Sections',
+            command_template='/section list',
+            params=[],
+            description='Show all defined song sections'
+        ),
+        ActionDef(
+            name='section_copy',
+            label='Copy Section',
+            command_template='/section copy {name} {to_bar}',
+            params=[
+                ActionParam('name', 'Section Name', 'text', 'intro'),
+                ActionParam('to_bar', 'Destination Bar', 'int', 16, min_val=0),
+            ],
+            description='Copy a section to a new bar position on all tracks'
+        ),
+        ActionDef(
+            name='pchain',
+            label='Chain Patterns',
+            command_template='/pchain {chain_spec}',
+            params=[
+                ActionParam('chain_spec', 'Chain Spec (buf repeat pairs)', 'text', '1 4 2 2'),
+            ],
+            description='Chain buffer patterns into a sequence on the current track'
+        ),
+        ActionDef(
+            name='commit_working',
+            label='Commit to Track',
+            command_template='/commit',
+            params=[],
+            description='Write working buffer to current track and advance write position'
+        ),
+        ActionDef(
+            name='set_position',
+            label='Set Write Position',
+            command_template='/pos {position}',
+            params=[
+                ActionParam('position', 'Position (seconds or Nb for bars)', 'text', '0'),
+            ],
+            description='Set the write cursor position on the current track'
+        ),
+    ],
+    'phase_t_export': [
+        ActionDef(
+            name='export_stems',
+            label='Export Stems',
+            command_template='/export stems',
+            params=[],
+            description='Export each track as a separate WAV file'
+        ),
+        ActionDef(
+            name='export_track',
+            label='Export Track',
+            command_template='/export track {track_n}',
+            params=[
+                ActionParam('track_n', 'Track Number', 'int', 1, min_val=1, max_val=16),
+            ],
+            description='Export a single track to a WAV file'
+        ),
+        ActionDef(
+            name='export_section',
+            label='Export Section',
+            command_template='/export section {name}',
+            params=[
+                ActionParam('name', 'Section Name', 'text', 'intro'),
+            ],
+            description='Render and export a named song section'
+        ),
+        ActionDef(
+            name='master_gain',
+            label='Master Gain',
+            command_template='/master_gain {db}',
+            params=[
+                ActionParam('db', 'Gain (dB)', 'float', 0.0, min_val=-24, max_val=12),
+            ],
+            description='Set master output gain in decibels'
+        ),
+    ],
+    'phase_t_tools': [
+        ActionDef(
+            name='crossover_tool',
+            label='Crossover Buffers',
+            command_template='/crossover {buffer_a} {buffer_b} {method}',
+            params=[
+                ActionParam('buffer_a', 'Buffer A', 'int', 1, min_val=1),
+                ActionParam('buffer_b', 'Buffer B', 'int', 2, min_val=1),
+                ActionParam('method', 'Method', 'choice', 'temporal',
+                            choices=['temporal', 'spectral', 'blend', 'morphological', 'multi_point']),
+            ],
+            description='Genetically crossover two buffers into a new child'
+        ),
+        ActionDef(
+            name='dup_buffer',
+            label='Duplicate Buffer',
+            command_template='/dup {source}',
+            params=[
+                ActionParam('source', 'Source Buffer', 'int', 1, min_val=1),
+            ],
+            description='Duplicate a buffer to the next empty slot'
+        ),
+        ActionDef(
+            name='swap_buffers',
+            label='Swap Buffers',
+            command_template='/swap {a} {b}',
+            params=[
+                ActionParam('a', 'Buffer A', 'int', 1, min_val=1),
+                ActionParam('b', 'Buffer B', 'int', 2, min_val=1),
+            ],
+            description='Swap the contents of two buffers'
+        ),
+        ActionDef(
+            name='metronome',
+            label='Metronome',
+            command_template='/metronome {bars}',
+            params=[
+                ActionParam('bars', 'Bar Count', 'int', 4, min_val=1, max_val=64),
+            ],
+            description='Generate a click track in the working buffer'
+        ),
+    ],
 }
 
 
@@ -2573,6 +2764,55 @@ class ObjectBrowser(wx.Panel):
             self.tree.SetItemData(sub, {'type': 'gen_breed_item',
                                          'method': method, 'id': 'generative'})
 
+        # ---- Phase T: Song-Ready Tools ----
+        phase_t = self.tree.AppendItem(root, "Song Tools (Phase T)")
+        self.tree.SetItemData(phase_t, {'type': 'category', 'id': 'phase_t'})
+
+        # Undo/Redo
+        for label, cmd in [('Undo', '/undo'), ('Redo', '/redo'),
+                           ('Save Snapshot', '/snapshot save'),
+                           ('Restore Snapshot', '/snapshot restore')]:
+            sub = self.tree.AppendItem(phase_t, label)
+            self.tree.SetItemData(sub, {'type': 'phase_t_cmd', 'command': cmd,
+                                         'id': 'phase_t'})
+
+        # Structure
+        struct = self.tree.AppendItem(phase_t, "Song Structure")
+        self.tree.SetItemData(struct, {'type': 'gen_section', 'section': 'phase_t_structure',
+                                        'id': 'phase_t'})
+        for label, cmd in [('Add Section', '/section add'),
+                           ('List Sections', '/section list'),
+                           ('Copy Section', '/section copy'),
+                           ('Commit to Track', '/commit'),
+                           ('Show Position', '/pos')]:
+            sub = self.tree.AppendItem(struct, label)
+            self.tree.SetItemData(sub, {'type': 'phase_t_cmd', 'command': cmd,
+                                         'id': 'phase_t'})
+
+        # Export
+        exp_cat = self.tree.AppendItem(phase_t, "Export")
+        self.tree.SetItemData(exp_cat, {'type': 'gen_section', 'section': 'phase_t_export',
+                                         'id': 'phase_t'})
+        for label, cmd in [('Export Stems', '/export stems'),
+                           ('Export Track', '/export track'),
+                           ('Export Section', '/export section'),
+                           ('Master Gain', '/master_gain')]:
+            sub = self.tree.AppendItem(exp_cat, label)
+            self.tree.SetItemData(sub, {'type': 'phase_t_cmd', 'command': cmd,
+                                         'id': 'phase_t'})
+
+        # Tools
+        tools = self.tree.AppendItem(phase_t, "Buffer Tools")
+        self.tree.SetItemData(tools, {'type': 'gen_section', 'section': 'phase_t_tools',
+                                       'id': 'phase_t'})
+        for label, cmd in [('Crossover Buffers', '/crossover'),
+                           ('Duplicate Buffer', '/dup'),
+                           ('Swap Buffers', '/swap'),
+                           ('Metronome', '/metronome')]:
+            sub = self.tree.AppendItem(tools, label)
+            self.tree.SetItemData(sub, {'type': 'phase_t_cmd', 'command': cmd,
+                                         'id': 'phase_t'})
+
         self.tree.ExpandAll()
 
     # ------------------------------------------------------------------
@@ -3352,6 +3592,39 @@ class ObjectBrowser(wx.Panel):
                     lambda e: self._exec('/evolve 10 8'), id=m_evolve)
                 self.Bind(wx.EVT_MENU,
                     lambda e: self._exec('/mutate noise 30'), id=m_mutate)
+            elif section == 'phase_t_structure':
+                for label, cmd in [('Add Section', '/section add intro 0 8'),
+                                   ('List Sections', '/section list'),
+                                   ('Commit to Track', '/commit'),
+                                   ('Show Position', '/pos')]:
+                    m_id = wx.NewIdRef()
+                    menu.Append(m_id, label)
+                    self.Bind(wx.EVT_MENU,
+                        lambda e, c=cmd: self._exec(c), id=m_id)
+            elif section == 'phase_t_export':
+                for label, cmd in [('Export Stems', '/export stems'),
+                                   ('Export Current Track', '/export track 1'),
+                                   ('Master Gain +0dB', '/master_gain 0')]:
+                    m_id = wx.NewIdRef()
+                    menu.Append(m_id, label)
+                    self.Bind(wx.EVT_MENU,
+                        lambda e, c=cmd: self._exec(c), id=m_id)
+            elif section == 'phase_t_tools':
+                for label, cmd in [('Crossover Buffers 1 + 2', '/crossover 1 2 temporal'),
+                                   ('Duplicate Buffer 1', '/dup 1'),
+                                   ('Swap Buffers 1 + 2', '/swap 1 2'),
+                                   ('Metronome 4 Bars', '/metronome 4')]:
+                    m_id = wx.NewIdRef()
+                    menu.Append(m_id, label)
+                    self.Bind(wx.EVT_MENU,
+                        lambda e, c=cmd: self._exec(c), id=m_id)
+
+        elif obj_type == 'phase_t_cmd':
+            cmd = data.get('command', '')
+            m_run = wx.NewIdRef()
+            menu.Append(m_run, f"Run: {cmd}")
+            self.Bind(wx.EVT_MENU,
+                lambda e, c=cmd: self._exec(c), id=m_run)
 
         # ==============================================================
         # Category-level context menus
@@ -4137,11 +4410,13 @@ class ObjectBrowser(wx.Panel):
             slider = wx.Slider(panel, value=int(current_val), minValue=int(lo),
                                maxValue=int(hi),
                                style=wx.SL_HORIZONTAL)
+            slider.SetName(f"{param_key} slider")
             spin = wx.SpinCtrlDouble(panel, value=str(current_val),
                                       min=float(lo), max=float(hi),
                                       inc=0.1 if hi <= 4 else 1.0)
             spin.SetValue(current_val)
             spin.SetMinSize(wx.Size(80, -1))
+            spin.SetName(f"{param_key} value")
 
             # Sync slider ↔ spin
             def _on_slider(evt, sp=spin):
@@ -4165,6 +4440,10 @@ class ObjectBrowser(wx.Panel):
         dlg.SetSizer(main_sizer)
         dlg.SetSize((440, min(80 + len(known_params) * 45, 600)))
         dlg.CenterOnParent()
+        # Set initial focus to first spin control for keyboard accessibility
+        if controls:
+            first_ctrl = next(iter(controls.values()))
+            first_ctrl.SetFocus()
 
         if dlg.ShowModal() == wx.ID_OK:
             cmds = []
@@ -4359,7 +4638,7 @@ class ActionPanel(wx.Panel):
 
     def __init__(self, parent, executor: CommandExecutor, console_callback,
                  state_sync_callback: Optional[Callable] = None):
-        super().__init__(parent)
+        super().__init__(parent, style=wx.TAB_TRAVERSAL)
         self.executor = executor
         self.console_callback = console_callback
         self.state_sync_callback = state_sync_callback
@@ -4385,6 +4664,7 @@ class ActionPanel(wx.Panel):
         action_label = wx.StaticText(self, label="Action:")
         action_label.SetForegroundColour(Theme.FG_TEXT)
         self.action_choice = wx.Choice(self)
+        self.action_choice.SetName("Action Selection")
         self.action_choice.SetBackgroundColour(Theme.BG_INPUT)
         self.action_choice.Bind(wx.EVT_CHOICE, self.on_action_select)
         
@@ -4399,6 +4679,7 @@ class ActionPanel(wx.Panel):
         
         # Parameters panel (scrollable)
         self.params_panel = wx.ScrolledWindow(self)
+        self.params_panel.SetName("Action Parameters Panel")
         self.params_panel.SetBackgroundColour(Theme.BG_PANEL)
         self.params_panel.SetScrollRate(0, 20)
         self.params_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -4411,6 +4692,7 @@ class ActionPanel(wx.Panel):
         self.sizer.Add(preview_label, 0, wx.LEFT | wx.TOP, 10)
         
         self.command_preview = wx.TextCtrl(self, style=wx.TE_READONLY)
+        self.command_preview.SetName("Generated Command Preview")
         self.command_preview.SetBackgroundColour(Theme.BG_INPUT)
         self.command_preview.SetForegroundColour(Theme.ACCENT)
         self.sizer.Add(self.command_preview, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
@@ -4643,7 +4925,7 @@ class InspectorPanel(wx.Panel):
 
     def __init__(self, parent, executor: CommandExecutor,
                  console_callback=None, state_sync_callback=None):
-        super().__init__(parent)
+        super().__init__(parent, style=wx.TAB_TRAVERSAL)
         self.executor = executor
         self.console_cb = console_callback
         self.state_sync_cb = state_sync_callback
@@ -4669,6 +4951,7 @@ class InspectorPanel(wx.Panel):
 
         # Properties list (scrollable)
         self.props_panel = wx.ScrolledWindow(self)
+        self.props_panel.SetName("Object Properties")
         self.props_panel.SetBackgroundColour(Theme.BG_PANEL)
         self.props_panel.SetScrollRate(0, 20)
         self.props_sizer = wx.FlexGridSizer(cols=2, hgap=12, vgap=6)
@@ -5230,13 +5513,45 @@ class InspectorPanel(wx.Panel):
             else:
                 self._add_action_btn(f"Crossover Buf 1+2", f"/crossover 1 2 {method}")
 
+        elif obj_type == 'phase_t_cmd':
+            cmd = data.get('command', '')
+            label = cmd.lstrip('/').replace('_', ' ').title()
+            self.title.SetLabel(label)
+            self.subtitle.SetLabel("Song-Ready Tool (Phase T)")
+            cmd_desc = {
+                '/undo': 'Undo the last destructive operation on working buffer or track',
+                '/redo': 'Re-apply previously undone operation',
+                '/snapshot save': 'Save all session parameters (BPM, FX, gains) as a snapshot',
+                '/snapshot restore': 'Restore session parameters from a saved snapshot',
+                '/section add': 'Define a named section by bar range for song arrangement',
+                '/section list': 'Show all defined song sections with bar positions',
+                '/section copy': 'Copy a section to a new bar position across all tracks',
+                '/commit': 'Write working buffer to current track, advance write position',
+                '/pos': 'Show or set the track write cursor position',
+                '/export stems': 'Export each track as a separate WAV file',
+                '/export track': 'Export a single track to a WAV file',
+                '/export section': 'Render and export a named song section',
+                '/master_gain': 'Set the master output gain in dB before limiting',
+                '/crossover': 'Genetically crossover two buffers using breeding algorithms',
+                '/dup': 'Duplicate a buffer to the next empty slot',
+                '/swap': 'Swap the contents of two buffers',
+                '/metronome': 'Generate a click track in the working buffer',
+            }
+            self._add_prop("Description:", cmd_desc.get(cmd, 'Phase T command'))
+            self._add_prop("Command:", cmd)
+            self._add_separator("Actions")
+            self._add_action_btn("Execute", cmd)
+
         elif obj_type == 'gen_section':
             section = data.get('section', '')
             titles = {'beat': 'Beat Generation', 'loop': 'Loop Generation',
                       'xform': 'Transforms', 'theory': 'Music Theory',
                       'gen2': 'Content Generation',
                       'text_to_audio': 'Text to Audio',
-                      'breeding': 'Genetic Breeding'}
+                      'breeding': 'Genetic Breeding',
+                      'phase_t_structure': 'Song Structure',
+                      'phase_t_export': 'Export & Render',
+                      'phase_t_tools': 'Buffer Tools'}
             self.title.SetLabel(titles.get(section, section.title()))
             self.subtitle.SetLabel("Generative Section")
             if section == 'breeding':
@@ -5248,6 +5563,18 @@ class InspectorPanel(wx.Panel):
                 self._add_prop("Generators:", "melody, chords, bassline, arpeggio, drone, beat, loop")
                 self._add_prop("Scales:", "21 scales available")
                 self._add_prop("Genres:", "11 beat/loop genre templates")
+            elif section == 'phase_t_structure':
+                self._add_prop("Commands:", "/section, /pchain, /commit, /pos, /seek")
+                self._add_prop("Sections:", "Named bar ranges for arrangement")
+                self._add_prop("Chaining:", "Chain buffer patterns into track sequences")
+            elif section == 'phase_t_export':
+                self._add_prop("Commands:", "/export, /master_gain")
+                self._add_prop("Stems:", "Export each track as separate WAV")
+                self._add_prop("Sections:", "Render named sections to file")
+            elif section == 'phase_t_tools':
+                self._add_prop("Commands:", "/crossover, /dup, /swap, /metronome")
+                self._add_prop("Crossover:", "5 genetic crossover methods")
+                self._add_prop("Metronome:", "Click track generator")
 
     def _inspect_category(self, data):
         cat_id = data.get('id', '')
@@ -5268,7 +5595,8 @@ class InspectorPanel(wx.Panel):
                  'preset': 'Presets', 'bank': 'Banks',
                  'generative': 'Generative',
                  'text_to_audio': 'Text to Audio',
-                 'breeding': 'Genetic Breeding'}
+                 'breeding': 'Genetic Breeding',
+                 'phase_t': 'Song Tools (Phase T)'}
         self.title.SetLabel(names.get(cat_id, cat_id.title()))
         self.subtitle.SetLabel("Category")
 
@@ -5437,7 +5765,7 @@ class StepGridPanel(wx.Panel):
     CHAR_SELECTED = '*'
 
     def __init__(self, parent, executor: CommandExecutor):
-        super().__init__(parent, name="StepGrid")
+        super().__init__(parent, name="StepGrid", style=wx.TAB_TRAVERSAL)
         self.executor = executor
         self.SetBackgroundColour(self.COL_GRID_BG)
 
@@ -5462,6 +5790,7 @@ class StepGridPanel(wx.Panel):
 
         # Step count selector
         self.step_choice = wx.Choice(self, choices=['16', '32', '64', '128'])
+        self.step_choice.SetName("Step Count Selector")
         self.step_choice.SetSelection(1)  # 32 default
         self.step_choice.Bind(wx.EVT_CHOICE, self.on_step_count_change)
         hdr_sizer.Add(wx.StaticText(self, label="Steps:"), 0,
@@ -5478,6 +5807,9 @@ class StepGridPanel(wx.Panel):
         self.canvas.Bind(wx.EVT_LEFT_UP, self.on_grid_mouse_up)
         self.canvas.Bind(wx.EVT_MOTION, self.on_grid_mouse_drag)
         self.canvas.Bind(wx.EVT_LEFT_DCLICK, self.on_grid_dclick)
+        self.canvas.Bind(wx.EVT_KEY_DOWN, self.on_grid_key)
+        self.canvas.SetFocus()
+        self._kb_cursor = 0  # Keyboard cursor position for arrow-key navigation
         self.canvas.SetMinSize((self.STEPS_PER_ROW * (self.CELL_SIZE + self.CELL_PAD) + 40, 80))
         self.sizer.Add(self.canvas, 1, wx.EXPAND | wx.ALL, 5)
 
@@ -5492,6 +5824,7 @@ class StepGridPanel(wx.Panel):
         ]:
             dot = wx.Panel(self, size=(10, 10))
             dot.SetBackgroundColour(color)
+            dot.SetName("")  # Decorative; skip in screen readers
             legend_sizer.Add(dot, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
             lbl = wx.StaticText(self, label=label)
             lbl.SetForegroundColour(Theme.FG_DIM)
@@ -5604,6 +5937,45 @@ class StepGridPanel(wx.Panel):
     def on_grid_dclick(self, event):
         """Double-click clears selection."""
         self.selected_steps = set()
+        self.canvas.Refresh()
+        self._update_step_text()
+
+    def on_grid_key(self, event):
+        """Keyboard navigation for step grid (accessibility).
+
+        Arrow Left/Right moves cursor. Shift+Arrow extends selection.
+        Home/End jumps to start/end. Escape clears selection.
+        """
+        key = event.GetKeyCode()
+        shift = event.ShiftDown()
+        old_cursor = self._kb_cursor
+
+        if key == wx.WXK_RIGHT:
+            self._kb_cursor = min(self._kb_cursor + 1, self.total_steps - 1)
+        elif key == wx.WXK_LEFT:
+            self._kb_cursor = max(self._kb_cursor - 1, 0)
+        elif key == wx.WXK_HOME:
+            self._kb_cursor = 0
+        elif key == wx.WXK_END:
+            self._kb_cursor = self.total_steps - 1
+        elif key == wx.WXK_ESCAPE:
+            self.selected_steps = set()
+            self.canvas.Refresh()
+            self._update_step_text()
+            return
+        else:
+            event.Skip()
+            return
+
+        if shift:
+            # Extend selection from old cursor to new
+            lo = min(old_cursor, self._kb_cursor)
+            hi = max(old_cursor, self._kb_cursor)
+            for s in range(lo, hi + 1):
+                self.selected_steps.add(s)
+        else:
+            self.selected_steps = {self._kb_cursor}
+
         self.canvas.Refresh()
         self._update_step_text()
 
@@ -5777,10 +6149,10 @@ class StepGridPanel(wx.Panel):
 
 class ConsolePanel(wx.Panel):
     """Bottom panel - output console."""
-    
+
     def __init__(self, parent):
-        super().__init__(parent)
-        
+        super().__init__(parent, style=wx.TAB_TRAVERSAL)
+
         self.SetBackgroundColour(Theme.BG_DARK)
         
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -5799,8 +6171,9 @@ class ConsolePanel(wx.Panel):
         sizer.Add(header_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         # Console text
-        self.console = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_READONLY | 
+        self.console = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_READONLY |
                                    wx.TE_RICH2 | wx.HSCROLL)
+        self.console.SetName("Command Output Console")
         self.console.SetBackgroundColour(Theme.BG_DARK)
         self.console.SetForegroundColour(Theme.FG_TEXT)
         
@@ -5862,7 +6235,7 @@ class PatchBuilderPanel(wx.Panel):
     """
 
     def __init__(self, parent, executor, console_callback=None, state_sync_callback=None):
-        super().__init__(parent)
+        super().__init__(parent, style=wx.TAB_TRAVERSAL)
         self.executor = executor
         self.console_cb = console_callback or (lambda *a: None)
         self.sync_cb = state_sync_callback or (lambda: None)
@@ -5880,6 +6253,7 @@ class PatchBuilderPanel(wx.Panel):
 
         # Operator list
         self.op_list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
+        self.op_list.SetName("Operator List")
         self.op_list.SetBackgroundColour(Theme.BG_INPUT)
         self.op_list.SetForegroundColour(Theme.FG_TEXT)
         self.op_list.InsertColumn(0, "Op", width=40)
@@ -5895,6 +6269,7 @@ class PatchBuilderPanel(wx.Panel):
         sizer.Add(route_label, 0, wx.LEFT | wx.TOP, 8)
 
         self.route_list = wx.ListCtrl(self, style=wx.LC_REPORT)
+        self.route_list.SetName("Modulation Routing Table")
         self.route_list.SetBackgroundColour(Theme.BG_INPUT)
         self.route_list.SetForegroundColour(Theme.FG_TEXT)
         self.route_list.InsertColumn(0, "#", width=30)
@@ -6077,7 +6452,7 @@ class RoutingPanel(wx.Panel):
     """
 
     def __init__(self, parent, executor):
-        super().__init__(parent)
+        super().__init__(parent, style=wx.TAB_TRAVERSAL)
         self.executor = executor
         self.SetBackgroundColour(Theme.BG_DARK)
         self.Bind(wx.EVT_PAINT, self.on_paint)
@@ -6199,7 +6574,7 @@ class OscillatorListPanel(wx.Panel):
     """
 
     def __init__(self, parent, executor, console_callback=None, state_sync_callback=None):
-        super().__init__(parent)
+        super().__init__(parent, style=wx.TAB_TRAVERSAL)
         self.executor = executor
         self.console_cb = console_callback or (lambda *a: None)
         self.sync_cb = state_sync_callback or (lambda: None)
@@ -6222,12 +6597,14 @@ class OscillatorListPanel(wx.Panel):
             "All", "Basic", "Noise", "Physical", "Extended",
             "Waveguide", "Wavetable", "Compound"
         ])
+        self.wave_filter.SetName("Oscillator Wave Type Filter")
         self.wave_filter.SetSelection(0)
         self.wave_filter.Bind(wx.EVT_CHOICE, lambda e: self.refresh())
         filter_sizer.Add(self.wave_filter, 0, wx.RIGHT, 8)
 
         # Add operator button
         add_btn = wx.Button(self, label="+ Add Operator")
+        add_btn.SetName("Add New Oscillator Operator")
         add_btn.SetBackgroundColour(Theme.BG_INPUT)
         add_btn.SetForegroundColour(Theme.SUCCESS)
         add_btn.Bind(wx.EVT_BUTTON, self._on_add_op)
@@ -6237,6 +6614,7 @@ class OscillatorListPanel(wx.Panel):
 
         # Scrolled operator cards
         self.scroll = wx.ScrolledWindow(self)
+        self.scroll.SetName("Oscillator Cards")
         self.scroll.SetScrollRate(0, 20)
         self.scroll.SetBackgroundColour(Theme.BG_DARK)
         self.scroll_sizer = wx.BoxSizer(wx.VERTICAL)

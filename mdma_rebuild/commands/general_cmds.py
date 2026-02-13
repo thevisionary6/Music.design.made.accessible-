@@ -1514,18 +1514,23 @@ def _import_audio(session, file_path: str, target: str) -> str:
         else:
             audio = samples.reshape(-1, n_ch)[:, :2]
 
-        # Resample if needed
+        # Resample if needed (T.8 — improved sample rate conversion)
         session_sr = getattr(session, 'sample_rate', 48000)
         if sr != session_sr:
-            ratio = session_sr / sr
-            new_len = int(len(audio) * ratio)
-            x_old = np.linspace(0, 1, len(audio))
-            x_new = np.linspace(0, 1, new_len)
-            resampled = np.column_stack([
-                np.interp(x_new, x_old, audio[:, 0]),
-                np.interp(x_new, x_old, audio[:, 1]),
-            ])
-            audio = resampled
+            try:
+                from .phase_t_cmds import resample_audio
+                audio = resample_audio(audio, sr, session_sr)
+            except ImportError:
+                # Fallback to linear interpolation
+                ratio = session_sr / sr
+                new_len = int(len(audio) * ratio)
+                x_old = np.linspace(0, 1, len(audio))
+                x_new = np.linspace(0, 1, new_len)
+                resampled = np.column_stack([
+                    np.interp(x_new, x_old, audio[:, 0]),
+                    np.interp(x_new, x_old, audio[:, 1]),
+                ])
+                audio = resampled
 
         dur = len(audio) / session_sr
 

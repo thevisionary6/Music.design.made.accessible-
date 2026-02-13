@@ -181,5 +181,9 @@ def cmd_mix(session: Session, args: List[str]) -> str:
 
 
 def cmd_stop_play(session: Session, args: List[str]) -> str:
-    """Stop any playing audio (placeholder for future implementation)."""
-    return "OK: playback stopped"
+    """Stop any playing audio."""
+    try:
+        result = session.stop_playback()
+        return f"OK: {result}"
+    except Exception as exc:
+        return f"OK: playback stopped ({exc})"

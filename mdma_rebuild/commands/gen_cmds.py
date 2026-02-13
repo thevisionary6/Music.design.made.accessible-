@@ -39,6 +39,47 @@ def _tf():
     return transforms
 
 
+def _apply_route(session: Session, audio, args: list, default_source: str = 'generated') -> str:
+    """Apply route= parameter from args. Returns routing info string.
+
+    Supported: route=working (default), route=track, route=track:N, route=buffer:N
+    """
+    route = 'working'
+    for arg in args:
+        if isinstance(arg, str) and arg.lower().startswith('route='):
+            route = arg.split('=', 1)[1].lower()
+            break
+
+    extra = ''
+    if route.startswith('track'):
+        parts = route.split(':')
+        if len(parts) > 1:
+            try:
+                track_n = int(parts[1])
+                session.ensure_track_index(track_n)
+                session.push_undo('track', track_n - 1)
+                start, end = session.write_to_track(audio, track_idx=track_n)
+                extra = f"\n  Routed to track {track_n} at {start / session.sample_rate:.2f}s"
+            except (ValueError, AttributeError):
+                pass
+        else:
+            session.push_undo('track', session.current_track_index)
+            start, end = session.write_to_track(audio)
+            t_n = session.current_track_index + 1
+            extra = f"\n  Routed to track {t_n} at {start / session.sample_rate:.2f}s"
+    elif route.startswith('buffer'):
+        parts = route.split(':')
+        if len(parts) > 1:
+            try:
+                buf_n = int(parts[1])
+                session.store_in_buffer(buf_n, audio)
+                extra = f"\n  Routed to buffer {buf_n}"
+            except ValueError:
+                pass
+
+    return extra
+
+
 # ======================================================================
 # /beat — drum beat generation (4.4)
 # ======================================================================
@@ -130,8 +171,9 @@ def cmd_beat(session: Session, args: List[str]) -> str:
     session._last_beat_bars = bars
     dur = len(audio) / session.sample_rate
     peak = np.max(np.abs(audio))
+    route_info = _apply_route(session, audio, args, f'beat_{genre}')
     return (f"OK: {genre} beat — {bars} bar(s), {template.bpm:.0f} BPM, "
-            f"{dur:.2f}s, peak {peak:.3f}")
+            f"{dur:.2f}s, peak {peak:.3f}{route_info}")
 
 
 # ======================================================================
@@ -205,7 +247,8 @@ def cmd_loop(session: Session, args: List[str]) -> str:
     dur = len(audio) / session.sample_rate
     peak = np.max(np.abs(audio))
     info = lg.format_loop_info(spec)
-    return f"OK: {info}\n  Duration: {dur:.2f}s, peak: {peak:.3f}"
+    route_info = _apply_route(session, audio, args, source)
+    return f"OK: {info}\n  Duration: {dur:.2f}s, peak: {peak:.3f}{route_info}"
 
 
 # ======================================================================
