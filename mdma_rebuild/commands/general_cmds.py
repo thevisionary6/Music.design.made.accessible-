@@ -1194,6 +1194,14 @@ def cmd_save(session: Session, args: List[str]) -> str:
             chains_data[cname] = list(clist)
     project_data['chains'] = chains_data
 
+    # Phase T state
+    project_data['sections'] = getattr(session, 'sections', [])
+    project_data['master_gain'] = getattr(session, 'master_gain', 0.0)
+    project_data['autosave_enabled'] = getattr(session, '_autosave_enabled', False)
+    project_data['autosave_interval'] = getattr(session, '_autosave_interval', 5)
+    # Snapshots (parameter-only, lightweight)
+    project_data['snapshots'] = getattr(session, '_snapshots', [])
+
     # Serialize imported data / working buffer source info
     project_data['working_buffer_source'] = getattr(
         session, 'working_buffer_source', 'init')
@@ -1410,6 +1418,18 @@ def cmd_load(session: Session, args: List[str]) -> str:
             session.chains = {}
         session.chains.update(chains)
         restored_parts.append(f"{len(chains)} chains")
+
+    # Restore Phase T state
+    session.sections = data.get('sections', [])
+    session.master_gain = data.get('master_gain', 0.0)
+    session._autosave_enabled = data.get('autosave_enabled', False)
+    session._autosave_interval = data.get('autosave_interval', 5)
+    session._snapshots = data.get('snapshots', [])
+    # Clear undo/redo stacks on load (fresh session)
+    session._undo_stack = []
+    session._redo_stack = []
+    session._track_undo_stacks = {}
+    session._track_redo_stacks = {}
 
     # Restore working buffer
     wb_b64 = data.get('working_buffer')

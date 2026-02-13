@@ -51,7 +51,11 @@ def _apply_route(session: Session, audio, args: list, default_source: str = 'gen
             break
 
     extra = ''
-    if route.startswith('track'):
+    if route == 'working' or route == '':
+        # Default route: caller already sets working buffer via
+        # session.set_working_buffer() — nothing extra needed.
+        pass
+    elif route.startswith('track'):
         parts = route.split(':')
         if len(parts) > 1:
             try:

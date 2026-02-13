@@ -118,7 +118,8 @@ def cmd_snapshot(session: "Session", args: List[str]) -> str:
             except ValueError:
                 return f"ERROR: Invalid snapshot index '{args[1]}'"
         if session.restore_snapshot(idx):
-            return f"OK: Restored snapshot #{idx if idx >= 0 else len(session._snapshots) - 1}"
+            display_idx = idx if idx >= 0 else len(session._snapshots) + idx
+            return f"OK: Restored snapshot #{display_idx}"
         return "ERROR: Snapshot not found"
 
     return "Usage: /snapshot [save|list|restore [n]]"
@@ -254,7 +255,7 @@ def _section_copy_move(session: "Session", name: str, to_bar: int, move: bool) -
     src_end = _bar_to_samples(sec['end_bar'], bpm, sr)
     dst_start = _bar_to_samples(to_bar, bpm, sr)
 
-    for track in session.tracks:
+    for i, track in enumerate(session.tracks):
         audio = track.get('audio')
         if audio is None:
             continue
@@ -262,6 +263,8 @@ def _section_copy_move(session: "Session", name: str, to_bar: int, move: bool) -
         actual_end = min(src_end, len(audio))
         if src_start >= actual_end:
             continue
+        # Push undo before modifying each track
+        session.push_undo('track', i)
         section_audio = audio[src_start:actual_end].copy()
         # Write to destination
         dst_end = min(dst_start + len(section_audio), len(audio))
@@ -314,13 +317,15 @@ def cmd_pchain(session: "Session", args: List[str]) -> str:
 
     chained = np.concatenate(chain_parts)
 
-    # Write to current track
+    # Push undo for both targets BEFORE any mutations
+    session.push_undo('working')
     session.push_undo('track', session.current_track_index)
+
+    # Write to current track
     start, end = session.write_to_track(chained)
     dur = len(chained) / session.sample_rate
 
     # Also put in working buffer
-    session.push_undo('working')
     session.working_buffer = chained.copy()
     session.working_buffer_source = 'pchain'
     session.last_buffer = chained.copy()
@@ -457,6 +462,8 @@ def _mix_range(session: "Session", start: int, end: int) -> np.ndarray:
 def _write_wav(audio: np.ndarray, sr: int, path: str) -> None:
     """Write audio to WAV file (16-bit)."""
     import wave as _wave
+    if audio.size == 0:
+        raise ValueError("Cannot write empty audio to WAV file")
     if audio.ndim == 2 and audio.shape[1] == 2:
         n_channels = 2
         interleaved = np.empty(audio.shape[0] * 2, dtype=np.float64)
@@ -679,6 +686,10 @@ def cmd_swap(session: "Session", args: List[str]) -> str:
         b = int(args[1])
     except ValueError:
         return "ERROR: Buffer indices must be integers"
+    if a < 0 or b < 0:
+        return "ERROR: Buffer indices must be non-negative"
+    if a == b:
+        return "ERROR: Cannot swap a buffer with itself"
 
     buf_a = session.buffers.get(a, np.zeros(0, dtype=np.float64)).copy()
     buf_b = session.buffers.get(b, np.zeros(0, dtype=np.float64)).copy()
@@ -738,6 +749,31 @@ def cmd_commit(session: "Session", args: List[str]) -> str:
 # T.6 — SAVE/LOAD PERSISTENCE
 # ============================================================================
 
+def _autosave_tick(session: "Session") -> None:
+    """Background autosave timer callback."""
+    if not getattr(session, '_autosave_enabled', False):
+        return
+    try:
+        proj_name = getattr(session, 'current_project', None) or 'autosave'
+        save_path = os.path.join(
+            os.path.expanduser('~'), 'Documents', 'MDMA',
+            f"{proj_name}_autosave.mdma")
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        # Use the save infrastructure if available
+        from mdma_rebuild.commands.general_cmds import cmd_save
+        cmd_save(session, [save_path])
+    except Exception:
+        pass  # Autosave should never crash the session
+    finally:
+        # Reschedule if still enabled
+        if getattr(session, '_autosave_enabled', False):
+            interval = getattr(session, '_autosave_interval', 5)
+            t = threading.Timer(interval * 60, _autosave_tick, args=(session,))
+            t.daemon = True
+            session._autosave_timer = t
+            t.start()
+
+
 def cmd_autosave(session: "Session", args: List[str]) -> str:
     """Configure auto-save.
 
@@ -754,9 +790,23 @@ def cmd_autosave(session: "Session", args: List[str]) -> str:
     sub = args[0].lower()
     if sub in ('on', 'enable'):
         session._autosave_enabled = True
-        return f"OK: Auto-save enabled (every {session._autosave_interval} min)"
+        # Cancel existing timer if any
+        old_timer = getattr(session, '_autosave_timer', None)
+        if old_timer is not None:
+            old_timer.cancel()
+        # Start new timer
+        interval = session._autosave_interval
+        t = threading.Timer(interval * 60, _autosave_tick, args=(session,))
+        t.daemon = True
+        session._autosave_timer = t
+        t.start()
+        return f"OK: Auto-save enabled (every {interval} min)"
     elif sub in ('off', 'disable'):
         session._autosave_enabled = False
+        old_timer = getattr(session, '_autosave_timer', None)
+        if old_timer is not None:
+            old_timer.cancel()
+            session._autosave_timer = None
         return "OK: Auto-save disabled"
     elif sub == 'interval':
         if len(args) < 2:
@@ -764,6 +814,16 @@ def cmd_autosave(session: "Session", args: List[str]) -> str:
         try:
             mins = int(args[1])
             session._autosave_interval = max(1, mins)
+            # Restart timer if running
+            if session._autosave_enabled:
+                old_timer = getattr(session, '_autosave_timer', None)
+                if old_timer is not None:
+                    old_timer.cancel()
+                t = threading.Timer(session._autosave_interval * 60,
+                                    _autosave_tick, args=(session,))
+                t.daemon = True
+                session._autosave_timer = t
+                t.start()
             return f"OK: Auto-save interval set to {session._autosave_interval} min"
         except ValueError:
             return f"ERROR: Invalid interval '{args[1]}'"
@@ -799,7 +859,7 @@ def cmd_pos(session: "Session", args: List[str]) -> str:
     if arg.endswith('b'):
         try:
             bars = float(arg[:-1])
-            seconds = _bar_to_seconds(int(bars), session.bpm)
+            seconds = _bar_to_seconds(bars, session.bpm)
         except ValueError:
             return f"ERROR: Invalid bar position '{arg}'"
     else:

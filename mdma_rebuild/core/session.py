@@ -1086,6 +1086,8 @@ class Session:
             stack = self._track_redo_stacks.get(idx, [])
             if not stack:
                 return False
+            if idx not in self._track_undo_stacks:
+                self._track_undo_stacks[idx] = []
             self._track_undo_stacks[idx].append(self.tracks[idx]['audio'].copy())
             self.tracks[idx]['audio'] = stack.pop()
             return True
@@ -1114,8 +1116,12 @@ class Session:
             'track_pans': [t.get('pan', 0.0) for t in self.tracks],
             'track_mutes': [t.get('mute', False) for t in self.tracks],
             'track_solos': [t.get('solo', False) for t in self.tracks],
+            'sections': [dict(s) for s in self.sections],
         }
         self._snapshots.append(snap)
+        # Cap at 50 snapshots to prevent unbounded memory growth
+        if len(self._snapshots) > 50:
+            self._snapshots.pop(0)
         return len(self._snapshots) - 1
 
     def restore_snapshot(self, index: int = -1) -> bool:
@@ -1148,6 +1154,8 @@ class Session:
                 t['mute'] = snap['track_mutes'][i]
             if i < len(snap.get('track_solos', [])):
                 t['solo'] = snap['track_solos'][i]
+        if 'sections' in snap:
+            self.sections = [dict(s) for s in snap['sections']]
         return True
 
     # ------------ Envelope management methods ------------

@@ -5896,12 +5896,15 @@ class StepGridPanel(wx.Panel):
             return
         self._drag_active = True
         self._drag_start_step = step
+        # Sync keyboard cursor with mouse click
+        self._kb_cursor = step
         # Clear previous selection unless Shift held
         if not event.ShiftDown():
             self.selected_steps = set()
         self.selected_steps.add(step)
         self.canvas.CaptureMouse()
         self.canvas.Refresh()
+        self._update_step_text()
 
     def on_grid_mouse_drag(self, event):
         """Extend selection as mouse moves while button is held."""
@@ -5943,12 +5946,52 @@ class StepGridPanel(wx.Panel):
     def on_grid_key(self, event):
         """Keyboard navigation for step grid (accessibility).
 
-        Arrow Left/Right moves cursor. Shift+Arrow extends selection.
-        Home/End jumps to start/end. Escape clears selection.
+        Arrow Left/Right: move cursor. Shift+Arrow: extend selection.
+        Home/End: jump to start/end. Escape: clear selection.
+        Space: toggle filled state on current step.
+        Ctrl+A: select all steps.
+        Ctrl+C: copy selected pattern to clipboard.
+        Ctrl+V: paste pattern from clipboard at cursor.
         """
         key = event.GetKeyCode()
         shift = event.ShiftDown()
+        ctrl = event.ControlDown()
         old_cursor = self._kb_cursor
+
+        # Ctrl+A — select all
+        if ctrl and key == ord('A'):
+            self.selected_steps = set(range(self.total_steps))
+            self.canvas.Refresh()
+            self._update_step_text()
+            return
+
+        # Ctrl+C — copy selected pattern as text
+        if ctrl and key == ord('C'):
+            self._copy_selection_to_clipboard()
+            return
+
+        # Ctrl+V — paste pattern from clipboard at cursor
+        if ctrl and key == ord('V'):
+            self._paste_from_clipboard()
+            return
+
+        # Space — toggle current step filled/empty
+        if key == wx.WXK_SPACE:
+            step = self._kb_cursor
+            if step in self.filled_steps:
+                self.filled_steps.discard(step)
+            else:
+                self.filled_steps.add(step)
+            self.canvas.Refresh()
+            self._update_step_text()
+            return
+
+        # Enter — set write position to cursor
+        if key in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+            self.write_pos = self._kb_cursor
+            self.canvas.Refresh()
+            self._update_step_text()
+            return
 
         if key == wx.WXK_RIGHT:
             self._kb_cursor = min(self._kb_cursor + 1, self.total_steps - 1)
@@ -5976,6 +6019,46 @@ class StepGridPanel(wx.Panel):
         else:
             self.selected_steps = {self._kb_cursor}
 
+        self.canvas.Refresh()
+        self._update_step_text()
+
+    def _copy_selection_to_clipboard(self):
+        """Copy the selected step pattern to the system clipboard."""
+        if not self.selected_steps:
+            return
+        lo = min(self.selected_steps)
+        hi = max(self.selected_steps)
+        chars = []
+        for step in range(lo, hi + 1):
+            if step in self.filled_steps:
+                chars.append(self.CHAR_FILLED)
+            else:
+                chars.append(self.CHAR_EMPTY)
+        text = ''.join(chars)
+        if wx.TheClipboard.Open():
+            wx.TheClipboard.SetData(wx.TextDataObject(text))
+            wx.TheClipboard.Close()
+
+    def _paste_from_clipboard(self):
+        """Paste a step pattern from clipboard starting at keyboard cursor."""
+        text = ''
+        if wx.TheClipboard.Open():
+            data = wx.TextDataObject()
+            if wx.TheClipboard.GetData(data):
+                text = data.GetText()
+            wx.TheClipboard.Close()
+        if not text:
+            return
+        pos = self._kb_cursor
+        for ch in text:
+            if pos >= self.total_steps:
+                break
+            if ch == self.CHAR_FILLED or ch == '#':
+                self.filled_steps.add(pos)
+            elif ch == self.CHAR_EMPTY or ch == '-':
+                self.filled_steps.discard(pos)
+            # Skip unrecognized characters
+            pos += 1
         self.canvas.Refresh()
         self._update_step_text()
 
