@@ -362,7 +362,7 @@ def cmd_export(session: "Session", args: List[str]) -> str:
         exported = 0
         for i, track in enumerate(session.tracks):
             audio = track.get('audio')
-            if audio is None or np.max(np.abs(audio)) < 1e-7:
+            if audio is None or audio.size == 0 or np.max(np.abs(audio)) < 1e-7:
                 continue
             # Apply per-track FX, gain, pan
             processed = session.preview_track(i, include_master=False)
@@ -410,7 +410,7 @@ def cmd_export(session: "Session", args: List[str]) -> str:
         src_end = _bar_to_samples(sec['end_bar'], bpm, sr)
         # Mix all tracks for that range
         mixed = _mix_range(session, src_start, src_end)
-        if mixed is None or np.max(np.abs(mixed)) < 1e-7:
+        if mixed is None or mixed.size == 0 or np.max(np.abs(mixed)) < 1e-7:
             return f"ERROR: Section '{name}' contains no audio"
         path = args[2] if len(args) > 2 else out_dir
         if os.path.isdir(path):

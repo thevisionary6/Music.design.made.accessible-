@@ -6092,17 +6092,21 @@ class StepGridPanel(wx.Panel):
                 chars.append(self.CHAR_EMPTY)
         text = ''.join(chars)
         if wx.TheClipboard.Open():
-            wx.TheClipboard.SetData(wx.TextDataObject(text))
-            wx.TheClipboard.Close()
+            try:
+                wx.TheClipboard.SetData(wx.TextDataObject(text))
+            finally:
+                wx.TheClipboard.Close()
 
     def _paste_from_clipboard(self):
         """Paste a step pattern from clipboard starting at keyboard cursor."""
         text = ''
         if wx.TheClipboard.Open():
-            data = wx.TextDataObject()
-            if wx.TheClipboard.GetData(data):
-                text = data.GetText()
-            wx.TheClipboard.Close()
+            try:
+                data = wx.TextDataObject()
+                if wx.TheClipboard.GetData(data):
+                    text = data.GetText()
+            finally:
+                wx.TheClipboard.Close()
         if not text:
             return
         pos = self._kb_cursor

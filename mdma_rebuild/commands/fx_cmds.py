@@ -549,10 +549,13 @@ def cmd_fx(session: Session, args: List[str]) -> str:
     before_rms = np.sqrt(np.mean(session.last_buffer ** 2))
     before_samples = len(session.last_buffer)
     
-    # Apply effect immediately
+    # Apply effect immediately AND track in chain
     try:
         session.last_buffer = apply_effects_with_params(session.last_buffer, [effect_name], [{}])
-        
+
+        # Track in effects chain so tree/inspector reflect the change
+        session.add_effect(effect_name)
+
         # Update working buffer
         try:
             from .working_cmds import get_working_buffer
