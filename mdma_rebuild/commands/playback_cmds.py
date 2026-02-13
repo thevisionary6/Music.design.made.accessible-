@@ -634,6 +634,9 @@ def cmd_wfx(session: "Session", args: List[str]) -> str:
     # Compute before metrics
     before_metrics = compute_metrics(working)
     
+    # Push undo before applying effect (T.1)
+    session.push_undo('working')
+
     # Apply effect
     try:
         result, effect_desc = _apply_effect(working, effect_name, effect_params, session.sample_rate)
@@ -870,12 +873,18 @@ def _simple_delay(audio: np.ndarray, delay_ms: float, feedback: float, sr: int) 
 
 
 def _undo_wfx(session: "Session", ctx: PlaybackContext) -> str:
-    """Undo last effect on working buffer."""
+    """Undo last effect on working buffer using session undo stack."""
     if not ctx.working_fx_chain:
         return "Nothing to undo"
-    
-    # Can't easily undo, need to reload from source
-    # Just remove last from chain and note it
+
+    # Try real undo via session stack (T.1)
+    if session.pop_undo('working'):
+        removed = ctx.working_fx_chain.pop()
+        ctx.working_buffer = session.working_buffer
+        dur = len(session.working_buffer) / session.sample_rate
+        return f"OK: Undid '{removed[0]}' — working buffer restored ({dur:.2f}s)"
+
+    # Fallback: just remove from chain
     removed = ctx.working_fx_chain.pop()
     return f"OK: Removed '{removed[0]}' from chain. Use /W to reload and reapply."
 

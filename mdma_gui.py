@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-MDMA GUI - Phase 3: Modulation, Impulse & Convolution
-==========================================================
+MDMA GUI - Phase T: Song-Ready System Audit
+==============================================
 
 Full-featured wxPython interface for the MDMA audio engine.
 
@@ -27,9 +27,30 @@ Phase 3 features:
 - AI-descriptor IR transformation (15 semantic descriptors)
 - Granular IR tools (stretch, morph, redesign, freeze)
 
-Version: 3.0.0
+Phase 4 features:
+- Buffer duplication, copy, and import actions
+- Text-to-audio generative actions (melody, chords, bass, beats, loops)
+- Genetic sample breeding exposure (crossover, mutation, evolution)
+- Breeding/mutate dialogs and tree categories
+- Step grid click-drag selection highlighting
+- Accessible step text field (screen reader character navigation)
+
+Phase T features (Song-Ready):
+- Undo/redo for working buffer and tracks
+- Parameter snapshot save/restore
+- Song section markers (add, list, goto, copy, move)
+- Pattern chaining (/pchain) and commit-to-track (/commit)
+- Stem export, track export, section export
+- Master gain control
+- /crossover command wired to genetic breeding engine
+- Buffer duplicate (/dup), swap (/swap), metronome (/click)
+- Write position display/control (/pos, /seek)
+- Auto-save toggle, file FX chain management
+- Phase T object tree category with full inspector support
+
+Version: 4.1.0
 Author: Based on spec by Cyrus
-Date: 2026-02-11
+Date: 2026-02-13
 
 Requirements:
     pip install wxPython
@@ -37,7 +58,7 @@ Requirements:
 Usage:
     python mdma_gui.py
 
-BUILD ID: mdma_gui_v2.0.0_phase2
+BUILD ID: mdma_gui_v4.1.0_phaseT
 """
 
 import sys
@@ -1109,6 +1130,466 @@ ACTIONS: Dict[str, List[ActionDef]] = {
                 ActionParam('position', 'Freeze Position', 'float', 0.5, min_val=0, max_val=1),
             ],
             description='Freeze IR at a specific position'
+        ),
+    ],
+
+    # ------------------------------------------------------------------
+    # Phase 4+: Buffer Operations, Text-to-Audio, Genetic Breeding
+    # ------------------------------------------------------------------
+
+    'buffers': [
+        ActionDef(
+            name='buf_play',
+            label='Play Buffer',
+            command_template='/pb {index}',
+            params=[
+                ActionParam('index', 'Buffer Index', 'int', 1, min_val=1, max_val=10),
+            ],
+            description='Play a numbered buffer'
+        ),
+        ActionDef(
+            name='buf_play_working',
+            label='Play Working Buffer',
+            command_template='/p',
+            params=[],
+            description='Play the working buffer'
+        ),
+        ActionDef(
+            name='buf_duplicate',
+            label='Duplicate Buffer',
+            command_template='/w {source}\n/a',
+            params=[
+                ActionParam('source', 'Source Buffer', 'int', 1, min_val=1, max_val=10),
+            ],
+            description='Duplicate a buffer — loads source into working, then appends to next slot'
+        ),
+        ActionDef(
+            name='buf_copy_to_track',
+            label='Buffer to Track',
+            command_template='/w {source}\n/ta',
+            params=[
+                ActionParam('source', 'Source Buffer', 'int', 1, min_val=1, max_val=10),
+            ],
+            description='Copy a buffer to the current track'
+        ),
+        ActionDef(
+            name='buf_bounce_track',
+            label='Bounce Track to Working',
+            command_template='/btw {track}',
+            params=[
+                ActionParam('track', 'Track Number', 'int', 1, min_val=1, max_val=16),
+            ],
+            description='Bounce a track into the working buffer for editing'
+        ),
+        ActionDef(
+            name='buf_bounce_back',
+            label='Bounce Working Back',
+            command_template='/btw back',
+            params=[],
+            description='Write working buffer back to the track it was bounced from'
+        ),
+        ActionDef(
+            name='buf_clear',
+            label='Clear Buffer',
+            command_template='/clr {index}',
+            params=[
+                ActionParam('index', 'Buffer Index (0=working)', 'int', 0, min_val=0, max_val=10),
+            ],
+            description='Clear a buffer (0 clears working buffer)'
+        ),
+        ActionDef(
+            name='buf_info',
+            label='Buffer Info',
+            command_template='/b',
+            params=[],
+            description='Show buffer overview with durations and sample counts'
+        ),
+        ActionDef(
+            name='buf_import',
+            label='Import Audio File',
+            command_template='/import {path}',
+            params=[
+                ActionParam('path', 'File Path', 'file', ''),
+            ],
+            description='Import a WAV file into the working buffer'
+        ),
+        ActionDef(
+            name='buf_import_to_track',
+            label='Import to Track',
+            command_template='/import {path} track',
+            params=[
+                ActionParam('path', 'File Path', 'file', ''),
+            ],
+            description='Import a WAV file directly to the current track'
+        ),
+    ],
+
+    'text_to_audio': [
+        ActionDef(
+            name='gen2_melody',
+            label='Generate Melody',
+            command_template='/gen2 melody {scale} {length}',
+            params=[
+                ActionParam('scale', 'Scale', 'enum', 'minor',
+                            choices=['major', 'minor', 'dorian', 'phrygian', 'lydian',
+                                     'mixolydian', 'pentatonic_major', 'pentatonic_minor',
+                                     'blues', 'harmonic_minor', 'melodic_minor',
+                                     'whole_tone', 'japanese', 'arabic', 'hungarian_minor']),
+                ActionParam('length', 'Note Count', 'int', 8, min_val=2, max_val=64),
+            ],
+            description='Generate a melodic sequence from a scale with contour shaping'
+        ),
+        ActionDef(
+            name='gen2_chords',
+            label='Generate Chord Progression',
+            command_template='/gen2 chord_prog {progression} {bars}',
+            params=[
+                ActionParam('progression', 'Progression', 'enum', 'I_V_vi_IV',
+                            choices=['I_IV_V', 'I_V_vi_IV', 'ii_V_I', 'I_vi_IV_V',
+                                     'vi_IV_I_V', 'I_IV_vi_V', 'i_iv_v',
+                                     'i_VI_III_VII', 'i_iv_VII_III', 'i_VII_VI_V', '12bar']),
+                ActionParam('bars', 'Bars', 'int', 4, min_val=1, max_val=32),
+            ],
+            description='Render a chord progression with voice-led voicings'
+        ),
+        ActionDef(
+            name='gen2_bassline',
+            label='Generate Bassline',
+            command_template='/gen2 bassline {scale} {bars}',
+            params=[
+                ActionParam('scale', 'Scale', 'enum', 'minor',
+                            choices=['major', 'minor', 'dorian', 'mixolydian',
+                                     'pentatonic_minor', 'blues']),
+                ActionParam('bars', 'Bars', 'int', 4, min_val=1, max_val=32),
+            ],
+            description='Generate a genre-aware bassline pattern'
+        ),
+        ActionDef(
+            name='gen2_arpeggio',
+            label='Generate Arpeggio',
+            command_template='/gen2 arpeggio {chord} {octaves}',
+            params=[
+                ActionParam('chord', 'Chord Type', 'enum', 'min7',
+                            choices=['maj', 'min', 'dim', 'aug', 'maj7', 'min7',
+                                     'dom7', 'sus2', 'sus4', 'add9', 'min9', 'maj9']),
+                ActionParam('octaves', 'Octaves', 'int', 2, min_val=1, max_val=4),
+            ],
+            description='Arpeggiate a chord type across octaves'
+        ),
+        ActionDef(
+            name='gen2_drone',
+            label='Generate Drone',
+            command_template='/gen2 drone {duration}',
+            params=[
+                ActionParam('duration', 'Duration (beats)', 'int', 8, min_val=1, max_val=64),
+            ],
+            description='Generate an ambient drone with detuned oscillators'
+        ),
+        ActionDef(
+            name='gen_beat',
+            label='Generate Beat',
+            command_template='/beat {genre} {bars}',
+            params=[
+                ActionParam('genre', 'Genre', 'enum', 'house',
+                            choices=['house', 'techno', 'hiphop', 'trap', 'dnb',
+                                     'lofi', 'reggaeton', 'breakbeat', 'dubstep',
+                                     'afrobeat', 'minimal']),
+                ActionParam('bars', 'Bars', 'int', 4, min_val=1, max_val=32),
+            ],
+            description='Generate a drum beat from genre template'
+        ),
+        ActionDef(
+            name='gen_loop',
+            label='Generate Loop',
+            command_template='/loop {genre} {bars}',
+            params=[
+                ActionParam('genre', 'Genre', 'enum', 'house',
+                            choices=['house', 'techno', 'hiphop', 'trap', 'dnb',
+                                     'lofi', 'reggaeton', 'breakbeat', 'dubstep',
+                                     'afrobeat', 'minimal']),
+                ActionParam('bars', 'Bars', 'int', 4, min_val=1, max_val=32),
+            ],
+            description='Generate a multi-layer loop (drums + bass + chords + melody)'
+        ),
+        ActionDef(
+            name='gen_xform',
+            label='Apply Transform',
+            command_template='/xform {transform}',
+            params=[
+                ActionParam('transform', 'Transform', 'enum', 'retrograde',
+                            choices=['retrograde', 'inversion', 'augmentation',
+                                     'diminution', 'permute', 'motivic',
+                                     'pitch_shift', 'stutter', 'chop',
+                                     'granular_freeze']),
+            ],
+            description='Apply a musical transformation to the working buffer'
+        ),
+        ActionDef(
+            name='gen_adapt_key',
+            label='Adapt Key',
+            command_template='/adapt key {target_key} {target_scale}',
+            params=[
+                ActionParam('target_key', 'Target Key', 'enum', 'C',
+                            choices=['C', 'C#', 'D', 'D#', 'E', 'F',
+                                     'F#', 'G', 'G#', 'A', 'A#', 'B']),
+                ActionParam('target_scale', 'Target Scale', 'enum', 'minor',
+                            choices=['major', 'minor', 'dorian', 'phrygian',
+                                     'lydian', 'mixolydian', 'pentatonic_major',
+                                     'pentatonic_minor', 'blues']),
+            ],
+            description='Adapt existing pattern to a new key and scale'
+        ),
+    ],
+
+    'breeding': [
+        ActionDef(
+            name='breed_buffers',
+            label='Breed Two Buffers',
+            command_template='/breed {buffer_a} {buffer_b} {children}',
+            params=[
+                ActionParam('buffer_a', 'Parent A (buffer #)', 'int', 1, min_val=1, max_val=10),
+                ActionParam('buffer_b', 'Parent B (buffer #)', 'int', 2, min_val=1, max_val=10),
+                ActionParam('children', 'Number of Children', 'int', 4, min_val=1, max_val=16),
+            ],
+            description='Genetically breed two audio buffers — produces children using crossover and mutation'
+        ),
+        ActionDef(
+            name='breed_targeted',
+            label='Targeted Breed',
+            command_template='/breed {buffer_a} {buffer_b} targeted {attribute}',
+            params=[
+                ActionParam('buffer_a', 'Parent A (buffer #)', 'int', 1, min_val=1, max_val=10),
+                ActionParam('buffer_b', 'Parent B (buffer #)', 'int', 2, min_val=1, max_val=10),
+                ActionParam('attribute', 'Target Attribute', 'enum', 'brightness',
+                            choices=['brightness', 'warmth', 'roughness', 'noisiness',
+                                     'attack', 'sustain', 'spectral_centroid',
+                                     'rms_energy']),
+            ],
+            description='Breed with fitness targeting — children optimized toward a sonic attribute'
+        ),
+        ActionDef(
+            name='evolve_buffer',
+            label='Evolve Population',
+            command_template='/evolve {generations} {population}',
+            params=[
+                ActionParam('generations', 'Generations', 'int', 10, min_val=1, max_val=100),
+                ActionParam('population', 'Population Size', 'int', 8, min_val=4, max_val=32),
+            ],
+            description='Run multi-generation evolution on buffer population with tournament selection'
+        ),
+        ActionDef(
+            name='mutate_buffer',
+            label='Mutate Buffer',
+            command_template='/mutate {mutation} {amount}',
+            params=[
+                ActionParam('mutation', 'Mutation Type', 'enum', 'noise',
+                            choices=['noise', 'pitch', 'time_stretch', 'freq_shift',
+                                     'envelope', 'reverse_segment', 'spectral_smear']),
+                ActionParam('amount', 'Amount (1-100)', 'int', 30, min_val=1, max_val=100),
+            ],
+            description='Apply a mutation operation to the working buffer'
+        ),
+        ActionDef(
+            name='crossover_buffers',
+            label='Crossover Two Buffers',
+            command_template='/crossover {buffer_a} {buffer_b} {method}',
+            params=[
+                ActionParam('buffer_a', 'Parent A (buffer #)', 'int', 1, min_val=1, max_val=10),
+                ActionParam('buffer_b', 'Parent B (buffer #)', 'int', 2, min_val=1, max_val=10),
+                ActionParam('method', 'Crossover Method', 'enum', 'spectral',
+                            choices=['temporal', 'spectral', 'blend',
+                                     'morphological', 'multi_point']),
+            ],
+            description='Cross two buffers using a specific crossover method — result goes to working buffer'
+        ),
+        ActionDef(
+            name='breed_config',
+            label='Breeding Config',
+            command_template='/breed config crossover_prob={crossover_prob} mutation_prob={mutation_prob} elite={elite}',
+            params=[
+                ActionParam('crossover_prob', 'Crossover Probability', 'float', 0.8, min_val=0, max_val=1),
+                ActionParam('mutation_prob', 'Mutation Probability', 'float', 0.15, min_val=0, max_val=1),
+                ActionParam('elite', 'Elite Count', 'int', 2, min_val=0, max_val=8),
+            ],
+            description='Configure genetic breeding parameters'
+        ),
+    ],
+
+    # -------------------------------------------------------------------
+    # Phase T — Song-Ready Tools
+    # -------------------------------------------------------------------
+    'phase_t_undo': [
+        ActionDef(
+            name='undo_working',
+            label='Undo Working Buffer',
+            command_template='/undo',
+            params=[],
+            description='Undo last operation on working buffer'
+        ),
+        ActionDef(
+            name='redo_working',
+            label='Redo Working Buffer',
+            command_template='/redo',
+            params=[],
+            description='Redo previously undone operation'
+        ),
+        ActionDef(
+            name='undo_track',
+            label='Undo Track',
+            command_template='/undo track {track_n}',
+            params=[
+                ActionParam('track_n', 'Track Number', 'int', 1, min_val=1, max_val=16),
+            ],
+            description='Undo last operation on a track'
+        ),
+        ActionDef(
+            name='snapshot_save',
+            label='Save Snapshot',
+            command_template='/snapshot save',
+            params=[],
+            description='Save current session parameters as a snapshot'
+        ),
+        ActionDef(
+            name='snapshot_restore',
+            label='Restore Snapshot',
+            command_template='/snapshot restore {index}',
+            params=[
+                ActionParam('index', 'Snapshot Index', 'int', -1),
+            ],
+            description='Restore session parameters from a saved snapshot'
+        ),
+    ],
+    'phase_t_structure': [
+        ActionDef(
+            name='section_add',
+            label='Add Song Section',
+            command_template='/section add {name} {start_bar} {end_bar}',
+            params=[
+                ActionParam('name', 'Section Name', 'text', 'intro'),
+                ActionParam('start_bar', 'Start Bar', 'int', 0, min_val=0),
+                ActionParam('end_bar', 'End Bar', 'int', 8, min_val=1),
+            ],
+            description='Define a named song section by bar range'
+        ),
+        ActionDef(
+            name='section_list',
+            label='List Sections',
+            command_template='/section list',
+            params=[],
+            description='Show all defined song sections'
+        ),
+        ActionDef(
+            name='section_copy',
+            label='Copy Section',
+            command_template='/section copy {name} {to_bar}',
+            params=[
+                ActionParam('name', 'Section Name', 'text', 'intro'),
+                ActionParam('to_bar', 'Destination Bar', 'int', 16, min_val=0),
+            ],
+            description='Copy a section to a new bar position on all tracks'
+        ),
+        ActionDef(
+            name='pchain',
+            label='Chain Patterns',
+            command_template='/pchain {chain_spec}',
+            params=[
+                ActionParam('chain_spec', 'Chain Spec (buf repeat pairs)', 'text', '1 4 2 2'),
+            ],
+            description='Chain buffer patterns into a sequence on the current track'
+        ),
+        ActionDef(
+            name='commit_working',
+            label='Commit to Track',
+            command_template='/commit',
+            params=[],
+            description='Write working buffer to current track and advance write position'
+        ),
+        ActionDef(
+            name='set_position',
+            label='Set Write Position',
+            command_template='/pos {position}',
+            params=[
+                ActionParam('position', 'Position (seconds or Nb for bars)', 'text', '0'),
+            ],
+            description='Set the write cursor position on the current track'
+        ),
+    ],
+    'phase_t_export': [
+        ActionDef(
+            name='export_stems',
+            label='Export Stems',
+            command_template='/export stems',
+            params=[],
+            description='Export each track as a separate WAV file'
+        ),
+        ActionDef(
+            name='export_track',
+            label='Export Track',
+            command_template='/export track {track_n}',
+            params=[
+                ActionParam('track_n', 'Track Number', 'int', 1, min_val=1, max_val=16),
+            ],
+            description='Export a single track to a WAV file'
+        ),
+        ActionDef(
+            name='export_section',
+            label='Export Section',
+            command_template='/export section {name}',
+            params=[
+                ActionParam('name', 'Section Name', 'text', 'intro'),
+            ],
+            description='Render and export a named song section'
+        ),
+        ActionDef(
+            name='master_gain',
+            label='Master Gain',
+            command_template='/master_gain {db}',
+            params=[
+                ActionParam('db', 'Gain (dB)', 'float', 0.0, min_val=-24, max_val=12),
+            ],
+            description='Set master output gain in decibels'
+        ),
+    ],
+    'phase_t_tools': [
+        ActionDef(
+            name='crossover_tool',
+            label='Crossover Buffers',
+            command_template='/crossover {buffer_a} {buffer_b} {method}',
+            params=[
+                ActionParam('buffer_a', 'Buffer A', 'int', 1, min_val=1),
+                ActionParam('buffer_b', 'Buffer B', 'int', 2, min_val=1),
+                ActionParam('method', 'Method', 'choice', 'temporal',
+                            choices=['temporal', 'spectral', 'blend', 'morphological', 'multi_point']),
+            ],
+            description='Genetically crossover two buffers into a new child'
+        ),
+        ActionDef(
+            name='dup_buffer',
+            label='Duplicate Buffer',
+            command_template='/dup {source}',
+            params=[
+                ActionParam('source', 'Source Buffer', 'int', 1, min_val=1),
+            ],
+            description='Duplicate a buffer to the next empty slot'
+        ),
+        ActionDef(
+            name='swap_buffers',
+            label='Swap Buffers',
+            command_template='/swap {a} {b}',
+            params=[
+                ActionParam('a', 'Buffer A', 'int', 1, min_val=1),
+                ActionParam('b', 'Buffer B', 'int', 2, min_val=1),
+            ],
+            description='Swap the contents of two buffers'
+        ),
+        ActionDef(
+            name='metronome',
+            label='Metronome',
+            command_template='/metronome {bars}',
+            params=[
+                ActionParam('bars', 'Bar Count', 'int', 4, min_val=1, max_val=64),
+            ],
+            description='Generate a click track in the working buffer'
         ),
     ],
 }
@@ -2251,6 +2732,87 @@ class ObjectBrowser(wx.Panel):
             self.tree.SetItemData(sub, {'type': 'gen_content_item',
                                          'content_type': sub_cmd, 'id': 'generative'})
 
+        # Text-to-Audio subcategory
+        gen_tta = self.tree.AppendItem(gen_cat, "Text to Audio")
+        self.tree.SetItemData(gen_tta, {'type': 'gen_section', 'section': 'text_to_audio',
+                                         'id': 'generative'})
+        for item, desc in [('Melody from Scale', 'melody'),
+                            ('Chord Progression', 'chord_prog'),
+                            ('Bassline', 'bassline'),
+                            ('Beat from Genre', 'beat'),
+                            ('Full Loop', 'loop')]:
+            sub = self.tree.AppendItem(gen_tta, item)
+            self.tree.SetItemData(sub, {'type': 'gen_tta_item',
+                                         'generator': desc, 'id': 'generative'})
+
+        # Genetic Breeding subcategory
+        gen_breed = self.tree.AppendItem(gen_cat, "Genetic Breeding")
+        self.tree.SetItemData(gen_breed, {'type': 'gen_section', 'section': 'breeding',
+                                           'id': 'generative'})
+        for item, method in [('Breed (Crossover + Mutate)', 'breed'),
+                              ('Temporal Crossover', 'temporal'),
+                              ('Spectral Crossover', 'spectral'),
+                              ('Blend Crossover', 'blend'),
+                              ('Morphological Crossover', 'morphological'),
+                              ('Evolve Population', 'evolve'),
+                              ('Mutate: Noise', 'mutate_noise'),
+                              ('Mutate: Pitch', 'mutate_pitch'),
+                              ('Mutate: Time Stretch', 'mutate_time_stretch'),
+                              ('Mutate: Spectral Smear', 'mutate_spectral_smear'),
+                              ('Mutate: Reverse Segment', 'mutate_reverse_segment')]:
+            sub = self.tree.AppendItem(gen_breed, item)
+            self.tree.SetItemData(sub, {'type': 'gen_breed_item',
+                                         'method': method, 'id': 'generative'})
+
+        # ---- Phase T: Song-Ready Tools ----
+        phase_t = self.tree.AppendItem(root, "Song Tools (Phase T)")
+        self.tree.SetItemData(phase_t, {'type': 'category', 'id': 'phase_t'})
+
+        # Undo/Redo
+        for label, cmd in [('Undo', '/undo'), ('Redo', '/redo'),
+                           ('Save Snapshot', '/snapshot save'),
+                           ('Restore Snapshot', '/snapshot restore')]:
+            sub = self.tree.AppendItem(phase_t, label)
+            self.tree.SetItemData(sub, {'type': 'phase_t_cmd', 'command': cmd,
+                                         'id': 'phase_t'})
+
+        # Structure
+        struct = self.tree.AppendItem(phase_t, "Song Structure")
+        self.tree.SetItemData(struct, {'type': 'gen_section', 'section': 'phase_t_structure',
+                                        'id': 'phase_t'})
+        for label, cmd in [('Add Section', '/section add'),
+                           ('List Sections', '/section list'),
+                           ('Copy Section', '/section copy'),
+                           ('Commit to Track', '/commit'),
+                           ('Show Position', '/pos')]:
+            sub = self.tree.AppendItem(struct, label)
+            self.tree.SetItemData(sub, {'type': 'phase_t_cmd', 'command': cmd,
+                                         'id': 'phase_t'})
+
+        # Export
+        exp_cat = self.tree.AppendItem(phase_t, "Export")
+        self.tree.SetItemData(exp_cat, {'type': 'gen_section', 'section': 'phase_t_export',
+                                         'id': 'phase_t'})
+        for label, cmd in [('Export Stems', '/export stems'),
+                           ('Export Track', '/export track'),
+                           ('Export Section', '/export section'),
+                           ('Master Gain', '/master_gain')]:
+            sub = self.tree.AppendItem(exp_cat, label)
+            self.tree.SetItemData(sub, {'type': 'phase_t_cmd', 'command': cmd,
+                                         'id': 'phase_t'})
+
+        # Tools
+        tools = self.tree.AppendItem(phase_t, "Buffer Tools")
+        self.tree.SetItemData(tools, {'type': 'gen_section', 'section': 'phase_t_tools',
+                                       'id': 'phase_t'})
+        for label, cmd in [('Crossover Buffers', '/crossover'),
+                           ('Duplicate Buffer', '/dup'),
+                           ('Swap Buffers', '/swap'),
+                           ('Metronome', '/metronome')]:
+            sub = self.tree.AppendItem(tools, label)
+            self.tree.SetItemData(sub, {'type': 'phase_t_cmd', 'command': cmd,
+                                         'id': 'phase_t'})
+
         self.tree.ExpandAll()
 
     # ------------------------------------------------------------------
@@ -2327,13 +2889,20 @@ class ObjectBrowser(wx.Panel):
             m_play = wx.NewIdRef()
             m_to_work = wx.NewIdRef()
             m_to_track = wx.NewIdRef()
+            m_dup = wx.NewIdRef()
             m_fx = wx.NewIdRef()
+            m_breed = wx.NewIdRef()
+            m_mutate = wx.NewIdRef()
             m_clear = wx.NewIdRef()
             menu.Append(m_play, f"Play Buffer {idx}")
             menu.Append(m_to_work, "Load to Working Buffer")
             menu.Append(m_to_track, "Write to Current Track")
+            menu.Append(m_dup, "Duplicate Buffer")
             menu.AppendSeparator()
             menu.Append(m_fx, "Apply Effect...")
+            menu.AppendSeparator()
+            menu.Append(m_breed, "Breed with Another Buffer...")
+            menu.Append(m_mutate, "Mutate Buffer")
             menu.AppendSeparator()
             menu.Append(m_clear, "Clear Buffer")
 
@@ -2344,7 +2913,13 @@ class ObjectBrowser(wx.Panel):
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/w {i}\n/ta'), id=m_to_track)
             self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/w {i}\n/a'), id=m_dup)
+            self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._show_fx_picker('buffer', i), id=m_fx)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_breed_picker(i), id=m_breed)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._exec(f'/w {i}\n/mutate noise 30'), id=m_mutate)
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/clr {i}'), id=m_clear)
 
@@ -2355,14 +2930,25 @@ class ObjectBrowser(wx.Panel):
             m_play = wx.NewIdRef()
             m_to_track = wx.NewIdRef()
             m_to_buf = wx.NewIdRef()
+            m_dup = wx.NewIdRef()
             m_fx = wx.NewIdRef()
+            m_mutate = wx.NewIdRef()
+            m_gen_mel = wx.NewIdRef()
+            m_gen_beat = wx.NewIdRef()
+            m_gen_drone = wx.NewIdRef()
             m_clear = wx.NewIdRef()
             menu.Append(m_play, "Play Working Buffer")
             menu.AppendSeparator()
             menu.Append(m_to_track, "Commit to Current Track")
             menu.Append(m_to_buf, "Commit to Buffer")
+            menu.Append(m_dup, "Duplicate to Buffer")
             menu.AppendSeparator()
             menu.Append(m_fx, "Apply Effect...")
+            menu.Append(m_mutate, "Mutate...")
+            menu.AppendSeparator()
+            menu.Append(m_gen_mel, "Generate Melody Here")
+            menu.Append(m_gen_beat, "Generate Beat Here")
+            menu.Append(m_gen_drone, "Generate Drone Here")
             menu.AppendSeparator()
             menu.Append(m_clear, "Clear Working Buffer")
 
@@ -2372,7 +2958,17 @@ class ObjectBrowser(wx.Panel):
             self.Bind(wx.EVT_MENU,
                 lambda e: self._exec('/a'), id=m_to_buf)
             self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/a'), id=m_dup)
+            self.Bind(wx.EVT_MENU,
                 lambda e: self._show_fx_picker('working', 0), id=m_fx)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._show_mutate_picker(), id=m_mutate)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/gen2 melody'), id=m_gen_mel)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/beat house 4'), id=m_gen_beat)
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/gen2 drone'), id=m_gen_drone)
             self.Bind(wx.EVT_MENU, lambda e: self._exec('/wbc'), id=m_clear)
 
         # ==============================================================
@@ -2887,6 +3483,46 @@ class ObjectBrowser(wx.Panel):
             self.Bind(wx.EVT_MENU,
                 lambda e, c=ctype: self._exec(f'/gen2 {c}'), id=m_gen)
 
+        elif obj_type == 'gen_tta_item':
+            gen = data.get('generator', 'melody')
+            m_gen = wx.NewIdRef()
+            if gen in ('beat',):
+                menu.Append(m_gen, f"Generate {gen.title()}")
+                self.Bind(wx.EVT_MENU,
+                    lambda e, g=gen: self._exec(f'/beat house 4'), id=m_gen)
+            elif gen in ('loop',):
+                menu.Append(m_gen, f"Generate Full Loop")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec(f'/loop house 4'), id=m_gen)
+            else:
+                menu.Append(m_gen, f"Generate {gen.replace('_', ' ').title()}")
+                self.Bind(wx.EVT_MENU,
+                    lambda e, g=gen: self._exec(f'/gen2 {g}'), id=m_gen)
+
+        elif obj_type == 'gen_breed_item':
+            method = data.get('method', 'breed')
+            if method == 'breed':
+                m_gen = wx.NewIdRef()
+                menu.Append(m_gen, "Breed Buffers 1 + 2")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/breed 1 2 4'), id=m_gen)
+            elif method == 'evolve':
+                m_gen = wx.NewIdRef()
+                menu.Append(m_gen, "Evolve (10 Generations)")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/evolve 10 8'), id=m_gen)
+            elif method.startswith('mutate_'):
+                mut_type = method.replace('mutate_', '')
+                m_gen = wx.NewIdRef()
+                menu.Append(m_gen, f"Apply {mut_type.replace('_', ' ').title()} Mutation")
+                self.Bind(wx.EVT_MENU,
+                    lambda e, m=mut_type: self._exec(f'/mutate {m} 30'), id=m_gen)
+            else:
+                m_gen = wx.NewIdRef()
+                menu.Append(m_gen, f"Crossover ({method.title()})")
+                self.Bind(wx.EVT_MENU,
+                    lambda e, m=method: self._exec(f'/crossover 1 2 {m}'), id=m_gen)
+
         elif obj_type == 'gen_section':
             section = data.get('section', '')
             if section == 'beat':
@@ -2926,6 +3562,69 @@ class ObjectBrowser(wx.Panel):
                     lambda e: self._exec('/gen2 chord_prog'), id=m_chd)
                 self.Bind(wx.EVT_MENU,
                     lambda e: self._exec('/gen2 bassline'), id=m_bas)
+            elif section == 'text_to_audio':
+                m_mel = wx.NewIdRef()
+                m_beat = wx.NewIdRef()
+                m_loop = wx.NewIdRef()
+                m_drone = wx.NewIdRef()
+                menu.Append(m_mel, "Generate Melody from Scale")
+                menu.Append(m_beat, "Generate Beat from Genre")
+                menu.Append(m_loop, "Generate Full Loop")
+                menu.Append(m_drone, "Generate Drone")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/gen2 melody'), id=m_mel)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/beat house 4'), id=m_beat)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/loop house 4'), id=m_loop)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/gen2 drone'), id=m_drone)
+            elif section == 'breeding':
+                m_breed = wx.NewIdRef()
+                m_evolve = wx.NewIdRef()
+                m_mutate = wx.NewIdRef()
+                menu.Append(m_breed, "Breed Buffers 1 + 2")
+                menu.Append(m_evolve, "Evolve Population")
+                menu.Append(m_mutate, "Mutate Working Buffer")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/breed 1 2 4'), id=m_breed)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/evolve 10 8'), id=m_evolve)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/mutate noise 30'), id=m_mutate)
+            elif section == 'phase_t_structure':
+                for label, cmd in [('Add Section', '/section add intro 0 8'),
+                                   ('List Sections', '/section list'),
+                                   ('Commit to Track', '/commit'),
+                                   ('Show Position', '/pos')]:
+                    m_id = wx.NewIdRef()
+                    menu.Append(m_id, label)
+                    self.Bind(wx.EVT_MENU,
+                        lambda e, c=cmd: self._exec(c), id=m_id)
+            elif section == 'phase_t_export':
+                for label, cmd in [('Export Stems', '/export stems'),
+                                   ('Export Current Track', '/export track 1'),
+                                   ('Master Gain +0dB', '/master_gain 0')]:
+                    m_id = wx.NewIdRef()
+                    menu.Append(m_id, label)
+                    self.Bind(wx.EVT_MENU,
+                        lambda e, c=cmd: self._exec(c), id=m_id)
+            elif section == 'phase_t_tools':
+                for label, cmd in [('Crossover Buffers 1 + 2', '/crossover 1 2 temporal'),
+                                   ('Duplicate Buffer 1', '/dup 1'),
+                                   ('Swap Buffers 1 + 2', '/swap 1 2'),
+                                   ('Metronome 4 Bars', '/metronome 4')]:
+                    m_id = wx.NewIdRef()
+                    menu.Append(m_id, label)
+                    self.Bind(wx.EVT_MENU,
+                        lambda e, c=cmd: self._exec(c), id=m_id)
+
+        elif obj_type == 'phase_t_cmd':
+            cmd = data.get('command', '')
+            m_run = wx.NewIdRef()
+            menu.Append(m_run, f"Run: {cmd}")
+            self.Bind(wx.EVT_MENU,
+                lambda e, c=cmd: self._exec(c), id=m_run)
 
         # ==============================================================
         # Category-level context menus
@@ -3180,9 +3879,26 @@ class ObjectBrowser(wx.Panel):
 
             elif cat_id == 'buffers':
                 m_commit = wx.NewIdRef()
+                m_info = wx.NewIdRef()
+                m_import = wx.NewIdRef()
+                m_clear_all = wx.NewIdRef()
                 menu.Append(m_commit, "Commit Working to Buffer")
+                menu.Append(m_info, "Buffer Overview")
+                menu.AppendSeparator()
+                menu.Append(m_import, "Import Audio File...")
+                menu.AppendSeparator()
+                menu.Append(m_clear_all, "Clear All Buffers")
                 self.Bind(wx.EVT_MENU,
                     lambda e: self._exec('/a'), id=m_commit)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/b'), id=m_info)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_placeholder(
+                        "Import Audio",
+                        "Use /import <path.wav> to load audio into working buffer."),
+                    id=m_import)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/clr all'), id=m_clear_all)
 
             elif cat_id == 'decks':
                 m_new = wx.NewIdRef()
@@ -3510,6 +4226,52 @@ class ObjectBrowser(wx.Panel):
             layer_dlg.Destroy()
         dlg.Destroy()
 
+    def _show_breed_picker(self, source_buf: int):
+        """Show dialog to pick a second buffer for breeding."""
+        other_bufs = [str(i) for i in range(1, 11) if i != source_buf]
+        dlg = wx.SingleChoiceDialog(
+            self,
+            f"Breed buffer {source_buf} with:",
+            "Genetic Breeding",
+            other_bufs)
+        if dlg.ShowModal() == wx.ID_OK:
+            other = other_bufs[dlg.GetSelection()]
+            methods = ['breed (auto)', 'temporal', 'spectral', 'blend',
+                       'morphological', 'multi_point']
+            m_dlg = wx.SingleChoiceDialog(
+                self, "Crossover method:", "Breeding Method", methods)
+            if m_dlg.ShowModal() == wx.ID_OK:
+                method = methods[m_dlg.GetSelection()]
+                if method == 'breed (auto)':
+                    self._exec(f'/breed {source_buf} {other} 4')
+                else:
+                    self._exec(f'/crossover {source_buf} {other} {method}')
+            m_dlg.Destroy()
+        dlg.Destroy()
+
+    def _show_mutate_picker(self):
+        """Show dialog to pick a mutation type for the working buffer."""
+        mutations = ['noise', 'pitch', 'time_stretch', 'freq_shift',
+                     'envelope', 'reverse_segment', 'spectral_smear']
+        labels = ['Noise (random perturbation)',
+                  'Pitch (resampling shift)',
+                  'Time Stretch (segment warping)',
+                  'Frequency Shift (band displacement)',
+                  'Envelope (amplitude modulation)',
+                  'Reverse Segment (flip chunks)',
+                  'Spectral Smear (blur frequencies)']
+        dlg = wx.SingleChoiceDialog(
+            self, "Select mutation type:", "Mutate Working Buffer", labels)
+        if dlg.ShowModal() == wx.ID_OK:
+            mutation = mutations[dlg.GetSelection()]
+            amt_dlg = wx.TextEntryDialog(
+                self, "Mutation amount (1-100):", "Amount", "30")
+            if amt_dlg.ShowModal() == wx.ID_OK:
+                amt = amt_dlg.GetValue().strip() or '30'
+                self._exec(f'/mutate {mutation} {amt}')
+            amt_dlg.Destroy()
+        dlg.Destroy()
+
     # ------------------------------------------------------------------
     # Known DSP parameter ranges (mirrors effects.py _get_param_range)
     # ------------------------------------------------------------------
@@ -3648,11 +4410,13 @@ class ObjectBrowser(wx.Panel):
             slider = wx.Slider(panel, value=int(current_val), minValue=int(lo),
                                maxValue=int(hi),
                                style=wx.SL_HORIZONTAL)
+            slider.SetName(f"{param_key} slider")
             spin = wx.SpinCtrlDouble(panel, value=str(current_val),
                                       min=float(lo), max=float(hi),
                                       inc=0.1 if hi <= 4 else 1.0)
             spin.SetValue(current_val)
             spin.SetMinSize(wx.Size(80, -1))
+            spin.SetName(f"{param_key} value")
 
             # Sync slider ↔ spin
             def _on_slider(evt, sp=spin):
@@ -3676,6 +4440,10 @@ class ObjectBrowser(wx.Panel):
         dlg.SetSizer(main_sizer)
         dlg.SetSize((440, min(80 + len(known_params) * 45, 600)))
         dlg.CenterOnParent()
+        # Set initial focus to first spin control for keyboard accessibility
+        if controls:
+            first_ctrl = next(iter(controls.values()))
+            first_ctrl.SetFocus()
 
         if dlg.ShowModal() == wx.ID_OK:
             cmds = []
@@ -3870,7 +4638,7 @@ class ActionPanel(wx.Panel):
 
     def __init__(self, parent, executor: CommandExecutor, console_callback,
                  state_sync_callback: Optional[Callable] = None):
-        super().__init__(parent)
+        super().__init__(parent, style=wx.TAB_TRAVERSAL)
         self.executor = executor
         self.console_callback = console_callback
         self.state_sync_callback = state_sync_callback
@@ -3896,6 +4664,7 @@ class ActionPanel(wx.Panel):
         action_label = wx.StaticText(self, label="Action:")
         action_label.SetForegroundColour(Theme.FG_TEXT)
         self.action_choice = wx.Choice(self)
+        self.action_choice.SetName("Action Selection")
         self.action_choice.SetBackgroundColour(Theme.BG_INPUT)
         self.action_choice.Bind(wx.EVT_CHOICE, self.on_action_select)
         
@@ -3910,6 +4679,7 @@ class ActionPanel(wx.Panel):
         
         # Parameters panel (scrollable)
         self.params_panel = wx.ScrolledWindow(self)
+        self.params_panel.SetName("Action Parameters Panel")
         self.params_panel.SetBackgroundColour(Theme.BG_PANEL)
         self.params_panel.SetScrollRate(0, 20)
         self.params_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -3922,6 +4692,7 @@ class ActionPanel(wx.Panel):
         self.sizer.Add(preview_label, 0, wx.LEFT | wx.TOP, 10)
         
         self.command_preview = wx.TextCtrl(self, style=wx.TE_READONLY)
+        self.command_preview.SetName("Generated Command Preview")
         self.command_preview.SetBackgroundColour(Theme.BG_INPUT)
         self.command_preview.SetForegroundColour(Theme.ACCENT)
         self.sizer.Add(self.command_preview, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
@@ -4154,7 +4925,7 @@ class InspectorPanel(wx.Panel):
 
     def __init__(self, parent, executor: CommandExecutor,
                  console_callback=None, state_sync_callback=None):
-        super().__init__(parent)
+        super().__init__(parent, style=wx.TAB_TRAVERSAL)
         self.executor = executor
         self.console_cb = console_callback
         self.state_sync_cb = state_sync_callback
@@ -4180,6 +4951,7 @@ class InspectorPanel(wx.Panel):
 
         # Properties list (scrollable)
         self.props_panel = wx.ScrolledWindow(self)
+        self.props_panel.SetName("Object Properties")
         self.props_panel.SetBackgroundColour(Theme.BG_PANEL)
         self.props_panel.SetScrollRate(0, 20)
         self.props_sizer = wx.FlexGridSizer(cols=2, hgap=12, vgap=6)
@@ -4689,13 +5461,120 @@ class InspectorPanel(wx.Panel):
             self._add_separator("Actions")
             self._add_action_btn("Generate", f"/gen2 {ctype}")
 
+        elif obj_type == 'gen_tta_item':
+            gen = data.get('generator', 'melody')
+            self.title.SetLabel(gen.replace('_', ' ').title())
+            self.subtitle.SetLabel("Text to Audio Generator")
+            desc = {
+                'melody': 'Describe a scale and length to generate a melodic phrase',
+                'chord_prog': 'Pick a progression style to render voice-led chords',
+                'bassline': 'Generate a rhythmic bassline from genre and scale',
+                'beat': 'Generate a full drum pattern from a genre template',
+                'loop': 'Generate a multi-layer loop (drums, bass, chords, melody)',
+            }
+            self._add_prop("Description:", desc.get(gen, 'Generate audio from parameters'))
+            self._add_separator("Actions")
+            if gen == 'beat':
+                self._add_action_btn("Generate House 4 Bars", "/beat house 4")
+                self._add_action_btn("Generate Techno 4 Bars", "/beat techno 4")
+            elif gen == 'loop':
+                self._add_action_btn("Generate House Loop", "/loop house full")
+                self._add_action_btn("Generate Lo-fi Loop", "/loop lofi full")
+            else:
+                self._add_action_btn("Generate", f"/gen2 {gen}")
+
+        elif obj_type == 'gen_breed_item':
+            method = data.get('method', 'breed')
+            self.title.SetLabel(method.replace('_', ' ').title())
+            self.subtitle.SetLabel("Genetic Breeding")
+            desc = {
+                'breed': 'Full breed: 5 crossover methods + mutation, produces multiple children',
+                'temporal': 'Split parents at a time point, swap halves with crossfade',
+                'spectral': 'Frequency-domain crossover — take lows from A, highs from B',
+                'blend': 'Linear amplitude blend between parents (morph)',
+                'morphological': 'Separate envelope and spectral content, blend independently',
+                'evolve': 'Multi-generation tournament evolution with elitism',
+                'mutate_noise': 'Add random noise perturbation to audio',
+                'mutate_pitch': 'Resampling-based pitch shift mutation',
+                'mutate_time_stretch': 'Segment-based time stretch mutation',
+                'mutate_spectral_smear': 'Blur spectral content across frequency bins',
+                'mutate_reverse_segment': 'Reverse random chunks within the audio',
+            }
+            self._add_prop("Description:", desc.get(method, 'Genetic audio operation'))
+            self._add_separator("Actions")
+            if method == 'breed':
+                self._add_action_btn("Breed Buffers 1+2", "/breed 1 2 4")
+            elif method == 'evolve':
+                self._add_action_btn("Evolve 10 Generations", "/evolve 10 8")
+            elif method.startswith('mutate_'):
+                mut = method.replace('mutate_', '')
+                self._add_action_btn(f"Apply (30%)", f"/mutate {mut} 30")
+                self._add_action_btn(f"Apply (60%)", f"/mutate {mut} 60")
+            else:
+                self._add_action_btn(f"Crossover Buf 1+2", f"/crossover 1 2 {method}")
+
+        elif obj_type == 'phase_t_cmd':
+            cmd = data.get('command', '')
+            label = cmd.lstrip('/').replace('_', ' ').title()
+            self.title.SetLabel(label)
+            self.subtitle.SetLabel("Song-Ready Tool (Phase T)")
+            cmd_desc = {
+                '/undo': 'Undo the last destructive operation on working buffer or track',
+                '/redo': 'Re-apply previously undone operation',
+                '/snapshot save': 'Save all session parameters (BPM, FX, gains) as a snapshot',
+                '/snapshot restore': 'Restore session parameters from a saved snapshot',
+                '/section add': 'Define a named section by bar range for song arrangement',
+                '/section list': 'Show all defined song sections with bar positions',
+                '/section copy': 'Copy a section to a new bar position across all tracks',
+                '/commit': 'Write working buffer to current track, advance write position',
+                '/pos': 'Show or set the track write cursor position',
+                '/export stems': 'Export each track as a separate WAV file',
+                '/export track': 'Export a single track to a WAV file',
+                '/export section': 'Render and export a named song section',
+                '/master_gain': 'Set the master output gain in dB before limiting',
+                '/crossover': 'Genetically crossover two buffers using breeding algorithms',
+                '/dup': 'Duplicate a buffer to the next empty slot',
+                '/swap': 'Swap the contents of two buffers',
+                '/metronome': 'Generate a click track in the working buffer',
+            }
+            self._add_prop("Description:", cmd_desc.get(cmd, 'Phase T command'))
+            self._add_prop("Command:", cmd)
+            self._add_separator("Actions")
+            self._add_action_btn("Execute", cmd)
+
         elif obj_type == 'gen_section':
             section = data.get('section', '')
             titles = {'beat': 'Beat Generation', 'loop': 'Loop Generation',
                       'xform': 'Transforms', 'theory': 'Music Theory',
-                      'gen2': 'Content Generation'}
+                      'gen2': 'Content Generation',
+                      'text_to_audio': 'Text to Audio',
+                      'breeding': 'Genetic Breeding',
+                      'phase_t_structure': 'Song Structure',
+                      'phase_t_export': 'Export & Render',
+                      'phase_t_tools': 'Buffer Tools'}
             self.title.SetLabel(titles.get(section, section.title()))
             self.subtitle.SetLabel("Generative Section")
+            if section == 'breeding':
+                self._add_prop("Engine:", "ai/breeding.py")
+                self._add_prop("Crossover Methods:", "temporal, spectral, blend, morphological, multi-point")
+                self._add_prop("Mutation Types:", "noise, pitch, time stretch, freq shift, envelope, reverse, smear")
+                self._add_prop("Evolution:", "Tournament selection with elitism")
+            elif section == 'text_to_audio':
+                self._add_prop("Generators:", "melody, chords, bassline, arpeggio, drone, beat, loop")
+                self._add_prop("Scales:", "21 scales available")
+                self._add_prop("Genres:", "11 beat/loop genre templates")
+            elif section == 'phase_t_structure':
+                self._add_prop("Commands:", "/section, /pchain, /commit, /pos, /seek")
+                self._add_prop("Sections:", "Named bar ranges for arrangement")
+                self._add_prop("Chaining:", "Chain buffer patterns into track sequences")
+            elif section == 'phase_t_export':
+                self._add_prop("Commands:", "/export, /master_gain")
+                self._add_prop("Stems:", "Export each track as separate WAV")
+                self._add_prop("Sections:", "Render named sections to file")
+            elif section == 'phase_t_tools':
+                self._add_prop("Commands:", "/crossover, /dup, /swap, /metronome")
+                self._add_prop("Crossover:", "5 genetic crossover methods")
+                self._add_prop("Metronome:", "Click track generator")
 
     def _inspect_category(self, data):
         cat_id = data.get('id', '')
@@ -4714,7 +5593,10 @@ class InspectorPanel(wx.Panel):
                  'tracks': 'Tracks', 'buffers': 'Buffers',
                  'decks': 'Decks', 'fx': 'Effects',
                  'preset': 'Presets', 'bank': 'Banks',
-                 'generative': 'Generative'}
+                 'generative': 'Generative',
+                 'text_to_audio': 'Text to Audio',
+                 'breeding': 'Genetic Breeding',
+                 'phase_t': 'Song Tools (Phase T)'}
         self.title.SetLabel(names.get(cat_id, cat_id.title()))
         self.subtitle.SetLabel("Category")
 
@@ -4855,7 +5737,10 @@ class StepGridPanel(wx.Panel):
 
     Shows a visual grid representing beats/steps in the current session,
     highlights the active playback position, and indicates buffer write
-    positions. Fully keyboard-navigable.
+    positions. Supports click-drag selection highlighting.
+    Includes an accessible text field that represents steps as characters
+    so screen readers can navigate and select step ranges using standard
+    text-selection shortcuts.
     """
 
     STEPS_PER_ROW = 16
@@ -4870,9 +5755,17 @@ class StepGridPanel(wx.Panel):
     COL_GRID_BG = wx.Colour(35, 35, 42)
     COL_BORDER = wx.Colour(60, 60, 70)
     COL_BEAT_MARKER = wx.Colour(70, 70, 80)
+    COL_SELECTED = wx.Colour(140, 100, 220)  # Selection highlight
+
+    # Step text characters for accessible representation
+    CHAR_EMPTY = '-'
+    CHAR_FILLED = '#'
+    CHAR_PLAYHEAD = '>'
+    CHAR_WRITE = 'W'
+    CHAR_SELECTED = '*'
 
     def __init__(self, parent, executor: CommandExecutor):
-        super().__init__(parent, name="StepGrid")
+        super().__init__(parent, name="StepGrid", style=wx.TAB_TRAVERSAL)
         self.executor = executor
         self.SetBackgroundColour(self.COL_GRID_BG)
 
@@ -4881,6 +5774,11 @@ class StepGridPanel(wx.Panel):
         self.write_pos = 0
         self.filled_steps: set = set()  # Steps that contain audio
         self.track_fills: Dict[int, set] = {}  # Per-track fill data
+
+        # Click-drag selection state
+        self.selected_steps: set = set()
+        self._drag_active = False
+        self._drag_start_step = -1
 
         self.sizer = wx.BoxSizer(wx.VERTICAL)
 
@@ -4892,6 +5790,7 @@ class StepGridPanel(wx.Panel):
 
         # Step count selector
         self.step_choice = wx.Choice(self, choices=['16', '32', '64', '128'])
+        self.step_choice.SetName("Step Count Selector")
         self.step_choice.SetSelection(1)  # 32 default
         self.step_choice.Bind(wx.EVT_CHOICE, self.on_step_count_change)
         hdr_sizer.Add(wx.StaticText(self, label="Steps:"), 0,
@@ -4904,27 +5803,185 @@ class StepGridPanel(wx.Panel):
         self.canvas = wx.Panel(self, name="StepGridCanvas")
         self.canvas.SetBackgroundColour(self.COL_GRID_BG)
         self.canvas.Bind(wx.EVT_PAINT, self.on_paint)
-        self.canvas.Bind(wx.EVT_LEFT_DOWN, self.on_grid_click)
+        self.canvas.Bind(wx.EVT_LEFT_DOWN, self.on_grid_mouse_down)
+        self.canvas.Bind(wx.EVT_LEFT_UP, self.on_grid_mouse_up)
+        self.canvas.Bind(wx.EVT_MOTION, self.on_grid_mouse_drag)
+        self.canvas.Bind(wx.EVT_LEFT_DCLICK, self.on_grid_dclick)
+        self.canvas.Bind(wx.EVT_KEY_DOWN, self.on_grid_key)
+        self.canvas.SetFocus()
+        self._kb_cursor = 0  # Keyboard cursor position for arrow-key navigation
         self.canvas.SetMinSize((self.STEPS_PER_ROW * (self.CELL_SIZE + self.CELL_PAD) + 40, 80))
         self.sizer.Add(self.canvas, 1, wx.EXPAND | wx.ALL, 5)
 
-        # Legend
+        # Legend (includes selection color)
         legend_sizer = wx.BoxSizer(wx.HORIZONTAL)
         for color, label in [
             (self.COL_FILLED, "Audio"),
             (self.COL_PLAYHEAD, "Playhead"),
             (self.COL_WRITE_POS, "Write Pos"),
+            (self.COL_SELECTED, "Selected"),
             (self.COL_EMPTY, "Empty"),
         ]:
             dot = wx.Panel(self, size=(10, 10))
             dot.SetBackgroundColour(color)
+            dot.SetName("")  # Decorative; skip in screen readers
             legend_sizer.Add(dot, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
             lbl = wx.StaticText(self, label=label)
             lbl.SetForegroundColour(Theme.FG_DIM)
             legend_sizer.Add(lbl, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 3)
         self.sizer.Add(legend_sizer, 0, wx.ALL, 5)
 
+        # ------------------------------------------------------------------
+        # Accessible text field: step characters for screen readers
+        # Each step maps to a single character. Screen readers can read,
+        # arrow-navigate, and select ranges using standard text shortcuts
+        # (Shift+Arrow, Ctrl+Shift+Arrow, etc.).  Characters:
+        #   -  = empty step       #  = filled (has audio)
+        #   >  = playhead         W  = write position
+        #   *  = selected
+        # ------------------------------------------------------------------
+        acc_label = wx.StaticText(self, label="Steps (text, for screen reader selection):")
+        acc_label.SetForegroundColour(Theme.FG_DIM)
+        self.sizer.Add(acc_label, 0, wx.LEFT | wx.TOP, 5)
+
+        self.step_text = wx.TextCtrl(
+            self,
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2,
+            name="StepGridText")
+        self.step_text.SetBackgroundColour(Theme.BG_INPUT)
+        self.step_text.SetForegroundColour(Theme.FG_TEXT)
+        font = wx.Font(11, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL,
+                        wx.FONTWEIGHT_NORMAL)
+        self.step_text.SetFont(font)
+        self.step_text.SetToolTip(
+            "Step grid as text. Each character is one step: "
+            "- empty, # audio, > playhead, W write-pos, * selected. "
+            "Use arrow keys and Shift+Arrow to select ranges.")
+        # Accessible name/description
+        self.step_text.SetName("Step grid text view")
+        self.sizer.Add(self.step_text, 0, wx.EXPAND | wx.ALL, 5)
+
         self.SetSizer(self.sizer)
+
+        # Initial text sync
+        self._update_step_text()
+
+    # ------------------------------------------------------------------
+    # Coordinate helpers
+    # ------------------------------------------------------------------
+
+    def _step_from_position(self, x: int, y: int) -> int:
+        """Convert pixel position on canvas to step index, or -1."""
+        margin_left = 30
+        cols = self.STEPS_PER_ROW
+        cs = self.CELL_SIZE
+        pad = self.CELL_PAD
+        col = (x - margin_left) // (cs + pad)
+        row = y // (cs + pad)
+        if col < 0 or col >= cols:
+            return -1
+        step = row * cols + col
+        if 0 <= step < self.total_steps:
+            return step
+        return -1
+
+    # ------------------------------------------------------------------
+    # Mouse handlers for click-drag selection
+    # ------------------------------------------------------------------
+
+    def on_grid_mouse_down(self, event):
+        """Start drag selection or single-click write position."""
+        step = self._step_from_position(*event.GetPosition())
+        if step < 0:
+            return
+        self._drag_active = True
+        self._drag_start_step = step
+        # Clear previous selection unless Shift held
+        if not event.ShiftDown():
+            self.selected_steps = set()
+        self.selected_steps.add(step)
+        self.canvas.CaptureMouse()
+        self.canvas.Refresh()
+
+    def on_grid_mouse_drag(self, event):
+        """Extend selection as mouse moves while button is held."""
+        if not self._drag_active:
+            return
+        step = self._step_from_position(*event.GetPosition())
+        if step < 0:
+            return
+        # Select the full range between drag start and current position
+        lo = min(self._drag_start_step, step)
+        hi = max(self._drag_start_step, step)
+        self.selected_steps = set(range(lo, hi + 1))
+        self.canvas.Refresh()
+        self._update_step_text()
+
+    def on_grid_mouse_up(self, event):
+        """Finish drag selection."""
+        if self._drag_active:
+            self._drag_active = False
+            if self.canvas.HasCapture():
+                self.canvas.ReleaseMouse()
+            step = self._step_from_position(*event.GetPosition())
+            if step >= 0:
+                lo = min(self._drag_start_step, step)
+                hi = max(self._drag_start_step, step)
+                self.selected_steps = set(range(lo, hi + 1))
+            # If single click (no drag), also set write position
+            if len(self.selected_steps) == 1:
+                self.write_pos = self._drag_start_step
+            self.canvas.Refresh()
+            self._update_step_text()
+
+    def on_grid_dclick(self, event):
+        """Double-click clears selection."""
+        self.selected_steps = set()
+        self.canvas.Refresh()
+        self._update_step_text()
+
+    def on_grid_key(self, event):
+        """Keyboard navigation for step grid (accessibility).
+
+        Arrow Left/Right moves cursor. Shift+Arrow extends selection.
+        Home/End jumps to start/end. Escape clears selection.
+        """
+        key = event.GetKeyCode()
+        shift = event.ShiftDown()
+        old_cursor = self._kb_cursor
+
+        if key == wx.WXK_RIGHT:
+            self._kb_cursor = min(self._kb_cursor + 1, self.total_steps - 1)
+        elif key == wx.WXK_LEFT:
+            self._kb_cursor = max(self._kb_cursor - 1, 0)
+        elif key == wx.WXK_HOME:
+            self._kb_cursor = 0
+        elif key == wx.WXK_END:
+            self._kb_cursor = self.total_steps - 1
+        elif key == wx.WXK_ESCAPE:
+            self.selected_steps = set()
+            self.canvas.Refresh()
+            self._update_step_text()
+            return
+        else:
+            event.Skip()
+            return
+
+        if shift:
+            # Extend selection from old cursor to new
+            lo = min(old_cursor, self._kb_cursor)
+            hi = max(old_cursor, self._kb_cursor)
+            for s in range(lo, hi + 1):
+                self.selected_steps.add(s)
+        else:
+            self.selected_steps = {self._kb_cursor}
+
+        self.canvas.Refresh()
+        self._update_step_text()
+
+    # ------------------------------------------------------------------
+    # Session update
+    # ------------------------------------------------------------------
 
     def update_from_session(self):
         """Pull step data from the session and refresh the grid."""
@@ -4967,9 +6024,14 @@ class StepGridPanel(wx.Panel):
                 self.write_pos = wp // beat_samples if beat_samples > 0 else 0
 
         self.canvas.Refresh()
+        self._update_step_text()
+
+    # ------------------------------------------------------------------
+    # Painting
+    # ------------------------------------------------------------------
 
     def on_paint(self, event):
-        """Draw the step grid."""
+        """Draw the step grid with selection highlighting."""
         dc = wx.PaintDC(self.canvas)
         dc.SetBackground(wx.Brush(self.COL_GRID_BG))
         dc.Clear()
@@ -4992,8 +6054,10 @@ class StepGridPanel(wx.Panel):
             x = margin_left + col * (cs + pad)
             y = row * (cs + pad)
 
-            # Determine cell color
-            if step == self.playhead_pos:
+            # Determine cell color — selection takes visual priority
+            if step in self.selected_steps:
+                color = self.COL_SELECTED
+            elif step == self.playhead_pos:
                 color = self.COL_PLAYHEAD
             elif step == self.write_pos:
                 color = self.COL_WRITE_POS
@@ -5016,20 +6080,49 @@ class StepGridPanel(wx.Panel):
                 dc.SetTextForeground(Theme.FG_DIM)
                 dc.DrawText(f"{row+1}", 2, y + (cs // 2) - 5)
 
-    def on_grid_click(self, event):
-        """Handle click on grid cell — set write position."""
-        x, y = event.GetPosition()
-        margin_left = 30
-        cols = self.STEPS_PER_ROW
-        cs = self.CELL_SIZE
-        pad = self.CELL_PAD
+    # ------------------------------------------------------------------
+    # Accessible text field
+    # ------------------------------------------------------------------
 
-        col = (x - margin_left) // (cs + pad)
-        row = y // (cs + pad)
-        step = row * cols + col
-        if 0 <= step < self.total_steps:
-            self.write_pos = step
-            self.canvas.Refresh()
+    def _update_step_text(self):
+        """Rebuild the text representation of the step grid.
+
+        Each step is one character.  Rows of STEPS_PER_ROW characters are
+        separated by newlines so the text wraps identically to the visual
+        grid.  Beat boundaries (every 4 steps) are separated by a space
+        for easier screen-reader word-navigation (Ctrl+Arrow).
+        """
+        cols = self.STEPS_PER_ROW
+        lines: List[str] = []
+        for row_start in range(0, self.total_steps, cols):
+            row_chars: List[str] = []
+            for step in range(row_start, min(row_start + cols, self.total_steps)):
+                if step in self.selected_steps:
+                    ch = self.CHAR_SELECTED
+                elif step == self.playhead_pos:
+                    ch = self.CHAR_PLAYHEAD
+                elif step == self.write_pos:
+                    ch = self.CHAR_WRITE
+                elif step in self.filled_steps:
+                    ch = self.CHAR_FILLED
+                else:
+                    ch = self.CHAR_EMPTY
+                row_chars.append(ch)
+                # Space after every 4 characters for word-navigation
+                if (step - row_start + 1) % 4 == 0 and step != row_start + cols - 1:
+                    row_chars.append(' ')
+            lines.append(''.join(row_chars))
+
+        text = '\n'.join(lines)
+        # Preserve insertion point across updates
+        pos = self.step_text.GetInsertionPoint()
+        self.step_text.SetValue(text)
+        if pos <= len(text):
+            self.step_text.SetInsertionPoint(pos)
+
+    # ------------------------------------------------------------------
+    # Step count / playhead
+    # ------------------------------------------------------------------
 
     def on_step_count_change(self, event):
         """Handle step count selection change."""
@@ -5037,20 +6130,29 @@ class StepGridPanel(wx.Panel):
         idx = self.step_choice.GetSelection()
         if 0 <= idx < len(choices):
             self.total_steps = choices[idx]
+            self.selected_steps = set()
             self.canvas.Refresh()
+            self._update_step_text()
 
     def set_playhead(self, position: int):
         """Set the playhead position (step index, -1 = stopped)."""
         self.playhead_pos = position
         self.canvas.Refresh()
+        self._update_step_text()
+
+    def get_selection_range(self) -> Optional[tuple]:
+        """Return (start, end) of selected step range, or None."""
+        if not self.selected_steps:
+            return None
+        return (min(self.selected_steps), max(self.selected_steps))
 
 
 class ConsolePanel(wx.Panel):
     """Bottom panel - output console."""
-    
+
     def __init__(self, parent):
-        super().__init__(parent)
-        
+        super().__init__(parent, style=wx.TAB_TRAVERSAL)
+
         self.SetBackgroundColour(Theme.BG_DARK)
         
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -5069,8 +6171,9 @@ class ConsolePanel(wx.Panel):
         sizer.Add(header_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         # Console text
-        self.console = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_READONLY | 
+        self.console = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_READONLY |
                                    wx.TE_RICH2 | wx.HSCROLL)
+        self.console.SetName("Command Output Console")
         self.console.SetBackgroundColour(Theme.BG_DARK)
         self.console.SetForegroundColour(Theme.FG_TEXT)
         
@@ -5132,7 +6235,7 @@ class PatchBuilderPanel(wx.Panel):
     """
 
     def __init__(self, parent, executor, console_callback=None, state_sync_callback=None):
-        super().__init__(parent)
+        super().__init__(parent, style=wx.TAB_TRAVERSAL)
         self.executor = executor
         self.console_cb = console_callback or (lambda *a: None)
         self.sync_cb = state_sync_callback or (lambda: None)
@@ -5150,6 +6253,7 @@ class PatchBuilderPanel(wx.Panel):
 
         # Operator list
         self.op_list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
+        self.op_list.SetName("Operator List")
         self.op_list.SetBackgroundColour(Theme.BG_INPUT)
         self.op_list.SetForegroundColour(Theme.FG_TEXT)
         self.op_list.InsertColumn(0, "Op", width=40)
@@ -5165,6 +6269,7 @@ class PatchBuilderPanel(wx.Panel):
         sizer.Add(route_label, 0, wx.LEFT | wx.TOP, 8)
 
         self.route_list = wx.ListCtrl(self, style=wx.LC_REPORT)
+        self.route_list.SetName("Modulation Routing Table")
         self.route_list.SetBackgroundColour(Theme.BG_INPUT)
         self.route_list.SetForegroundColour(Theme.FG_TEXT)
         self.route_list.InsertColumn(0, "#", width=30)
@@ -5347,7 +6452,7 @@ class RoutingPanel(wx.Panel):
     """
 
     def __init__(self, parent, executor):
-        super().__init__(parent)
+        super().__init__(parent, style=wx.TAB_TRAVERSAL)
         self.executor = executor
         self.SetBackgroundColour(Theme.BG_DARK)
         self.Bind(wx.EVT_PAINT, self.on_paint)
@@ -5469,7 +6574,7 @@ class OscillatorListPanel(wx.Panel):
     """
 
     def __init__(self, parent, executor, console_callback=None, state_sync_callback=None):
-        super().__init__(parent)
+        super().__init__(parent, style=wx.TAB_TRAVERSAL)
         self.executor = executor
         self.console_cb = console_callback or (lambda *a: None)
         self.sync_cb = state_sync_callback or (lambda: None)
@@ -5492,12 +6597,14 @@ class OscillatorListPanel(wx.Panel):
             "All", "Basic", "Noise", "Physical", "Extended",
             "Waveguide", "Wavetable", "Compound"
         ])
+        self.wave_filter.SetName("Oscillator Wave Type Filter")
         self.wave_filter.SetSelection(0)
         self.wave_filter.Bind(wx.EVT_CHOICE, lambda e: self.refresh())
         filter_sizer.Add(self.wave_filter, 0, wx.RIGHT, 8)
 
         # Add operator button
         add_btn = wx.Button(self, label="+ Add Operator")
+        add_btn.SetName("Add New Oscillator Operator")
         add_btn.SetBackgroundColour(Theme.BG_INPUT)
         add_btn.SetForegroundColour(Theme.SUCCESS)
         add_btn.Bind(wx.EVT_BUTTON, self._on_add_op)
@@ -5507,6 +6614,7 @@ class OscillatorListPanel(wx.Panel):
 
         # Scrolled operator cards
         self.scroll = wx.ScrolledWindow(self)
+        self.scroll.SetName("Oscillator Cards")
         self.scroll.SetScrollRate(0, 20)
         self.scroll.SetBackgroundColour(Theme.BG_DARK)
         self.scroll_sizer = wx.BoxSizer(wx.VERTICAL)

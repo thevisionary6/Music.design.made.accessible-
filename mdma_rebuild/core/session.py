@@ -315,7 +315,25 @@ class Session:
         self.defining_function: Optional[str] = None  # name of function being defined, or None
         self.chains: dict[str, list[str]] = {}
 
-    
+        # --- Phase T: Undo/Redo System (T.1) ---
+        self._undo_stack: list[np.ndarray] = []  # Working buffer undo stack
+        self._redo_stack: list[np.ndarray] = []  # Working buffer redo stack
+        self._undo_max_depth: int = 10  # Max undo levels
+        self._track_undo_stacks: dict[int, list[np.ndarray]] = {}  # Per-track undo
+        self._track_redo_stacks: dict[int, list[np.ndarray]] = {}
+        self._snapshots: list[dict] = []  # Session parameter snapshots
+
+        # --- Phase T: Song Structure (T.2) ---
+        self.sections: list[dict] = []  # [{name, start_bar, end_bar}]
+
+        # --- Phase T: Master Gain (T.3) ---
+        self.master_gain: float = 0.0  # dB, applied before limiting in render
+
+        # --- Phase T: Auto-save (T.6) ---
+        self._autosave_enabled: bool = False
+        self._autosave_interval: int = 5  # minutes
+
+
     # ------------ Track timeline helpers (simplified) ------------
 
     def _init_default_tracks(self, track_count: int = 1) -> None:
@@ -1005,9 +1023,132 @@ class Session:
     
     def has_real_working_audio(self) -> bool:
         """Check if working buffer has real audio (not just init silence)."""
-        return (self.working_buffer is not None 
-                and len(self.working_buffer) > 0 
+        return (self.working_buffer is not None
+                and len(self.working_buffer) > 0
                 and self.working_buffer_source != 'init')
+
+    # ------------ Undo/Redo helpers (Phase T.1) ------------
+    def push_undo(self, target: str = 'working', track_idx: int = 0) -> None:
+        """Push current state onto undo stack before a destructive operation."""
+        if target == 'working':
+            if self.working_buffer is not None and len(self.working_buffer) > 0:
+                self._undo_stack.append(self.working_buffer.copy())
+                if len(self._undo_stack) > self._undo_max_depth:
+                    self._undo_stack.pop(0)
+                self._redo_stack.clear()
+        elif target == 'track':
+            idx = track_idx
+            if idx < len(self.tracks):
+                audio = self.tracks[idx].get('audio')
+                if audio is not None:
+                    if idx not in self._track_undo_stacks:
+                        self._track_undo_stacks[idx] = []
+                        self._track_redo_stacks[idx] = []
+                    self._track_undo_stacks[idx].append(audio.copy())
+                    if len(self._track_undo_stacks[idx]) > self._undo_max_depth:
+                        self._track_undo_stacks[idx].pop(0)
+                    self._track_redo_stacks[idx].clear()
+
+    def pop_undo(self, target: str = 'working', track_idx: int = 0) -> bool:
+        """Restore previous state from undo stack. Returns True if successful."""
+        if target == 'working':
+            if not self._undo_stack:
+                return False
+            self._redo_stack.append(self.working_buffer.copy())
+            self.working_buffer = self._undo_stack.pop()
+            self.working_buffer_source = 'undo'
+            self.last_buffer = self.working_buffer.copy()
+            return True
+        elif target == 'track':
+            idx = track_idx
+            stack = self._track_undo_stacks.get(idx, [])
+            if not stack:
+                return False
+            if idx not in self._track_redo_stacks:
+                self._track_redo_stacks[idx] = []
+            self._track_redo_stacks[idx].append(self.tracks[idx]['audio'].copy())
+            self.tracks[idx]['audio'] = stack.pop()
+            return True
+        return False
+
+    def pop_redo(self, target: str = 'working', track_idx: int = 0) -> bool:
+        """Re-apply undone operation. Returns True if successful."""
+        if target == 'working':
+            if not self._redo_stack:
+                return False
+            self._undo_stack.append(self.working_buffer.copy())
+            self.working_buffer = self._redo_stack.pop()
+            self.working_buffer_source = 'redo'
+            self.last_buffer = self.working_buffer.copy()
+            return True
+        elif target == 'track':
+            idx = track_idx
+            stack = self._track_redo_stacks.get(idx, [])
+            if not stack:
+                return False
+            self._track_undo_stacks[idx].append(self.tracks[idx]['audio'].copy())
+            self.tracks[idx]['audio'] = stack.pop()
+            return True
+        return False
+
+    def save_snapshot(self) -> int:
+        """Save lightweight session parameter snapshot (no audio). Returns snapshot index."""
+        snap = {
+            'bpm': self.bpm,
+            'step': self.step,
+            'attack': self.attack, 'decay': self.decay,
+            'sustain': self.sustain, 'release': self.release,
+            'carrier_count': self.carrier_count,
+            'mod_count': self.mod_count,
+            'voice_count': self.voice_count,
+            'voice_algorithm': self.voice_algorithm,
+            'dt': self.dt, 'rand': self.rand, 'v_mod': self.v_mod,
+            'filter_types': dict(self.filter_types),
+            'filter_cutoffs': dict(self.filter_cutoffs),
+            'filter_resonances': dict(self.filter_resonances),
+            'filter_enabled': dict(self.filter_enabled),
+            'effects': list(self.effects),
+            'master_gain': self.master_gain,
+            'master_fx_chain': list(self.master_fx_chain),
+            'track_gains': [t.get('gain', 1.0) for t in self.tracks],
+            'track_pans': [t.get('pan', 0.0) for t in self.tracks],
+            'track_mutes': [t.get('mute', False) for t in self.tracks],
+            'track_solos': [t.get('solo', False) for t in self.tracks],
+        }
+        self._snapshots.append(snap)
+        return len(self._snapshots) - 1
+
+    def restore_snapshot(self, index: int = -1) -> bool:
+        """Restore session parameters from snapshot. Returns True if successful."""
+        if not self._snapshots:
+            return False
+        if index < 0:
+            index = len(self._snapshots) + index
+        if index < 0 or index >= len(self._snapshots):
+            return False
+        snap = self._snapshots[index]
+        for key in ('bpm', 'step', 'attack', 'decay', 'sustain', 'release',
+                     'carrier_count', 'mod_count', 'voice_count', 'voice_algorithm',
+                     'dt', 'rand', 'v_mod', 'master_gain'):
+            if key in snap:
+                setattr(self, key, snap[key])
+        for key in ('filter_types', 'filter_cutoffs', 'filter_resonances', 'filter_enabled'):
+            if key in snap:
+                setattr(self, key, dict(snap[key]))
+        if 'effects' in snap:
+            self.effects = list(snap['effects'])
+        if 'master_fx_chain' in snap:
+            self.master_fx_chain = list(snap['master_fx_chain'])
+        for i, t in enumerate(self.tracks):
+            if i < len(snap.get('track_gains', [])):
+                t['gain'] = snap['track_gains'][i]
+            if i < len(snap.get('track_pans', [])):
+                t['pan'] = snap['track_pans'][i]
+            if i < len(snap.get('track_mutes', [])):
+                t['mute'] = snap['track_mutes'][i]
+            if i < len(snap.get('track_solos', [])):
+                t['solo'] = snap['track_solos'][i]
+        return True
 
     # ------------ Envelope management methods ------------
     def get_envelope_for_operator(self, op_idx: int) -> dict[str, float]:
@@ -1787,7 +1928,10 @@ class Session:
                 sf.write(path, sf_data, self.sample_rate, subtype=subtype, format='FLAC')
                 return path
             except ImportError:
-                # Fall back to WAV if soundfile not available
+                # Fall back to WAV — warn user instead of silent downgrade
+                print("[WARNING] FLAC export requires 'soundfile' package. "
+                      "Install with: pip install soundfile")
+                print("[WARNING] Falling back to WAV format.")
                 ext = 'wav'
                 base_name = f"render_{self.project_count}_{self.sketch_count}_{self.file_count}.wav"
                 path = os.path.join(os.getcwd(), base_name)
@@ -2407,6 +2551,11 @@ class Session:
                 mix = np.column_stack([left, right])
             except Exception:
                 pass
+
+        # Apply master gain (T.3.4)
+        mg = getattr(self, 'master_gain', 0.0)
+        if mg != 0.0:
+            mix = mix * (10.0 ** (mg / 20.0))
 
         # Normalize if clipping
         max_val = float(np.max(np.abs(mix))) if mix.size else 0.0

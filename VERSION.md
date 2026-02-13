@@ -1,11 +1,36 @@
 # MDMA Version History
 
-## Version 46 — Unified Playback, Parameter System, HQ Audio (Current)
+## Version 52 — Interface Transition, GUI MVP, Phases 1-4 Complete (Current)
 
-**Release Date:** 2026-02-03  
-**Build ID:** bmdma_v46.0  
-**Total Commands:** 569+  
-**DSP Effects:** 113+  
+**Release Date:** 2026-02-03
+**Build ID:** mdma_v52.0_20260203
+**Total Commands:** 569+
+**DSP Effects:** 113+
+**Wave Types:** 22
+**Scales:** 21 | **Chords:** 21 | **Progressions:** 12
+**IR Presets:** 17
+**Phases Complete:** 1 (Core Interface), 2 (Synthesis), 3 (Modulation/Convolution), 4 (Generative Systems)
+
+### What's New in v52
+
+- **DSL mode deprecated** — commands now execute immediately, one at a time
+- **GUI MVP** (`mdma_gui.py`) — wxPython action panel client with object browser, inspector, step grid, and patch builder
+- **Phase 1 complete** — Object tree view (10 categories), dynamic object list, preview views, inspector panels, step grid, context menus, selection-based FX, accessibility markers
+- **Phase 2 complete** — Full Monolith patch builder, 22 wave types (supersaw, additive, formant, harmonic, 4 waveguide models, wavetable import, compound waves), 40+ parameters
+- **Phase 3 complete** — Impulse LFO/envelope import, advanced convolution reverb (17 presets), neural-enhanced IR processing, AI impulse transformation (15 descriptors), granular IR tools
+- **Phase 4 complete** — Content generation (`/gen2`), pattern adaptation (`/adapt`), loop generation (`/loop`), drum beat generation (`/beat`, 17 generators, 11 genres), transformation engines (`/xform`, 18 transforms)
+
+See `CHANGELOG_v52.md` for full details.
+See `ROADMAP_FULL_RELEASE.md` for the 10-phase plan to v1.0.
+
+---
+
+## Version 46 — Unified Playback, Parameter System, HQ Audio
+
+**Release Date:** 2026-02-03
+**Build ID:** bmdma_v46.0
+**Total Commands:** 569+
+**DSP Effects:** 113+
 **New Commands:** 7 (parm, cha, plist, pt, pts, pall, bout)
 
 ### Unified Playback System

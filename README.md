@@ -3,8 +3,10 @@
 A command-line audio production environment built for screen reader accessibility and zero-vision workflows. Create music, design sounds, and mix tracks entirely from the terminal — no visual interface required.
 
 **Version:** 52.0
-**Python:** 3.x
+**Build:** mdma_v52.0_20260203
+**Python:** 3.10+
 **Platform:** Windows, macOS, Linux
+**Phases Complete:** 1-4 of 10 (Core Interface, Synthesis, Modulation/Convolution, Generative Systems)
 
 ---
 
@@ -12,12 +14,15 @@ A command-line audio production environment built for screen reader accessibilit
 
 MDMA is a text-based digital audio workstation (DAW) that runs in your terminal. It provides:
 
-- A **synthesizer engine** with FM synthesis and multi-voice support
-- **113+ audio effects** (reverb, delay, distortion, filters, granular, and more)
-- **Multi-track project management** with save/load
-- **DJ mode** with multi-deck mixing and crossfading
+- A **synthesizer engine** with FM synthesis, 22 waveform types, physical modeling, and wavetable support
+- **113+ audio effects** (reverb, delay, distortion, filters, granular, convolution, and more)
+- **Advanced convolution reverb** with 17 IR presets and neural-enhanced processing
+- **Generative systems** — algorithmic melody, chord progressions, beat generation, loop creation, and transformation engines
+- **Music theory engine** — 21 scales, 21 chord types, 12 progressions, voice leading, key detection
+- **Multi-track project management** with full-state save/load
+- **DJ mode** with multi-deck mixing, crossfading, and deck-specific effects
 - **AI-assisted** sound generation and analysis
-- An optional **wxPython GUI** for visual interaction
+- An optional **wxPython GUI** with object browser, patch builder, step grid, and inspector panels
 
 Everything is designed so screen readers can access every feature without any visual dependency.
 
@@ -112,8 +117,30 @@ MDMA uses slash-prefixed commands. There are 569+ commands across these categori
 |---------|-------------|
 | `/fx <name> [amount]` | Apply an effect (amount 1-100) |
 | `/chain <name>` | Apply a named effect chain |
+| `/conv preset:<name>` | Apply convolution reverb (17 IR presets) |
 
 Some of the 113+ effects: `reverb`, `delay`, `chorus`, `flanger`, `phaser`, `saturate_tube`, `bitcrush`, `lowpass`, `highpass`, `compress`, `granular`, `normalize`, and many more.
+
+### Generative Systems
+
+| Command | Description |
+|---------|-------------|
+| `/gen2 <type> <scale> <n>` | Generate melody, chords, bassline, arpeggio, or drone |
+| `/beat <genre> <bars>` | Generate drum beat (11 genre templates) |
+| `/loop <genre> <bars>` | Generate multi-layer loop (drums, bass, chords, melody) |
+| `/xform <transform>` | Apply note or audio transforms (retrograde, inversion, stutter, etc.) |
+| `/adapt <mode> <args>` | Adapt patterns — key/scale/tempo/style changes |
+| `/theory scales` | List available scales, chords, and progressions |
+
+### Convolution & Impulse
+
+| Command | Description |
+|---------|-------------|
+| `/conv preset:<name>` | Apply convolution reverb (hall, room, plate, spring, shimmer, reverse) |
+| `/impulselfo load <file>` | Import audio as LFO waveshape |
+| `/impenv load <file>` | Import impulse as envelope shape |
+| `/irenhance <mode>` | Neural-enhanced IR processing (extend, denoise, fill) |
+| `/irtransform <descriptor>` | Semantic IR transform (bigger, darker, metallic, cathedral, etc.) |
 
 ### Parameters
 
@@ -154,6 +181,7 @@ Music.design.made.accessible-/
 |-- bmdma.py                    # Main CLI entry point (REPL)
 |-- mdma_gui.py                 # wxPython GUI
 |-- mad_tui.py                  # TUI launcher
+|-- run_mdma.py                 # Main executable entry
 |-- test_mad_dsl.py             # Test suite
 |
 |-- mdma_rebuild/               # Core package
@@ -166,13 +194,18 @@ Music.design.made.accessible-/
 |   |   |-- pack.py             # Project/pack management
 |   |   |-- song_registry.py    # Song tracking
 |   |
-|   |-- dsp/                    # Audio processing
-|   |   |-- monolith.py         # FM synthesis engine
+|   |-- dsp/                    # Audio processing (~29k lines)
+|   |   |-- monolith.py         # FM synthesis engine (22 wave types)
 |   |   |-- effects.py          # 113+ DSP effects
+|   |   |-- music_theory.py     # Scales, chords, progressions, voice leading
+|   |   |-- beat_gen.py         # Drum beat generation (17 generators, 11 genres)
+|   |   |-- loop_gen.py         # Multi-layer loop generation
+|   |   |-- transforms.py       # Note and audio transforms
+|   |   |-- convolution.py      # Convolution reverb engine (17 IR presets)
 |   |   |-- pattern.py          # Pattern and modulation system
+|   |   |-- granular.py         # Granular synthesis
 |   |   |-- playback.py         # In-house audio playback
 |   |   |-- generators.py       # Audio generators
-|   |   |-- granular.py         # Granular synthesis
 |   |   |-- envelopes.py        # ADSR envelopes
 |   |   |-- scaling.py          # Unified 1-100 parameter scaling
 |   |   |-- dj_mode.py          # DJ engine (decks, mixing)
@@ -183,7 +216,7 @@ Music.design.made.accessible-/
 |   |   |-- visualization.py    # Audio visualization
 |   |   |-- advanced_ops.py     # Advanced DSP operations
 |   |
-|   |-- commands/               # Command modules (23 modules)
+|   |-- commands/               # Command modules (24 modules, 569+ commands)
 |   |   |-- general_cmds.py     # Help, save, load, project setup
 |   |   |-- synth_cmds.py       # Tone and synthesis commands
 |   |   |-- fx_cmds.py          # Effect commands
@@ -191,6 +224,8 @@ Music.design.made.accessible-/
 |   |   |-- buffer_cmds.py      # Buffer operations
 |   |   |-- pattern_cmds.py     # Pattern commands
 |   |   |-- param_cmds.py       # Parameter system
+|   |   |-- gen_cmds.py         # Generative systems (/beat, /loop, /gen2, /xform, /adapt)
+|   |   |-- convolution_cmds.py # Convolution reverb and impulse commands
 |   |   |-- dsl_cmds.py         # DSL block processing
 |   |   |-- dj_cmds.py          # DJ mode commands
 |   |   |-- ai_cmds.py          # AI-powered commands
@@ -205,14 +240,13 @@ Music.design.made.accessible-/
 |       |-- router.py           # AI command routing
 |       |-- descriptors.py      # AI descriptors
 |
-|-- Documentation
-    |-- COMMANDS.md              # Full command reference
-    |-- VERSION.md               # Version history
-    |-- RELEASE_NOTES.md         # Release notes
-    |-- CHANGELOG_v52.md         # v52 changelog
-    |-- ROADMAP_v45.md           # Development roadmap
-    |-- GUI_SPEC_v0.2.md         # GUI specification
-    |-- INTERFACE_TRANSITION_SPEC.md  # Architecture document
+|-- COMMANDS.md                  # Full command reference (569+ commands)
+|-- VERSION.md                   # Version history
+|-- RELEASE_NOTES.md             # Release notes
+|-- CHANGELOG_v52.md             # v52 changelog
+|-- ROADMAP_FULL_RELEASE.md      # 10-phase roadmap to v1.0
+|-- GUI_SPEC_v0.2.md             # GUI specification
+|-- INTERFACE_TRANSITION_SPEC.md  # Architecture rationale
 ```
 
 ---
@@ -267,9 +301,10 @@ python test_mad_dsl.py
 | File | Contents |
 |------|----------|
 | `COMMANDS.md` | Full command reference (569+ commands) |
-| `VERSION.md` | Detailed version history |
+| `VERSION.md` | Detailed version history (v38 through v52) |
 | `RELEASE_NOTES.md` | Release notes for major versions |
-| `CHANGELOG_v52.md` | Latest changes (GUI, interface transition) |
+| `CHANGELOG_v52.md` | v52 changes (GUI MVP, interface transition) |
+| `ROADMAP_FULL_RELEASE.md` | 10-phase roadmap to v1.0 (Phases 1-4 complete) |
 | `GUI_SPEC_v0.2.md` | GUI design specification |
 | `INTERFACE_TRANSITION_SPEC.md` | Architecture and design rationale |
 
