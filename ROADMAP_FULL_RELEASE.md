@@ -1,9 +1,9 @@
 # MDMA Full Release Roadmap
 
 **Music Design Made Accessible**
-**Document Version:** 1.4
+**Document Version:** 1.5
 **Baseline:** v52.0 (2026-02-03)
-**Last Updated:** 2026-02-12 (Phases 1-4 complete; Phase 4b microtonal expansion planned)
+**Last Updated:** 2026-02-13 (Phase T: Full System Audit added between Phase 4b and Phase 5)
 **Target:** v1.0 Full Release
 
 ---
@@ -261,6 +261,141 @@ Users can load any tuning system (EDO, just intonation, or custom), compose with
 
 ---
 
+## Phase T: Full System Audit — Patch All Gaps for Complete Song Production
+
+> **Goal:** Close every gap that prevents a user from making a complete, polished song from start to finish using only MDMA. After Phase T, the product is song-ready — not demo-ready.
+> **Depends on:** Phases 1-4 (all complete)
+> **Delivers:** A rock-solid production workflow where a user can go from blank project → structured arrangement → mixed tracks → mastered render without hitting dead ends.
+> **Blocking:** Phase T MUST complete before Phase 5. Every subsequent phase builds on a solid foundation, not on workarounds.
+
+### Audit Summary
+
+A full-system audit identified **7 critical gaps**, **9 high-priority fixes**, and **6 medium-priority improvements** that collectively prevent end-to-end song production. These fall into four categories:
+
+1. **Workflow blockers** — missing song structure, undo, and arrangement features
+2. **Broken wiring** — GUI actions referencing commands that don't exist
+3. **Silent failures** — operations that fail without user feedback
+4. **Missing plumbing** — features that exist in the engine but have no command interface
+
+### T.1 — Undo/Redo System (CRITICAL)
+
+| # | Feature | Status | Description |
+|---|---------|--------|-------------|
+| T.1.1 | Working buffer undo stack | **[NEW]** | Before any destructive buffer operation (`/fx`, `/xform`, `/pitch`, `/stretch`, `/chop`, `/reverse`), push a copy of the working buffer onto an undo stack. `/undo` restores the previous state, `/redo` re-applies. Stack depth configurable (default 10) |
+| T.1.2 | Track undo stack | **[NEW]** | Same pattern for track audio — `/btw back`, `/ta`, and destructive track ops push to a per-track undo stack. `/undo track` or `/undo t` restores |
+| T.1.3 | Session snapshot undo | **[NEW]** | `/snapshot` saves a full lightweight session snapshot (parameters, FX chains, operator state — NOT audio). `/undo snapshot` restores. Complements audio-level undo for parameter changes |
+
+**Implementation notes:** Audio undo copies are expensive. Use copy-on-write or ring buffer with configurable max depth. Parameter snapshots are cheap (JSON dict). Existing `/WFX undo` in playback_cmds.py covers single-effect undo on working buffer — extend this pattern to a proper stack.
+
+### T.2 — Song Structure & Arrangement (CRITICAL)
+
+| # | Feature | Status | Description |
+|---|---------|--------|-------------|
+| T.2.1 | Section markers | **[NEW]** | `/section add <name> <start_bar> <end_bar>` — define named sections (intro, verse, chorus, bridge, outro, or custom). Stored on session, persisted in save/load. `/section list` shows all. `/section goto <name>` moves write position |
+| T.2.2 | Section rendering | **[NEW]** | `/render section <name>` renders only that section. `/render all` renders the full arrangement. Sections are contiguous bar ranges on the track timeline |
+| T.2.3 | Pattern chaining | **[NEW]** | `/chain <pattern_a> <repeat_a> <pattern_b> <repeat_b> ...` — chain named patterns into a longer sequence. Output to working buffer or track. This is the missing link between "I have a 4-bar loop" and "I have a song" |
+| T.2.4 | Section copy/move | **[NEW]** | `/section copy <name> <to_bar>` duplicates a section's audio at a new position. `/section move <name> <to_bar>` moves it. Essential for arranging verse/chorus/verse/chorus structures |
+
+### T.3 — Render & Export Pipeline (HIGH)
+
+| # | Feature | Status | Description |
+|---|---------|--------|-------------|
+| T.3.1 | Track stem export | **[NEW]** | `/export stems <path>` renders each track as a separate WAV/FLAC file. Essential for collaboration, remixing, and multi-DAW workflows |
+| T.3.2 | Individual track export | **[NEW]** | `/export track <n> <path>` renders a single track to file with its FX chain applied |
+| T.3.3 | FLAC export fix | **[NEW]** | Fix silent fallback to WAV when soundfile unavailable. If FLAC requested but unsupported, warn the user explicitly instead of silently downgrading |
+| T.3.4 | Master gain control | **[NEW]** | `/master_gain <dB>` — session-level master gain applied before limiting in the render chain. Currently no way to control master output level. Add `master_gain` to session state, persist in save/load |
+
+### T.4 — Missing Command Implementations (HIGH)
+
+| # | Feature | Status | Description |
+|---|---------|--------|-------------|
+| T.4.1 | `/crossover` command | **[NEW]** | Implement `/crossover <buf_a> <buf_b> <method>` in ai_cmds.py — the GUI already has full ActionDef and context menus for this but the command doesn't exist. Methods: temporal, spectral, blend, morphological, multi_point. Wire to `breeding.py` crossover functions which are already implemented |
+| T.4.2 | `/duplicate` buffer command | **[NEW]** | Implement `/dup <source> <dest>` to copy buffer contents. Currently GUI uses `/w <n>` + `/a` as workaround but a direct command is needed for clarity and atomicity |
+| T.4.3 | `/metronome` command | **[NEW]** | `/metronome on/off`, `/metronome vol <1-100>`, `/metronome sound click/beep/wood`. Generate a click track at session BPM overlaid on playback. Essential for performing and recording in time |
+| T.4.4 | `/swap <a> <b>` buffer swap | **[NEW]** | Swap contents of two buffers atomically |
+| T.4.5 | Stop playback fix | **[NEW]** | `/stop` in render_cmds.py is a stub (returns "OK" without stopping). Wire it to `playback.stop()` so in-progress playback actually halts |
+
+### T.5 — Generative Output Routing (HIGH)
+
+| # | Feature | Status | Description |
+|---|---------|--------|-------------|
+| T.5.1 | Generation `route=` parameter | **[NEW]** | Add optional `route=` to `/beat`, `/loop`, `/gen2`, `/adapt`, `/xform`. Values: `working` (default), `track`, `track:<n>`, `buffer:<n>`. Example: `/beat house 4 route=track:2` |
+| T.5.2 | `/commit` command | **[NEW]** | `/commit` moves working buffer to current track at write position and clears working. `/commit <n>` targets track N. Shortcut for the common "I generated something, now put it on a track" workflow |
+| T.5.3 | Auto-advance write position | **[NEW]** | After committing audio to a track, auto-advance the write position to the end of the committed region. Currently write_pos stays at 0, so the next commit overwrites |
+
+### T.6 — Save/Load & Persistence Gaps (MEDIUM)
+
+| # | Feature | Status | Description |
+|---|---------|--------|-------------|
+| T.6.1 | Auto-save timer | **[NEW]** | Auto-save project every N minutes (configurable, default 5) to `~/Documents/MDMA/autosave/`. `/autosave on/off/interval <min>`. Prevent total loss from crashes |
+| T.6.2 | DJ state persistence | **[NEW]** | Persist deck audio references, crossfader position, and deck effects in save/load. Currently DJ state is lost on reload |
+| T.6.3 | Section markers persistence | **[NEW]** | Persist section definitions (T.2.1) in save/load format |
+
+### T.7 — Playback Fixes (MEDIUM)
+
+| # | Feature | Status | Description |
+|---|---------|--------|-------------|
+| T.7.1 | Playback error feedback | **[NEW]** | When playback fails (device missing, buffer empty, format error), print a clear error message instead of failing silently. Currently `_play_buffer()` returns False with no user-visible output |
+| T.7.2 | Playback position query | **[NEW]** | `/pos` shows current playback position in beats and seconds. `/seek <beat>` jumps to a position. Foundation for non-linear playback |
+
+### T.8 — Audio Import Fix (MEDIUM)
+
+| # | Feature | Status | Description |
+|---|---------|--------|-------------|
+| T.8.1 | Sample rate conversion on import | **[NEW]** | When importing audio at a different sample rate than the session, resample using `scipy.signal.resample` or `resample_poly` to match session rate. Currently imported audio plays at wrong pitch/speed if rates don't match |
+
+### T.9 — GUI Wiring Fixes (HIGH)
+
+| # | Feature | Status | Description |
+|---|---------|--------|-------------|
+| T.9.1 | Wire `/crossover` GUI to engine | **[NEW]** | After T.4.1 implements the command, verify the GUI ActionDef template, context menus, and breed picker dialog all produce correct commands |
+| T.9.2 | Breeding action category validation | **[NEW]** | Verify all 6 breeding actions, 11 tree items, and 3 dialog flows produce commands that the engine accepts. Fix any mismatched parameter names or orderings |
+| T.9.3 | Buffer action category validation | **[NEW]** | Verify all 10 buffer actions produce working commands. Test duplicate, import, bounce, and info flows end-to-end |
+
+### T.10 — File FX Chain Cleanup (LOW)
+
+| # | Feature | Status | Description |
+|---|---------|--------|-------------|
+| T.10.1 | Remove or wire file_fx_chain | **[NEW]** | `session.file_fx_chain` is initialized but never used anywhere. Either remove the dead code or implement `/filefx` commands that apply effects to audio during file import/export |
+
+### Implementation Priority Order
+
+```
+CRITICAL (do first — these are dealbreakers):
+  T.1  Undo/Redo System
+  T.2  Song Structure & Arrangement
+
+HIGH (do second — these fix broken or missing functionality):
+  T.4  Missing Command Implementations
+  T.5  Generative Output Routing
+  T.3  Render & Export Pipeline
+  T.9  GUI Wiring Fixes
+
+MEDIUM (do third — quality of life):
+  T.6  Save/Load Persistence
+  T.7  Playback Fixes
+  T.8  Audio Import Fix
+
+LOW (do last — cleanup):
+  T.10 File FX Chain Cleanup
+```
+
+### Milestone Deliverable
+
+A user can open MDMA, set a tempo, generate drums and bass, arrange them into intro/verse/chorus/bridge/outro sections, mix tracks with pan/gain/mute/solo, undo mistakes, render to WAV or FLAC, and export individual stems — all without hitting a single dead end, silent failure, or missing command. **The product is song-ready.**
+
+### Verification Criteria
+
+Phase T is complete when ALL of the following end-to-end workflows succeed without manual workarounds:
+
+1. **Generate → Arrange → Render**: `/beat house 4` → `/commit 1` → `/section add verse 1 4` → `/gen2 melody` → `/commit 2` → `/section add chorus 5 8` → `/render all`
+2. **Undo workflow**: `/tone 440 1` → `/fx reverb 80` → `/undo` → (buffer has no reverb)
+3. **Stem export**: 4-track project → `/export stems ./stems/` → 4 WAV files on disk
+4. **Breeding workflow**: `/breed 1 2 4` → `/crossover 1 2 spectral` → children in buffers
+5. **Section copy**: `/section copy verse 9` → verse audio duplicated at bar 9
+
+---
+
 ## Phase 5: Advanced Sound Engines
 
 > **Goal:** Next-generation synthesis engines that push beyond traditional DSP.
@@ -382,7 +517,9 @@ Phase 1: Core Interface & Workflow         [DONE]
   |       |               |
   |       |               +---> Phase 4b: Microtonal Support [NEW]
   |       |               |
-  |       |               +---> Phase 5: Advanced Sound Engines
+  |       |               +---> Phase T: Full System Audit   [NEW] ← GATE
+  |       |                       |
+  |       |                       +---> Phase 5: Advanced Sound Engines
   |       |
   |       +---> Phase 7: Presets & Content Tools
   |
@@ -395,6 +532,8 @@ Phase 1: Core Interface & Workflow         [DONE]
   +---> Phase 10: Visualization & Media Integration
 ```
 
+**Phase T is a gate.** It does not add new capabilities — it makes existing capabilities reliable and complete. No phase after T should inherit broken wiring or silent failures.
+
 ### Parallelization Opportunities
 
 These phase groups can be developed concurrently:
@@ -405,8 +544,11 @@ These phase groups can be developed concurrently:
 | ~~Phase 3: Modulation~~ DONE | Phase 8: DJ & Performance | |
 | ~~Phase 4: Generative~~ DONE | Phase 9: Recording | |
 | Phase 4b: Microtonal | | |
+| **Phase T: System Audit** (GATE) | | |
 | Phase 5: Neural Engines | | |
 | Phase 7: Presets (after both tracks) | | |
+
+**Note:** Phase T and Phase 4b can run in parallel. Phase T and Track B/C can also run in parallel since Track B/C are independent integration work. Phase 5 waits on Phase T.
 
 ---
 
@@ -418,14 +560,15 @@ These phase groups can be developed concurrently:
 | 2. Monolith & Synthesis | **COMPLETE** | 9 | 9 | 0 |
 | 3. Modulation & Convolution | **COMPLETE** | 6 | 6 | 0 |
 | 4. Generative Systems | **COMPLETE** | 5 | 5 | 0 |
-| 4b. Microtonal Support | **NEW** | 8 | 0 | 8 |
+| 4b. Microtonal Support | NEW | 8 | 0 | 8 |
+| **T. Full System Audit** | **NEW (GATE)** | **22** | **0** | **22** |
 | 5. Advanced Sound Engines | NEW | 3 | 0 | 3 |
 | 6. MIDI, VST & Hardware | NEW | 4 | 0 | 4 |
 | 7. Presets & Content | PARTIAL | 3 | 0 | 3 |
 | 8. DJ & Performance | PARTIAL | 6 | 0 | 6 |
 | 9. Recording & Input | NEW | 4 | 0 | 4 |
 | 10. Visualization & Media | PARTIAL | 4 | 0 | 4 |
-| **Total** | | **60** | **28** | **32** |
+| **Total** | | **82** | **28** | **54** |
 
 ---
 
