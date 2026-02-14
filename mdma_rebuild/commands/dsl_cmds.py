@@ -303,6 +303,35 @@ def render_events(events, root_hz: float, sr: int,
                 end = min(pos + len(tone), total_samples)
                 audio[pos:end] += tone[:end - pos]
 
+        elif event['type'] == 'chord':
+            # Inline chord from (N,N,N) grouping — render all pitches
+            pitches = event['pitches']
+            n_notes = max(len(pitches), 1)
+            chord_amp = amp / (n_notes ** 0.5)  # equal-power scaling
+
+            for pitch in pitches:
+                freq = note_to_hz(pitch, root_hz)
+                if session:
+                    note_beats = float(event['duration'])
+                    try:
+                        tone = session.generate_tone(freq, note_beats, chord_amp)
+                        if tone is not None and len(tone) > 0:
+                            tone = tone.astype(np.float64)
+                            if tone.ndim == 2:
+                                tone = np.mean(tone, axis=1).astype(np.float64)
+                            end = min(pos + len(tone), total_samples)
+                            audio[pos:end] += tone[:end - pos]
+                    except Exception:
+                        note_dur_sec = event['duration'] * sec_per_unit
+                        tone = render_tone(freq, note_dur_sec, chord_amp, sr)
+                        end = min(pos + len(tone), total_samples)
+                        audio[pos:end] += tone[:end - pos]
+                else:
+                    note_dur_sec = event['duration'] * sec_per_unit
+                    tone = render_tone(freq, note_dur_sec, chord_amp, sr)
+                    end = min(pos + len(tone), total_samples)
+                    audio[pos:end] += tone[:end - pos]
+
         pos += event_samples
 
     return audio
@@ -428,8 +457,10 @@ def parse_melody_pattern(pattern: str) -> List[dict]:
     .           Note separator (single dot between notes)
     ..          Extra dots EXTEND the preceding note by 1 beat each
     r           Rest (1 beat)
+    _           Rest (1 beat) — explicit rest token (Phase 6)
     bN          Flat (subtract 1 semitone from N)
     #N          Sharp (add 1 semitone to N)
+    (N,N,N)     Inline chord grouping (Phase 6) — e.g. (0,4,7)
 
     Duration rules
     ~~~~~~~~~~~~~~
@@ -443,7 +474,9 @@ def parse_melody_pattern(pattern: str) -> List[dict]:
       "0..4.7"        note 0 for 2 beats, 4 for 1, 7 for 1  = 4 beats
       "-12.0.12"      octave below, root, octave above
       "0.r.4"         note 0 (1), rest (1), note 4 (1)       = 3 beats
+      "0._.4"         same as above using explicit rest token
       "60.64.67"      MIDI: C4, E4, G4
+      "(0,4,7).0.4"   inline chord then two single notes
     """
     events = []
     i = 0
@@ -478,10 +511,40 @@ def parse_melody_pattern(pattern: str) -> List[dict]:
         # Non-dot character resets run counter
         dot_run = 0
 
-        if ch == 'r':
+        if ch == 'r' or ch == '_':
             flush()
             events.append({'type': 'rest', 'duration': 1})
             i += 1
+            continue
+
+        # Inline chord grouping: (N,N,N)
+        if ch == '(':
+            flush()
+            i += 1  # skip '('
+            group_str = ''
+            while i < len(pattern) and pattern[i] != ')':
+                group_str += pattern[i]
+                i += 1
+            if i < len(pattern):
+                i += 1  # skip ')'
+            pitches = []
+            for tok in group_str.split(','):
+                tok = tok.strip()
+                if not tok:
+                    continue
+                offset = 0
+                if tok.startswith('#'):
+                    offset = 1
+                    tok = tok[1:]
+                elif tok.startswith('b') and len(tok) > 1 and tok[1:].lstrip('-').isdigit():
+                    offset = -1
+                    tok = tok[1:]
+                try:
+                    pitches.append(int(tok) + offset)
+                except ValueError:
+                    pass
+            if pitches:
+                events.append({'type': 'chord', 'pitches': pitches, 'duration': 1})
             continue
 
         if ch == 'b' and i + 1 < len(pattern) and pattern[i + 1].isdigit():
@@ -701,6 +764,7 @@ def parse_chord_pattern(pattern: str) -> List[dict]:
       "0,4,7..0,3,7"        Major for 2 beats, minor for 1
       "0,4,7...0,3,7..."    Major for 3 beats, minor for 3
       "0,4,7.r.0,3,7"       Major, rest, minor (1 beat each)
+      "0,4,7._.0,3,7"       Same using explicit rest token
     """
     events = []
     current_chord = None   # list of ints or None
@@ -737,8 +801,8 @@ def parse_chord_pattern(pattern: str) -> List[dict]:
         # Non-dot resets counter
         dot_run = 0
 
-        # Rest
-        if ch == 'r':
+        # Rest (r or _ token)
+        if ch == 'r' or ch == '_':
             flush()
             events.append({'type': 'rest', 'duration': 1})
             i += 1

@@ -36,4 +36,5 @@ __all__ = [
     "beat_gen",
     "loop_gen",
     "transforms",
+    "midi_input",
 ]

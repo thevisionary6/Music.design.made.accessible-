@@ -413,21 +413,85 @@ Sound engines that can learn timbres from recordings, model resonant spaces with
 
 ---
 
-## Phase 6: MIDI, VST & Hardware Integration
+## Phase 6: MIDI as Protocol Writer
 
-> **Goal:** Connect MDMA to the broader music production ecosystem.
-> **Depends on:** Phase 1 (GUI surface for configuration), Phase 2 (synth engine for MIDI targets)
-> **Delivers:** MIDI I/O, VST hosting, and accessible hardware control surfaces.
+> **Goal:** Add MIDI input as a protocol-writing accelerator and preview layer — NOT a new sequencing system.
+> **Depends on:** Phase 1 (GUI surface with console input field), Phase 2 (synth engine for preview/render)
+> **Delivers:** MIDI keyboard input that writes interval tokens into the existing protocol, plus audible preview.
+> **Design spec:** v6.0 (MIDI as Protocol Writer — Final Locked Spec)
+
+### Core Principle
+
+MIDI writes directly into the existing interval protocol text field. It does NOT introduce a new sequencing system, clip system, automation lanes, or real-time DAW layer. MDMA remains deterministic and render-first.
+
+### MIDI Modes
+
+**Preview Mode (default):** When the cursor is NOT in the protocol input field, pressing a MIDI key plays a preview tone through the current synth backend (Monolith). No text is written. Used for patch testing.
+
+**Program Mode:** When the cursor IS inside the protocol input field, pressing a MIDI key converts the pitch to an interval relative to the current root and inserts it at the cursor. Repeated presses at the same position append `.` to extend duration. Multiple keys pressed within the chord detection window insert a chord grouping token.
+
+### Phase 6.0 Features
 
 | # | Feature | Status | Description |
 |---|---------|--------|-------------|
-| 6.1 | MIDI input | **[NEW]** | Receive MIDI from external controllers and keyboards — note on/off, CC, pitch bend routed to MDMA parameters |
-| 6.2 | MIDI output | **[NEW]** | Send MIDI to external synths and hardware — pattern playback, note sequencing, CC automation |
-| 6.3 | VST support | **[NEW]** | Host VST2/VST3 plugins as effects or instruments — scan, load, configure, and automate plugin parameters |
-| 6.4 | Accessible surface transform | **[NEW]** | Expose raw hardware/plugin parameters as flat, navigable panels — no nested menus, every knob is a labeled widget accessible by keyboard and screen reader |
+| 6.0.1 | MIDI device manager | **[NEW]** | List available MIDI input devices, select active device, basic note-on/note-off capture via `mido` + `python-rtmidi`. `/midi list`, `/midi select <n>`, `/midi status` |
+| 6.0.2 | Interval translator | **[NEW]** | Convert MIDI note number to semitone interval relative to session root (`interval = midi_note - root_note`). Detect chord clusters within configurable window (default 80ms). Format as protocol tokens: single notes (`0`), chords (`(0,4,7)`), duration extension (`.`), rest (`_`) |
+| 6.0.3 | MIDI preview trigger | **[NEW]** | Route MIDI note-on through current Monolith engine for audible feedback in Preview Mode. Short preview tone (~200ms) at the note's frequency, non-blocking |
+| 6.0.4 | Protocol token injection | **[NEW]** | In Program Mode, inject formatted interval tokens at cursor position in the GUI console input field. Supports single notes, chords (parentheses grouping), duration extension, and rest insertion |
+| 6.0.5 | Rest token `_` | **[NEW]** | Add `_` as explicit rest symbol to the interval protocol DSL. Parsed by `parse_melody_pattern()` and `parse_chord_pattern()` alongside existing `r` rest. Removes ambiguity from space-based separation |
+| 6.0.6 | Chord grouping `(0,4,7)` | **[NEW]** | Add parentheses-based chord grouping to the melody parser so MIDI chord input produces valid protocol text. `(0,4,7)..` = chord sustained for 2 beats |
+| 6.0.7 | Chord detection window | **[NEW]** | Configurable chord detection window in session settings — `session.chord_window_ms` (default 80ms). `/midi window <ms>` to adjust. Notes arriving within the window are grouped as a chord |
+| 6.0.8 | MIDI root setting | **[NEW]** | `/midi root <note>` sets the MIDI root note for interval calculation (default: 60 / C4). Stored in session, persisted in save/load. Root changes do NOT retroactively alter stored intervals |
+
+### What Phase 6.0 Does NOT Include
+
+- CC mapping, automation, pitch bend, aftertouch, MPE, transport clock sync
+- MIDI output to external hardware
+- VST hosting (deferred to future phase)
+- Accessible surface transform (deferred to future phase)
+- Real-time recording mode
+
+### Interval Conversion Rules
+
+```
+interval = midi_note - session.midi_root_note
+
+Example (root = MIDI 60 / C4):
+  MIDI 60 → interval 0
+  MIDI 62 → interval 2
+  MIDI 59 → interval -1
+  MIDI 72 → interval 12 (octave)
+```
+
+Root changes do NOT rewrite existing intervals. Any integer interval is allowed (no clamping).
+
+### New Protocol Tokens
+
+| Token | Meaning | Example |
+|-------|---------|---------|
+| `_` | Explicit rest (1 beat) | `0._. 2` |
+| `(N,N,N)` | Chord grouping | `(0,4,7)` = C major triad |
+| `(N,N,N)..` | Extended chord | `(0,4,7)..` = 2 beats |
+
+### Phase 6.1 (Future)
+
+| # | Feature | Description |
+|---|---------|-------------|
+| 6.1.1 | Real-time MIDI recording | Record MIDI input to protocol in real time with quantization |
+| 6.1.2 | CC handling | Map MIDI CC messages to synth/effect parameters |
+| 6.1.3 | MIDI output | Send patterns as MIDI to external hardware/software |
+| 6.1.4 | VST render backend | Load VST instruments as alternative synth backend |
+| 6.1.5 | Accessible surface transform | Flat, navigable parameter panels for external plugin GUIs |
+
+### Technical Components
+
+1. **MIDI Device Manager** (`mdma_rebuild/dsp/midi_input.py`) — Device enumeration, selection, note capture via `mido`/`python-rtmidi`
+2. **Interval Translator** (integrated into midi_input.py) — Note-to-interval conversion, chord cluster detection, token formatting
+3. **Preview Trigger** (integrated into midi_input.py) — Route notes through Monolith for audible feedback
+4. **MIDI Commands** (`mdma_rebuild/commands/midi_cmds.py`) — `/midi` command family for device management and configuration
 
 ### Milestone Deliverable
-MDMA talks to MIDI hardware, hosts VST plugins, and makes every external parameter accessible through flat, navigable panels — no visual-only plugin GUIs required.
+A MIDI keyboard connected to MDMA writes interval tokens directly into the protocol input field. Users can preview patches by playing keys, then switch to the input field and type melodies and chords at keyboard speed. The protocol text is the same format used by `/mel` and `/cor` — no new abstractions, no timeline, no sequencer.
 
 ---
 
@@ -523,8 +587,9 @@ Phase 1: Core Interface & Workflow         [DONE]
   |       |
   |       +---> Phase 7: Presets & Content Tools
   |
-  +---> Phase 6: MIDI, VST & Hardware Integration
+  +---> Phase 6: MIDI as Protocol Writer       [IN PROGRESS]
   |       |
+  |       +---> Phase 6.1: Advanced MIDI/VST (future)
   |       +---> Phase 7: Presets & Content Tools
   |       +---> Phase 8: DJ & Performance Tools
   |       +---> Phase 9: Recording & Input Configuration
@@ -540,9 +605,10 @@ These phase groups can be developed concurrently:
 
 | Track A (Sound Engine) | Track B (Integration) | Track C (Media) |
 |------------------------|-----------------------|-----------------|
-| ~~Phase 2: Synthesis~~ DONE | Phase 6: MIDI/VST/HW | Phase 10: Visualization |
-| ~~Phase 3: Modulation~~ DONE | Phase 8: DJ & Performance | |
-| ~~Phase 4: Generative~~ DONE | Phase 9: Recording | |
+| ~~Phase 2: Synthesis~~ DONE | **Phase 6.0: MIDI Protocol Writer** IN PROGRESS | Phase 10: Visualization |
+| ~~Phase 3: Modulation~~ DONE | Phase 6.1: Advanced MIDI/VST (future) | |
+| ~~Phase 4: Generative~~ DONE | Phase 8: DJ & Performance | |
+| | Phase 9: Recording | |
 | Phase 4b: Microtonal | | |
 | **Phase T: System Audit** (GATE) | | |
 | Phase 5: Neural Engines | | |
@@ -563,12 +629,13 @@ These phase groups can be developed concurrently:
 | 4b. Microtonal Support | NEW | 8 | 0 | 8 |
 | **T. Full System Audit** | **NEW (GATE)** | **22** | **0** | **22** |
 | 5. Advanced Sound Engines | NEW | 3 | 0 | 3 |
-| 6. MIDI, VST & Hardware | NEW | 4 | 0 | 4 |
+| 6.0 MIDI Protocol Writer | **IN PROGRESS** | 8 | 0 | 8 |
+| 6.1 Advanced MIDI/VST | FUTURE | 5 | 0 | 5 |
 | 7. Presets & Content | PARTIAL | 3 | 0 | 3 |
 | 8. DJ & Performance | PARTIAL | 6 | 0 | 6 |
 | 9. Recording & Input | NEW | 4 | 0 | 4 |
 | 10. Visualization & Media | PARTIAL | 4 | 0 | 4 |
-| **Total** | | **82** | **28** | **54** |
+| **Total** | | **91** | **28** | **63** |
 
 ---
 

@@ -439,6 +439,15 @@ def build_command_table():
         pass
 
     # ================================================================
+    # PHASE 8.95: Load Phase 6 MIDI commands
+    # ================================================================
+    try:
+        from mdma_rebuild.commands.midi_cmds import get_midi_commands
+        register_from_dict(get_midi_commands(), 'midi_cmds')
+    except ImportError:
+        pass
+
+    # ================================================================
     # PHASE 9: Load AI commands (highest priority)
     # ================================================================
     ai_mod = _CMD_MODULES.get('ai_cmds')

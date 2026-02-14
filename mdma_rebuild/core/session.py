@@ -253,6 +253,21 @@ class Session:
         # Band-limited oscillators (smoother waveforms)
         self.hq_oscillators: bool = True  # Use band-limited waveforms
 
+        # --- MIDI input settings (Phase 6) ---
+        # Root note for interval calculation: MIDI note number (60 = C4).
+        # MIDI input converts notes to intervals relative to this root.
+        # interval = incoming_midi_note - midi_root_note
+        self.midi_root_note: int = 60  # C4
+        # Chord detection window in milliseconds.  Notes arriving within
+        # this window are grouped as a chord token, e.g. (0,4,7).
+        # Default 80ms — generous for USB MIDI jitter.  Configurable via
+        # /midi window <ms>.
+        self.chord_window_ms: int = 80
+        # Currently selected MIDI input device name (None = not connected)
+        self.midi_device: Optional[str] = None
+        # MIDI enabled flag
+        self.midi_enabled: bool = False
+
         # --- Track timeline (simplified) ---
         # MDMA v40: tracks are the primary audio containers.
         # Each track holds ONE continuous STEREO audio array for the project

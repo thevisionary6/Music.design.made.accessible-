@@ -33,4 +33,5 @@ __all__ = [
     "sydef_cmds",
     "working_cmds",
     "gen_cmds",
+    "midi_cmds",
 ]
