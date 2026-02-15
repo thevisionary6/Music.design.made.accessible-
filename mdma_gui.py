@@ -48,9 +48,19 @@ Phase T features (Song-Ready):
 - Auto-save toggle, file FX chain management
 - Phase T object tree category with full inspector support
 
-Version: 4.1.0
+Phase A (Accessibility Audit):
+- Context menus accessible via Application key / Shift+F10
+- Inspector properties displayed in ListCtrl for screen-reader navigation
+- Patch Builder operator & routing lists: context menus, keyboard actions
+- Console command input field with history (Up/Down), auto-prefix
+- StepGrid: Ctrl+A select all, Up/Down row navigation, Space set write pos
+- Oscillator cards: per-operator Wave button, accessible button names
+- Accessible names/hints on all interactive controls
+- Ctrl+L focuses command input, multi-command newline splitting fixed
+
+Version: 4.2.0
 Author: Based on spec by Cyrus
-Date: 2026-02-13
+Date: 2026-02-15
 
 Requirements:
     pip install wxPython
@@ -58,7 +68,7 @@ Requirements:
 Usage:
     python mdma_gui.py
 
-BUILD ID: mdma_gui_v4.1.0_phaseT
+BUILD ID: mdma_gui_v4.2.0_phaseA
 """
 
 import sys
@@ -2290,8 +2300,10 @@ class ObjectBrowser(wx.Panel):
         search_label.SetForegroundColour(Theme.FG_TEXT)
         self.search_box = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER,
                                        name="ObjectSearch")
+        self.search_box.SetName("Search objects — type to filter the tree")
         self.search_box.SetBackgroundColour(Theme.BG_INPUT)
         self.search_box.SetForegroundColour(Theme.FG_TEXT)
+        self.search_box.SetHint("Type to search objects...")
         self.search_box.Bind(wx.EVT_TEXT, self.on_search)
 
         search_sizer.Add(search_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
@@ -2302,15 +2314,19 @@ class ObjectBrowser(wx.Panel):
         # Tree control
         self.tree = wx.TreeCtrl(self, style=wx.TR_DEFAULT_STYLE | wx.TR_HIDE_ROOT,
                                 name="ObjectTree")
+        self.tree.SetName("Object Browser — navigate with arrow keys, Application key for context menu")
         self.tree.SetBackgroundColour(Theme.BG_INPUT)
         self.tree.SetForegroundColour(Theme.FG_TEXT)
         self.tree.Bind(wx.EVT_TREE_SEL_CHANGED, self.on_tree_select)
         self.tree.Bind(wx.EVT_TREE_ITEM_RIGHT_CLICK, self.on_context_menu)
+        # Allow context menu via Application key / Shift+F10
+        self.tree.Bind(wx.EVT_CONTEXT_MENU, self.on_keyboard_context_menu)
 
         sizer.Add(self.tree, 1, wx.EXPAND | wx.ALL, 5)
 
         # Refresh button
         refresh_btn = wx.Button(self, label="Refresh (F5)")
+        refresh_btn.SetName("Refresh object tree (F5)")
         refresh_btn.Bind(wx.EVT_BUTTON, self.on_refresh)
         sizer.Add(refresh_btn, 0, wx.EXPAND | wx.ALL, 5)
 
@@ -2833,6 +2849,23 @@ class ObjectBrowser(wx.Panel):
     # ------------------------------------------------------------------
     # Context menus
     # ------------------------------------------------------------------
+
+    def on_keyboard_context_menu(self, event):
+        """Handle context menu triggered by Application key or Shift+F10.
+
+        Retrieves the currently selected tree item and delegates to the
+        same handler used by right-click so every object type is supported.
+        """
+        item = self.tree.GetSelection()
+        if not item or not item.IsOk():
+            return
+        # Build a lightweight wrapper that responds to GetItem()
+        class _SyntheticTreeEvent:
+            def __init__(self, tree_item):
+                self._item = tree_item
+            def GetItem(self):
+                return self._item
+        self.on_context_menu(_SyntheticTreeEvent(item))
 
     def on_context_menu(self, event):
         """Show a context menu appropriate to the selected tree item."""
@@ -4701,13 +4734,16 @@ class ActionPanel(wx.Panel):
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
         
         self.run_btn = wx.Button(self, label="Run (Ctrl+R)")
+        self.run_btn.SetName("Run current action (Ctrl+R)")
         self.run_btn.SetBackgroundColour(Theme.ACCENT)
         self.run_btn.Bind(wx.EVT_BUTTON, self.on_run)
-        
+
         self.copy_btn = wx.Button(self, label="Copy Command")
+        self.copy_btn.SetName("Copy generated command to clipboard")
         self.copy_btn.Bind(wx.EVT_BUTTON, self.on_copy)
-        
+
         self.reset_btn = wx.Button(self, label="Reset Params")
+        self.reset_btn.SetName("Reset parameters to default values")
         self.reset_btn.Bind(wx.EVT_BUTTON, self.on_reset)
         
         btn_sizer.Add(self.run_btn, 1, wx.RIGHT, 5)
@@ -4949,15 +4985,15 @@ class InspectorPanel(wx.Panel):
         self.subtitle.SetForegroundColour(Theme.FG_DIM)
         self.sizer.Add(self.subtitle, 0, wx.LEFT | wx.BOTTOM, 10)
 
-        # Properties list (scrollable)
-        self.props_panel = wx.ScrolledWindow(self)
-        self.props_panel.SetName("Object Properties")
-        self.props_panel.SetBackgroundColour(Theme.BG_PANEL)
-        self.props_panel.SetScrollRate(0, 20)
-        self.props_sizer = wx.FlexGridSizer(cols=2, hgap=12, vgap=6)
-        self.props_sizer.AddGrowableCol(1, 1)
-        self.props_panel.SetSizer(self.props_sizer)
-        self.sizer.Add(self.props_panel, 1, wx.EXPAND | wx.ALL, 5)
+        # Properties list (ListCtrl for screen-reader navigation)
+        self.props_list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL
+                                      | wx.LC_NO_HEADER)
+        self.props_list.SetName("Object Properties")
+        self.props_list.SetBackgroundColour(Theme.BG_PANEL)
+        self.props_list.SetForegroundColour(Theme.FG_TEXT)
+        self.props_list.InsertColumn(0, "Property", width=130)
+        self.props_list.InsertColumn(1, "Value", width=280)
+        self.sizer.Add(self.props_list, 1, wx.EXPAND | wx.ALL, 5)
 
         # Quick action buttons (contextual)
         self.action_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -4971,7 +5007,7 @@ class InspectorPanel(wx.Panel):
         obj_type = data.get('type', '')
 
         # Clear previous
-        self.props_sizer.Clear(True)
+        self.props_list.DeleteAllItems()
         self.action_sizer.Clear(True)
 
         if obj_type == 'track':
@@ -5017,36 +5053,27 @@ class InspectorPanel(wx.Panel):
             self.title.SetLabel("Inspector")
             self.subtitle.SetLabel(f"Object type: {obj_type}")
 
-        self.props_panel.FitInside()
         self.Layout()
 
     def _add_prop(self, label: str, value: str):
-        """Add a property row to the inspector."""
-        lbl = wx.StaticText(self.props_panel, label=label)
-        lbl.SetForegroundColour(Theme.FG_DIM)
-        lbl.SetMinSize((120, -1))
-        val = wx.StaticText(self.props_panel, label=str(value))
-        val.SetForegroundColour(Theme.FG_TEXT)
-        self.props_sizer.Add(lbl, 0, wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
-        self.props_sizer.Add(val, 1, wx.EXPAND)
+        """Add a property row to the inspector (ListCtrl for screen readers)."""
+        idx = self.props_list.GetItemCount()
+        self.props_list.InsertItem(idx, label)
+        self.props_list.SetItem(idx, 1, str(value))
 
     def _add_separator(self, label: str = ''):
-        """Add a visual separator line with optional section label."""
-        line = wx.StaticLine(self.props_panel)
-        self.props_sizer.Add(line, 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 3)
+        """Add a section separator row to the inspector."""
+        idx = self.props_list.GetItemCount()
         if label:
-            hdr = wx.StaticText(self.props_panel, label=label)
-            hdr.SetForegroundColour(Theme.ACCENT)
-            f = hdr.GetFont()
-            f.SetWeight(wx.FONTWEIGHT_BOLD)
-            hdr.SetFont(f)
-            self.props_sizer.Add(hdr, 0, wx.BOTTOM, 2)
+            self.props_list.InsertItem(idx, f"--- {label} ---")
         else:
-            self.props_sizer.AddSpacer(0)
+            self.props_list.InsertItem(idx, "---")
+        self.props_list.SetItem(idx, 1, "")
 
     def _add_action_btn(self, label: str, command: str):
-        """Add a quick-action button."""
+        """Add a quick-action button with accessible name."""
         btn = wx.Button(self, label=label)
+        btn.SetName(f"{label} ({command})")
         btn.Bind(wx.EVT_BUTTON,
                  lambda e, cmd=command: self._exec_action(cmd))
         self.action_sizer.Add(btn, 0, wx.RIGHT, 5)
@@ -5801,6 +5828,7 @@ class StepGridPanel(wx.Panel):
 
         # Grid canvas
         self.canvas = wx.Panel(self, name="StepGridCanvas")
+        self.canvas.SetName("Step grid — use arrow keys to navigate, Shift+Arrow to select, Ctrl+A for all")
         self.canvas.SetBackgroundColour(self.COL_GRID_BG)
         self.canvas.Bind(wx.EVT_PAINT, self.on_paint)
         self.canvas.Bind(wx.EVT_LEFT_DOWN, self.on_grid_mouse_down)
@@ -5944,20 +5972,41 @@ class StepGridPanel(wx.Panel):
         """Keyboard navigation for step grid (accessibility).
 
         Arrow Left/Right moves cursor. Shift+Arrow extends selection.
-        Home/End jumps to start/end. Escape clears selection.
+        Up/Down moves by row (16 steps). Home/End jumps to start/end.
+        Ctrl+A selects all steps. Space toggles write-position at cursor.
+        Escape clears selection.
         """
         key = event.GetKeyCode()
         shift = event.ShiftDown()
+        ctrl = event.ControlDown()
         old_cursor = self._kb_cursor
+
+        # Ctrl+A: select all steps
+        if ctrl and key == ord('A'):
+            self.selected_steps = set(range(self.total_steps))
+            self.canvas.Refresh()
+            self._update_step_text()
+            return
 
         if key == wx.WXK_RIGHT:
             self._kb_cursor = min(self._kb_cursor + 1, self.total_steps - 1)
         elif key == wx.WXK_LEFT:
             self._kb_cursor = max(self._kb_cursor - 1, 0)
+        elif key == wx.WXK_DOWN:
+            self._kb_cursor = min(self._kb_cursor + self.STEPS_PER_ROW,
+                                  self.total_steps - 1)
+        elif key == wx.WXK_UP:
+            self._kb_cursor = max(self._kb_cursor - self.STEPS_PER_ROW, 0)
         elif key == wx.WXK_HOME:
             self._kb_cursor = 0
         elif key == wx.WXK_END:
             self._kb_cursor = self.total_steps - 1
+        elif key == wx.WXK_SPACE:
+            # Space sets write position at cursor
+            self.write_pos = self._kb_cursor
+            self.canvas.Refresh()
+            self._update_step_text()
+            return
         elif key == wx.WXK_ESCAPE:
             self.selected_steps = set()
             self.canvas.Refresh()
@@ -6148,43 +6197,71 @@ class StepGridPanel(wx.Panel):
 
 
 class ConsolePanel(wx.Panel):
-    """Bottom panel - output console."""
+    """Bottom panel - output console with command input field."""
 
-    def __init__(self, parent):
+    def __init__(self, parent, executor=None, state_sync_callback=None):
         super().__init__(parent, style=wx.TAB_TRAVERSAL)
+        self.executor = executor
+        self.state_sync_cb = state_sync_callback
+        self._cmd_history: List[str] = []
+        self._history_idx = -1
 
         self.SetBackgroundColour(Theme.BG_DARK)
-        
+
         sizer = wx.BoxSizer(wx.VERTICAL)
-        
+
         # Header
         header_sizer = wx.BoxSizer(wx.HORIZONTAL)
         header = wx.StaticText(self, label="Console Output")
         header.SetForegroundColour(Theme.FG_DIM)
-        
+
         clear_btn = wx.Button(self, label="Clear", size=(60, -1))
         clear_btn.Bind(wx.EVT_BUTTON, self.on_clear)
-        
+
         header_sizer.Add(header, 1, wx.ALIGN_CENTER_VERTICAL)
         header_sizer.Add(clear_btn, 0)
-        
+
         sizer.Add(header_sizer, 0, wx.EXPAND | wx.ALL, 5)
-        
-        # Console text
+
+        # Console text (output)
         self.console = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_READONLY |
                                    wx.TE_RICH2 | wx.HSCROLL)
         self.console.SetName("Command Output Console")
         self.console.SetBackgroundColour(Theme.BG_DARK)
         self.console.SetForegroundColour(Theme.FG_TEXT)
-        
+
         # Use monospace font
         font = wx.Font(10, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
         self.console.SetFont(font)
-        
-        sizer.Add(self.console, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
-        
+
+        sizer.Add(self.console, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 5)
+
+        # Command input field
+        input_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        input_label = wx.StaticText(self, label="Command:")
+        input_label.SetForegroundColour(Theme.ACCENT)
+        input_sizer.Add(input_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+
+        self.cmd_input = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER,
+                                      name="CommandInput")
+        self.cmd_input.SetName("Command Input — type a slash command and press Enter")
+        self.cmd_input.SetBackgroundColour(Theme.BG_INPUT)
+        self.cmd_input.SetForegroundColour(Theme.FG_TEXT)
+        self.cmd_input.SetFont(font)
+        self.cmd_input.SetHint("Type a command (e.g. /tone 440 1) and press Enter")
+        self.cmd_input.Bind(wx.EVT_TEXT_ENTER, self._on_cmd_enter)
+        self.cmd_input.Bind(wx.EVT_KEY_DOWN, self._on_cmd_key)
+        input_sizer.Add(self.cmd_input, 1, wx.EXPAND)
+
+        run_btn = wx.Button(self, label="Run", size=(50, -1))
+        run_btn.SetName("Run command")
+        run_btn.Bind(wx.EVT_BUTTON, self._on_cmd_enter)
+        input_sizer.Add(run_btn, 0, wx.LEFT, 4)
+
+        sizer.Add(input_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
         self.SetSizer(sizer)
-        
+
         # Color mapping
         self.colors = {
             'command': Theme.ACCENT,
@@ -6195,27 +6272,83 @@ class ConsolePanel(wx.Panel):
             'info': Theme.FG_DIM,
             'warning': Theme.WARNING,
         }
-    
+
+    def set_executor(self, executor, state_sync_callback=None):
+        """Set the executor after construction (for deferred wiring)."""
+        self.executor = executor
+        self.state_sync_cb = state_sync_callback
+
     def append(self, text: str, style: str = 'stdout'):
         """Append text to console with color."""
         color = self.colors.get(style, Theme.FG_TEXT)
-        
+
         # Get current position
         pos = self.console.GetLastPosition()
-        
+
         # Append text
         self.console.AppendText(text)
-        
+
         # Apply color to new text
         new_pos = self.console.GetLastPosition()
         self.console.SetStyle(pos, new_pos, wx.TextAttr(color))
-        
+
         # Scroll to end
         self.console.ShowPosition(new_pos)
-    
+
     def on_clear(self, event):
         """Clear the console."""
         self.console.Clear()
+
+    def _on_cmd_enter(self, event):
+        """Execute the typed command."""
+        cmd = self.cmd_input.GetValue().strip()
+        if not cmd:
+            return
+        # Auto-prefix with / if missing
+        if not cmd.startswith('/'):
+            cmd = '/' + cmd
+        # Add to history
+        self._cmd_history.append(cmd)
+        self._history_idx = -1
+
+        self.append(f">>> {cmd}\n", 'command')
+
+        if self.executor:
+            stdout, stderr, ok = self.executor.execute(cmd)
+            if stdout:
+                self.append(stdout, 'stdout')
+            if stderr:
+                self.append(stderr, 'stderr')
+            self.append(
+                f"[{'OK' if ok else 'ERROR'}]\n\n",
+                'success' if ok else 'error')
+            if self.state_sync_cb:
+                self.state_sync_cb()
+        else:
+            self.append("No engine loaded — cannot execute commands.\n", 'error')
+
+        self.cmd_input.Clear()
+
+    def _on_cmd_key(self, event):
+        """Handle Up/Down for command history navigation."""
+        key = event.GetKeyCode()
+        if key == wx.WXK_UP and self._cmd_history:
+            if self._history_idx == -1:
+                self._history_idx = len(self._cmd_history) - 1
+            elif self._history_idx > 0:
+                self._history_idx -= 1
+            self.cmd_input.SetValue(self._cmd_history[self._history_idx])
+            self.cmd_input.SetInsertionPointEnd()
+        elif key == wx.WXK_DOWN and self._cmd_history:
+            if self._history_idx >= 0 and self._history_idx < len(self._cmd_history) - 1:
+                self._history_idx += 1
+                self.cmd_input.SetValue(self._cmd_history[self._history_idx])
+                self.cmd_input.SetInsertionPointEnd()
+            else:
+                self._history_idx = -1
+                self.cmd_input.Clear()
+        else:
+            event.Skip()
 
 
 # ============================================================================
@@ -6253,7 +6386,7 @@ class PatchBuilderPanel(wx.Panel):
 
         # Operator list
         self.op_list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
-        self.op_list.SetName("Operator List")
+        self.op_list.SetName("Operator List — use Enter to edit, Application key for context menu")
         self.op_list.SetBackgroundColour(Theme.BG_INPUT)
         self.op_list.SetForegroundColour(Theme.FG_TEXT)
         self.op_list.InsertColumn(0, "Op", width=40)
@@ -6261,6 +6394,8 @@ class PatchBuilderPanel(wx.Panel):
         self.op_list.InsertColumn(2, "Freq (Hz)", width=80)
         self.op_list.InsertColumn(3, "Amp", width=60)
         self.op_list.InsertColumn(4, "Parameters", width=250)
+        self.op_list.Bind(wx.EVT_CONTEXT_MENU, self._on_op_context_menu)
+        self.op_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_op_activated)
         sizer.Add(self.op_list, 1, wx.EXPAND | wx.ALL, 4)
 
         # Routing section
@@ -6269,7 +6404,7 @@ class PatchBuilderPanel(wx.Panel):
         sizer.Add(route_label, 0, wx.LEFT | wx.TOP, 8)
 
         self.route_list = wx.ListCtrl(self, style=wx.LC_REPORT)
-        self.route_list.SetName("Modulation Routing Table")
+        self.route_list.SetName("Modulation Routing Table — use Application key for context menu")
         self.route_list.SetBackgroundColour(Theme.BG_INPUT)
         self.route_list.SetForegroundColour(Theme.FG_TEXT)
         self.route_list.InsertColumn(0, "#", width=30)
@@ -6277,6 +6412,7 @@ class PatchBuilderPanel(wx.Panel):
         self.route_list.InsertColumn(2, "Source", width=60)
         self.route_list.InsertColumn(3, "Target", width=60)
         self.route_list.InsertColumn(4, "Amount", width=70)
+        self.route_list.Bind(wx.EVT_CONTEXT_MENU, self._on_route_context_menu)
         sizer.Add(self.route_list, 0, wx.EXPAND | wx.ALL, 4)
         self.route_list.SetMinSize((-1, 100))
 
@@ -6306,6 +6442,7 @@ class PatchBuilderPanel(wx.Panel):
         param_sizer.Add(wx.StaticText(self, label="Param:"), 0,
                         wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
         self.param_input = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER)
+        self.param_input.SetName("Patch parameter command — type a command and press Enter")
         self.param_input.SetBackgroundColour(Theme.BG_INPUT)
         self.param_input.SetForegroundColour(Theme.FG_TEXT)
         self.param_input.SetHint("e.g. /wm supersaw saws=7 spread=0.5")
@@ -6316,16 +6453,131 @@ class PatchBuilderPanel(wx.Panel):
         self.SetSizer(sizer)
 
     def _exec(self, cmd):
+        """Execute one or more newline-separated commands."""
+        commands = [c.strip() for c in cmd.split('\n') if c.strip()]
         try:
-            stdout, stderr, ok = self.executor.execute(cmd)
-            if stdout and stdout.strip():
-                self.console_cb(stdout, 'info')
-            if stderr and stderr.strip():
-                self.console_cb(stderr, 'error')
+            for single_cmd in commands:
+                stdout, stderr, ok = self.executor.execute(single_cmd)
+                if stdout and stdout.strip():
+                    self.console_cb(stdout, 'info')
+                if stderr and stderr.strip():
+                    self.console_cb(stderr, 'error')
+                if not ok:
+                    break
             self.sync_cb()
             self.refresh()
         except Exception as e:
             self.console_cb(f"ERROR: {e}\n", 'error')
+
+    def _on_op_context_menu(self, event):
+        """Context menu for operator list (keyboard and mouse)."""
+        sel = self.op_list.GetFirstSelected()
+        if sel < 0:
+            return
+        op_text = self.op_list.GetItemText(sel, 0)
+        try:
+            op_idx = int(op_text)
+        except ValueError:
+            return
+        wave = self.op_list.GetItemText(sel, 1)
+
+        menu = wx.Menu()
+        m_select = wx.NewIdRef()
+        m_wave = wx.NewIdRef()
+        m_freq = wx.NewIdRef()
+        m_amp = wx.NewIdRef()
+        m_gen = wx.NewIdRef()
+        m_fm = wx.NewIdRef()
+
+        menu.Append(m_select, f"Select Operator {op_idx}")
+        menu.Append(m_gen, "Generate Tone (440Hz)")
+        menu.AppendSeparator()
+        menu.Append(m_wave, f"Set Waveform (current: {wave})...")
+        menu.Append(m_freq, "Set Frequency...")
+        menu.Append(m_amp, "Set Amplitude...")
+        menu.AppendSeparator()
+        menu.Append(m_fm, "Add FM Routing from This Op...")
+
+        self.Bind(wx.EVT_MENU,
+            lambda e, i=op_idx: self._exec(f'/op {i}'), id=m_select)
+        self.Bind(wx.EVT_MENU,
+            lambda e, i=op_idx: self._exec(f'/op {i}\n/tone 440 1'), id=m_gen)
+        self.Bind(wx.EVT_MENU,
+            lambda e, i=op_idx: self._on_set_wave_for_op(i), id=m_wave)
+        self.Bind(wx.EVT_MENU,
+            lambda e, i=op_idx: self._on_set_freq(i), id=m_freq)
+        self.Bind(wx.EVT_MENU,
+            lambda e, i=op_idx: self._on_set_amp(i), id=m_amp)
+        self.Bind(wx.EVT_MENU,
+            lambda e, i=op_idx: self._on_add_routing(None), id=m_fm)
+
+        self.PopupMenu(menu)
+        menu.Destroy()
+
+    def _on_op_activated(self, event):
+        """Handle Enter / double-click on operator list — select operator."""
+        sel = self.op_list.GetFirstSelected()
+        if sel < 0:
+            return
+        op_text = self.op_list.GetItemText(sel, 0)
+        try:
+            op_idx = int(op_text)
+        except ValueError:
+            return
+        self._exec(f'/op {op_idx}')
+
+    def _on_route_context_menu(self, event):
+        """Context menu for routing list (keyboard and mouse)."""
+        sel = self.route_list.GetFirstSelected()
+        menu = wx.Menu()
+        m_add = wx.NewIdRef()
+        m_clear = wx.NewIdRef()
+        menu.Append(m_add, "Add New Routing...")
+        menu.AppendSeparator()
+        menu.Append(m_clear, "Clear All Routings")
+
+        self.Bind(wx.EVT_MENU,
+            lambda e: self._on_add_routing(None), id=m_add)
+        self.Bind(wx.EVT_MENU,
+            lambda e: self._exec('/clearalg'), id=m_clear)
+
+        self.PopupMenu(menu)
+        menu.Destroy()
+
+    def _on_set_wave_for_op(self, op_idx):
+        """Show waveform picker targeting a specific operator."""
+        wave_types = [
+            'sine', 'triangle', 'saw', 'pulse', 'noise', 'pink',
+            'physical', 'physical2',
+            'supersaw', 'additive', 'formant', 'harmonic',
+            'waveguide_string', 'waveguide_tube', 'waveguide_membrane', 'waveguide_plate',
+            'wavetable', 'compound',
+        ]
+        dlg = wx.SingleChoiceDialog(self, "Select waveform:", "Set Waveform", wave_types)
+        if dlg.ShowModal() == wx.ID_OK:
+            wave = dlg.GetStringSelection()
+            self._exec(f"/op {op_idx}\n/wm {wave}")
+        dlg.Destroy()
+
+    def _on_set_freq(self, op_idx):
+        """Show frequency editor for an operator."""
+        dlg = wx.TextEntryDialog(self, "Enter frequency (Hz):",
+                                  "Set Frequency", "440")
+        if dlg.ShowModal() == wx.ID_OK:
+            val = dlg.GetValue().strip()
+            if val:
+                self._exec(f"/op {op_idx}\n/freq {val}")
+        dlg.Destroy()
+
+    def _on_set_amp(self, op_idx):
+        """Show amplitude editor for an operator."""
+        dlg = wx.TextEntryDialog(self, "Enter amplitude (0-1):",
+                                  "Set Amplitude", "0.8")
+        if dlg.ShowModal() == wx.ID_OK:
+            val = dlg.GetValue().strip()
+            if val:
+                self._exec(f"/op {op_idx}\n/amp {val}")
+        dlg.Destroy()
 
     def _on_param_enter(self, event):
         cmd = self.param_input.GetValue().strip()
@@ -6687,8 +6939,8 @@ class OscillatorListPanel(wx.Panel):
         self.scroll.Layout()
 
     def _create_op_card(self, idx, op):
-        """Create a card panel for one operator."""
-        card = wx.Panel(self.scroll)
+        """Create a card panel for one operator with keyboard access."""
+        card = wx.Panel(self.scroll, style=wx.TAB_TRAVERSAL)
         card.SetBackgroundColour(Theme.BG_PANEL)
         card_sizer = wx.BoxSizer(wx.HORIZONTAL)
 
@@ -6719,11 +6971,44 @@ class OscillatorListPanel(wx.Panel):
 
         # Quick-edit buttons
         select_btn = wx.Button(card, label="Select", size=(55, -1))
+        select_btn.SetName(f"Select Operator {idx} ({wave} {freq:.0f}Hz)")
         select_btn.Bind(wx.EVT_BUTTON, lambda e, i=idx: self._select_op(i))
         card_sizer.Add(select_btn, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 2)
 
+        wave_btn = wx.Button(card, label="Wave", size=(55, -1))
+        wave_btn.SetName(f"Change waveform for Operator {idx}")
+        wave_btn.Bind(wx.EVT_BUTTON, lambda e, i=idx: self._change_wave(i))
+        card_sizer.Add(wave_btn, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 2)
+
         card.SetSizer(card_sizer)
         return card
+
+    def _change_wave(self, idx):
+        """Show waveform picker for an oscillator."""
+        wave_types = [
+            'sine', 'triangle', 'saw', 'pulse', 'noise', 'pink',
+            'physical', 'physical2',
+            'supersaw', 'additive', 'formant', 'harmonic',
+            'waveguide_string', 'waveguide_tube', 'waveguide_membrane', 'waveguide_plate',
+            'wavetable', 'compound',
+        ]
+        dlg = wx.SingleChoiceDialog(self, "Select waveform:", "Set Waveform", wave_types)
+        if dlg.ShowModal() == wx.ID_OK:
+            wave = dlg.GetStringSelection()
+            try:
+                for cmd in [f"/op {idx}", f"/wm {wave}"]:
+                    stdout, stderr, ok = self.executor.execute(cmd)
+                    if stdout and stdout.strip():
+                        self.console_cb(stdout, 'info')
+                    if stderr and stderr.strip():
+                        self.console_cb(stderr, 'error')
+                    if not ok:
+                        break
+                self.sync_cb()
+                self.refresh()
+            except Exception as e:
+                self.console_cb(f"ERROR: {e}\n", 'error')
+        dlg.Destroy()
 
     def _select_op(self, idx):
         try:
@@ -6750,7 +7035,7 @@ class MDMAFrame(wx.Frame):
     +-------------+--------------------------------+
     """
 
-    VERSION = "3.0.0"
+    VERSION = "4.2.0"
 
     def __init__(self):
         super().__init__(None, title="MDMA - Music Design Made Accessible",
@@ -6782,7 +7067,7 @@ class MDMAFrame(wx.Frame):
         self.Centre()
 
         # Welcome message
-        self.console.append(f"MDMA GUI v{self.VERSION} - Phase 3: Modulation & Convolution\n", 'info')
+        self.console.append(f"MDMA GUI v{self.VERSION} - Phase A: Accessibility Audit\n", 'info')
         self.console.append("=" * 55 + "\n", 'info')
 
         # Warn if engine failed to load
@@ -6799,7 +7084,9 @@ class MDMAFrame(wx.Frame):
             self.console.append(
                 "Browse objects on the left. Select to inspect.\n", 'info')
             self.console.append(
-                "Right-click for context actions. Ctrl+R to run.\n\n", 'info')
+                "Right-click or Application key for context actions.\n", 'info')
+            self.console.append(
+                "Ctrl+L to focus command input. Ctrl+R to run action.\n\n", 'info')
             # Show live engine state on startup
             self.sync_state()
             # Start auto-refresh timer
@@ -6893,6 +7180,7 @@ class MDMAFrame(wx.Frame):
         # --- Right panel: Notebook with Inspector + Action Panel ---
         self.right_notebook = wx.Notebook(self.top_splitter,
                                            name="RightNotebook")
+        self.right_notebook.SetName("Inspector and tools — use Ctrl+Tab to switch tabs")
         self.right_notebook.SetBackgroundColour(Theme.BG_PANEL)
 
         self.inspector = InspectorPanel(
@@ -6926,8 +7214,10 @@ class MDMAFrame(wx.Frame):
         # --- Bottom left: Step Grid ---
         self.step_grid = StepGridPanel(self.bottom_splitter, self.executor)
 
-        # --- Bottom right: Console ---
-        self.console = ConsolePanel(self.bottom_splitter)
+        # --- Bottom right: Console (with command input) ---
+        self.console = ConsolePanel(self.bottom_splitter,
+                                     executor=self.executor,
+                                     state_sync_callback=self.sync_state)
 
         # Configure splitters
         self.top_splitter.SplitVertically(
@@ -6962,7 +7252,7 @@ class MDMAFrame(wx.Frame):
         self.Bind(wx.EVT_MENU,
             lambda e: self.action_panel.on_run(e), id=self.run_id)
         self.Bind(wx.EVT_MENU,
-            lambda e: self.console.console.SetFocus(),
+            lambda e: self.console.cmd_input.SetFocus(),
             id=self.console_focus_id)
         self.Bind(wx.EVT_MENU,
             lambda e: self.browser.search_box.SetFocus(),
