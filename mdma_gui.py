@@ -560,6 +560,45 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             ],
             description='Set limiter threshold'
         ),
+        ActionDef(
+            name='hq_subsonic',
+            label='Subsonic Filter',
+            command_template='/hq subsonic {freq}',
+            params=[
+                ActionParam('freq', 'Cutoff (Hz)', 'float', 20, min_val=1, max_val=100),
+            ],
+            description='Set subsonic filter cutoff frequency (removes rumble below)'
+        ),
+        ActionDef(
+            name='hq_highend',
+            label='High-End Smooth',
+            command_template='/hq highend {freq} {db}',
+            params=[
+                ActionParam('freq', 'Frequency (Hz)', 'float', 16000, min_val=1000, max_val=22000),
+                ActionParam('db', 'Reduction (dB)', 'float', -3.0, min_val=-12, max_val=0),
+            ],
+            description='Set high-end smoothing filter (tames harsh frequencies)'
+        ),
+        ActionDef(
+            name='hq_format',
+            label='Export Format',
+            command_template='/hq format {format}',
+            params=[
+                ActionParam('format', 'Format', 'enum', 'wav',
+                           choices=['wav', 'flac']),
+            ],
+            description='Set HQ export format (wav or flac)'
+        ),
+        ActionDef(
+            name='hq_bits',
+            label='Bit Depth',
+            command_template='/hq bits {bits}',
+            params=[
+                ActionParam('bits', 'Bits', 'enum', '24',
+                           choices=['16', '24', '32']),
+            ],
+            description='Set HQ export bit depth'
+        ),
     ],
     'key': [
         ActionDef(
@@ -624,6 +663,59 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             description='Add phase modulation routing'
         ),
         ActionDef(
+            name='tfm',
+            label='Add TFM Routing',
+            command_template='/tfm {source} {target} {amount}',
+            params=[
+                ActionParam('source', 'Source Op', 'int', 2, min_val=1, max_val=16),
+                ActionParam('target', 'Target Op', 'int', 1, min_val=1, max_val=16),
+                ActionParam('amount', 'Amount (0-100)', 'float', 50, min_val=0, max_val=100),
+            ],
+            description='Add through-zero FM routing (harsher, more metallic)'
+        ),
+        ActionDef(
+            name='route_add',
+            label='Add Routing (All Types)',
+            command_template='/route add {route_type} {source} {target} {amount}',
+            params=[
+                ActionParam('route_type', 'Type', 'enum', 'fm',
+                           choices=['fm', 'tfm', 'am', 'rm', 'pm']),
+                ActionParam('source', 'Source Op', 'int', 2, min_val=0, max_val=15),
+                ActionParam('target', 'Target Op', 'int', 1, min_val=0, max_val=15),
+                ActionParam('amount', 'Amount', 'float', 0.5, min_val=0, max_val=10),
+            ],
+            description='Add modulation routing (unified — supports all 5 types)'
+        ),
+        ActionDef(
+            name='route_rm',
+            label='Remove Routing',
+            command_template='/route rm {index}',
+            params=[
+                ActionParam('index', 'Routing Index', 'int', 0, min_val=0, max_val=32),
+            ],
+            description='Remove a modulation routing by index'
+        ),
+        ActionDef(
+            name='route_swap',
+            label='Swap Routing Order',
+            command_template='/route swap {idx1} {idx2}',
+            params=[
+                ActionParam('idx1', 'Index A', 'int', 0, min_val=0, max_val=32),
+                ActionParam('idx2', 'Index B', 'int', 1, min_val=0, max_val=32),
+            ],
+            description='Swap execution order of two routings'
+        ),
+        ActionDef(
+            name='route_scale',
+            label='Scale Routing Amount',
+            command_template='/route scale {index} {amount}',
+            params=[
+                ActionParam('index', 'Routing Index', 'int', 0, min_val=0, max_val=32),
+                ActionParam('amount', 'New Amount', 'float', 1.0, min_val=0, max_val=10),
+            ],
+            description='Change the modulation amount of a routing'
+        ),
+        ActionDef(
             name='clearalg',
             label='Clear All Routings',
             command_template='/clearalg',
@@ -633,32 +725,73 @@ ACTIONS: Dict[str, List[ActionDef]] = {
         ActionDef(
             name='ar_interval',
             label='Interval LFO',
-            command_template='/audiorate interval {op} lfo {rate} {depth} {wave}',
+            command_template='/imod {op} lfo {rate} {depth} {wave}',
             params=[
-                ActionParam('op', 'Operator', 'int', 1, min_val=1, max_val=16),
+                ActionParam('op', 'Operator', 'int', 0, min_val=0, max_val=15),
                 ActionParam('rate', 'Rate (Hz)', 'float', 5.0, min_val=0.1, max_val=100),
                 ActionParam('depth', 'Depth (semitones)', 'float', 1.0, min_val=0, max_val=24),
                 ActionParam('wave', 'LFO Shape', 'enum', 'sine',
                            choices=['sine', 'triangle', 'saw', 'square']),
             ],
-            description='Set audio-rate interval LFO modulation'
+            description='Set interval (pitch) LFO on an operator — vibrato / trill'
+        ),
+        ActionDef(
+            name='ar_interval_src',
+            label='Interval Mod (Op Source)',
+            command_template='/imod {op} src {source_op} {depth}',
+            params=[
+                ActionParam('op', 'Target Operator', 'int', 0, min_val=0, max_val=15),
+                ActionParam('source_op', 'Source Operator', 'int', 1, min_val=0, max_val=15),
+                ActionParam('depth', 'Depth (semitones)', 'float', 7.0, min_val=0, max_val=24),
+            ],
+            description='Use one operator as interval modulation source for another'
+        ),
+        ActionDef(
+            name='ar_interval_off',
+            label='Interval Mod Off',
+            command_template='/imod {op} off',
+            params=[
+                ActionParam('op', 'Operator', 'int', 0, min_val=0, max_val=15),
+            ],
+            description='Disable interval modulation on an operator'
         ),
         ActionDef(
             name='ar_filter',
             label='Filter LFO',
-            command_template='/audiorate filter lfo {rate} {depth}',
+            command_template='/fmod lfo {rate} {depth}',
             params=[
                 ActionParam('rate', 'Rate (Hz)', 'float', 2.0, min_val=0.1, max_val=100),
                 ActionParam('depth', 'Depth (octaves)', 'float', 1.0, min_val=0, max_val=8),
             ],
-            description='Set audio-rate filter cutoff LFO'
+            description='Set filter cutoff LFO modulation'
+        ),
+        ActionDef(
+            name='ar_filter_src',
+            label='Filter Mod (Op Source)',
+            command_template='/fmod src {source_op} {depth}',
+            params=[
+                ActionParam('source_op', 'Source Operator', 'int', 1, min_val=0, max_val=15),
+                ActionParam('depth', 'Depth (octaves)', 'float', 1.5, min_val=0, max_val=8),
+            ],
+            description='Use an operator as filter modulation source'
+        ),
+        ActionDef(
+            name='ar_filter_op',
+            label='Per-Op Filter',
+            command_template='/fmod op {op} {cutoff} {resonance}',
+            params=[
+                ActionParam('op', 'Operator', 'int', 0, min_val=0, max_val=15),
+                ActionParam('cutoff', 'Cutoff (Hz)', 'float', 2000, min_val=20, max_val=20000),
+                ActionParam('resonance', 'Resonance (0-1)', 'float', 0.5, min_val=0, max_val=1),
+            ],
+            description='Set per-operator filter with audio-rate modulation'
         ),
         ActionDef(
             name='ar_clear',
             label='Clear Audio-Rate Mod',
-            command_template='/audiorate clear',
+            command_template='/imod clear',
             params=[],
-            description='Clear all audio-rate modulation sources'
+            description='Clear all audio-rate interval and filter modulation'
         ),
     ],
     'wavetable': [
@@ -1144,6 +1277,271 @@ ACTIONS: Dict[str, List[ActionDef]] = {
     ],
 
     # ------------------------------------------------------------------
+    # Granular Engine (direct /gr access)
+    # ------------------------------------------------------------------
+
+    'granular_engine': [
+        ActionDef(
+            name='gr_process',
+            label='Granular Process',
+            command_template='/gr process {duration}',
+            params=[
+                ActionParam('duration', 'Duration (s)', 'float', 2.0, min_val=0.1, max_val=30),
+            ],
+            description='Process working buffer through granular engine'
+        ),
+        ActionDef(
+            name='gr_freeze',
+            label='Granular Freeze',
+            command_template='/gr freeze {position} {duration}',
+            params=[
+                ActionParam('position', 'Position (0-1)', 'float', 0.5, min_val=0, max_val=1),
+                ActionParam('duration', 'Duration (s)', 'float', 4.0, min_val=0.1, max_val=30),
+            ],
+            description='Freeze and sustain grain cloud at a position'
+        ),
+        ActionDef(
+            name='gr_stretch',
+            label='Granular Time-Stretch',
+            command_template='/gr stretch {factor}',
+            params=[
+                ActionParam('factor', 'Stretch Factor', 'float', 2.0, min_val=0.25, max_val=8),
+            ],
+            description='Time-stretch without pitch change (granular)'
+        ),
+        ActionDef(
+            name='gr_shift',
+            label='Granular Pitch Shift',
+            command_template='/gr shift {semitones}',
+            params=[
+                ActionParam('semitones', 'Semitones', 'float', 0, min_val=-24, max_val=24),
+            ],
+            description='Pitch-shift without time change (granular)'
+        ),
+        ActionDef(
+            name='gr_size',
+            label='Set Grain Size',
+            command_template='/gr size {ms}',
+            params=[
+                ActionParam('ms', 'Size (ms)', 'float', 50, min_val=1, max_val=500),
+            ],
+            description='Set grain size in milliseconds'
+        ),
+        ActionDef(
+            name='gr_density',
+            label='Set Density',
+            command_template='/gr density {value}',
+            params=[
+                ActionParam('value', 'Density', 'float', 4.0, min_val=0.5, max_val=32),
+            ],
+            description='Set grain overlap density (higher = denser texture)'
+        ),
+        ActionDef(
+            name='gr_pos',
+            label='Set Position',
+            command_template='/gr pos {value}',
+            params=[
+                ActionParam('value', 'Position (0-1)', 'float', 0.5, min_val=0, max_val=1),
+            ],
+            description='Set read position in source audio'
+        ),
+        ActionDef(
+            name='gr_spread',
+            label='Set Spread',
+            command_template='/gr spread {value}',
+            params=[
+                ActionParam('value', 'Spread (0-1)', 'float', 0.1, min_val=0, max_val=1),
+            ],
+            description='Set random position spread around read position'
+        ),
+        ActionDef(
+            name='gr_pitch',
+            label='Set Pitch Ratio',
+            command_template='/gr pitch {value}',
+            params=[
+                ActionParam('value', 'Pitch Ratio', 'float', 1.0, min_val=0.25, max_val=4),
+            ],
+            description='Set grain pitch playback ratio (1.0 = normal)'
+        ),
+        ActionDef(
+            name='gr_env',
+            label='Set Grain Envelope',
+            command_template='/gr env {shape}',
+            params=[
+                ActionParam('shape', 'Shape', 'enum', 'hann',
+                           choices=['hann', 'triangle', 'gaussian', 'trapezoid',
+                                    'tukey', 'rect']),
+            ],
+            description='Set grain window envelope shape'
+        ),
+        ActionDef(
+            name='gr_reverse',
+            label='Set Reverse Probability',
+            command_template='/gr reverse {value}',
+            params=[
+                ActionParam('value', 'Probability (0-1)', 'float', 0.0, min_val=0, max_val=1),
+            ],
+            description='Probability of reversed grains (0 = none, 1 = all)'
+        ),
+        ActionDef(
+            name='gr_status',
+            label='Granular Status',
+            command_template='/gr',
+            params=[],
+            description='Show current granular engine parameters'
+        ),
+    ],
+
+    # ------------------------------------------------------------------
+    # GPU / AI Settings and Generation
+    # ------------------------------------------------------------------
+
+    'gpu': [
+        ActionDef(
+            name='gpu_steps',
+            label='Set Inference Steps',
+            command_template='/gpu steps {steps}',
+            params=[
+                ActionParam('steps', 'Steps', 'int', 150, min_val=1, max_val=500),
+            ],
+            description='Set AI generation inference steps (more = better quality, slower)'
+        ),
+        ActionDef(
+            name='gpu_cfg',
+            label='Set CFG Scale',
+            command_template='/gpu cfg {scale}',
+            params=[
+                ActionParam('scale', 'CFG Scale', 'float', 10, min_val=1, max_val=30),
+            ],
+            description='Set classifier-free guidance scale (higher = closer to prompt)'
+        ),
+        ActionDef(
+            name='gpu_scheduler',
+            label='Set Scheduler',
+            command_template='/gpu sk {scheduler}',
+            params=[
+                ActionParam('scheduler', 'Scheduler', 'enum', '6',
+                           choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']),
+            ],
+            description='Set diffusion scheduler (0=DDPM 1=DDIM 4=Euler 6=DPM++ 9=UniPC)'
+        ),
+        ActionDef(
+            name='gpu_model',
+            label='Set Model',
+            command_template='/gpu model {model}',
+            params=[
+                ActionParam('model', 'Model', 'enum', '0',
+                           choices=['0', '1', '2']),
+            ],
+            description='Set AI model (0=audioldm2-large 1=music 2=full)'
+        ),
+        ActionDef(
+            name='gpu_device',
+            label='Set Device',
+            command_template='/gpu device {device}',
+            params=[
+                ActionParam('device', 'Device', 'enum', 'cuda',
+                           choices=['cuda', 'cpu', 'mps']),
+            ],
+            description='Set compute device (cuda=GPU, cpu=CPU, mps=Apple Silicon)'
+        ),
+        ActionDef(
+            name='gpu_fp16',
+            label='Toggle FP16',
+            command_template='/gpu fp16 {state}',
+            params=[
+                ActionParam('state', 'Half Precision', 'enum', 'on',
+                           choices=['on', 'off']),
+            ],
+            description='Enable/disable half-precision for faster GPU inference'
+        ),
+        ActionDef(
+            name='gpu_offload',
+            label='CPU Offload',
+            command_template='/gpu offload {state}',
+            params=[
+                ActionParam('state', 'Offload', 'enum', 'off',
+                           choices=['on', 'off']),
+            ],
+            description='Enable CPU offloading to reduce GPU memory usage'
+        ),
+        ActionDef(
+            name='gpu_dur',
+            label='Default Duration',
+            command_template='/gpu dur {seconds}',
+            params=[
+                ActionParam('seconds', 'Duration (s)', 'float', 5.0, min_val=0.1, max_val=30),
+            ],
+            description='Set default generation duration in seconds'
+        ),
+        ActionDef(
+            name='gpu_reset',
+            label='Reset GPU Settings',
+            command_template='/gpu reset',
+            params=[],
+            description='Reset all GPU/AI settings to defaults'
+        ),
+        ActionDef(
+            name='gpu_status',
+            label='GPU Status',
+            command_template='/gpu',
+            params=[],
+            description='Show current GPU/AI configuration'
+        ),
+    ],
+
+    'ai_generate': [
+        ActionDef(
+            name='gen_audio',
+            label='Generate from Prompt',
+            command_template='/gen {prompt} {duration}',
+            params=[
+                ActionParam('prompt', 'Text Prompt', 'string', 'warm ambient pad'),
+                ActionParam('duration', 'Duration (s)', 'float', 5.0, min_val=0.1, max_val=30),
+            ],
+            description='Generate audio from text description using AI (requires GPU)'
+        ),
+        ActionDef(
+            name='gen_variations',
+            label='Generate Variations',
+            command_template='/genv {prompt} {count} {duration}',
+            params=[
+                ActionParam('prompt', 'Text Prompt', 'string', 'warm ambient pad'),
+                ActionParam('count', 'Variations', 'int', 3, min_val=1, max_val=8),
+                ActionParam('duration', 'Duration (s)', 'float', 5.0, min_val=0.1, max_val=30),
+            ],
+            description='Generate multiple variations from text prompt'
+        ),
+        ActionDef(
+            name='ai_analyze',
+            label='Analyze Audio',
+            command_template='/analyze {mode}',
+            params=[
+                ActionParam('mode', 'Mode', 'enum', 'detailed',
+                           choices=['detailed', 'brief']),
+            ],
+            description='AI analysis of working buffer attributes'
+        ),
+        ActionDef(
+            name='ai_describe',
+            label='Describe Audio',
+            command_template='/describe',
+            params=[],
+            description='Generate semantic description of working buffer'
+        ),
+        ActionDef(
+            name='ai_ask',
+            label='Ask AI (Natural Language)',
+            command_template='/ask {request}',
+            params=[
+                ActionParam('request', 'Request', 'string',
+                           'make a dark ambient pad in D minor'),
+            ],
+            description='Natural language request — AI plans and suggests commands'
+        ),
+    ],
+
+    # ------------------------------------------------------------------
     # Phase 4+: Buffer Operations, Text-to-Audio, Genetic Breeding
     # ------------------------------------------------------------------
 
@@ -1231,6 +1629,34 @@ ACTIONS: Dict[str, List[ActionDef]] = {
                 ActionParam('path', 'File Path', 'file', ''),
             ],
             description='Import a WAV file directly to the current track'
+        ),
+        ActionDef(
+            name='buf_stretch',
+            label='Time-Stretch',
+            command_template='/stretch {factor}',
+            params=[
+                ActionParam('factor', 'Factor', 'float', 2.0, min_val=0.1, max_val=8),
+            ],
+            description='Time-stretch working buffer (2.0 = double length, 0.5 = half)'
+        ),
+        ActionDef(
+            name='buf_swap',
+            label='Swap Buffers',
+            command_template='/swap {buf1} {buf2}',
+            params=[
+                ActionParam('buf1', 'Buffer A', 'int', 1, min_val=1, max_val=10),
+                ActionParam('buf2', 'Buffer B', 'int', 2, min_val=1, max_val=10),
+            ],
+            description='Swap contents of two buffers'
+        ),
+        ActionDef(
+            name='buf_dup',
+            label='Copy Buffer to Next Slot',
+            command_template='/dup {index}',
+            params=[
+                ActionParam('index', 'Source Buffer', 'int', 1, min_val=1, max_val=10),
+            ],
+            description='Duplicate buffer to next empty slot'
         ),
     ],
 
@@ -2687,6 +3113,53 @@ class ObjectBrowser(wx.Panel):
                     self.tree.SetItemData(sub, {'type': 'preset_slot',
                                                  'slot': slot_num, 'id': 'bank'})
 
+        # ---- Granular Engine ----
+        gr_cat = self.tree.AppendItem(root, "Granular Engine")
+        self.tree.SetItemData(gr_cat, {'type': 'category', 'id': 'granular_engine'})
+        self.category_items['granular_engine'] = gr_cat
+        # Show granular status as child items
+        for gr_lbl in [
+            "Grain Size (ms): /gr size",
+            "Density: /gr density",
+            "Position: /gr pos",
+            "Spread: /gr spread",
+            "Pitch Ratio: /gr pitch",
+            "Envelope: /gr env",
+            "Reverse Prob: /gr reverse",
+        ]:
+            sub = self.tree.AppendItem(gr_cat, gr_lbl)
+            self.tree.SetItemData(sub, {'type': 'category',
+                                         'id': 'granular_engine'})
+
+        # ---- GPU / AI Settings ----
+        gpu_cat = self.tree.AppendItem(root, "GPU / AI Settings")
+        self.tree.SetItemData(gpu_cat, {'type': 'category', 'id': 'gpu'})
+        self.category_items['gpu'] = gpu_cat
+        for gpu_lbl in [
+            "Inference Steps: /gpu steps",
+            "CFG Scale: /gpu cfg",
+            "Scheduler: /gpu sk",
+            "Model: /gpu model",
+            "Device: /gpu device",
+            "FP16 / Offload: /gpu fp16, /gpu offload",
+        ]:
+            sub = self.tree.AppendItem(gpu_cat, gpu_lbl)
+            self.tree.SetItemData(sub, {'type': 'category', 'id': 'gpu'})
+
+        # ---- AI Generation ----
+        ai_cat = self.tree.AppendItem(root, "AI Audio Generation")
+        self.tree.SetItemData(ai_cat, {'type': 'category', 'id': 'ai_generate'})
+        self.category_items['ai_generate'] = ai_cat
+        for ai_lbl in [
+            "Generate from Prompt: /gen",
+            "Generate Variations: /genv",
+            "Analyze Audio: /analyze",
+            "Describe Audio: /describe",
+            "Ask AI (Natural Language): /ask",
+        ]:
+            sub = self.tree.AppendItem(ai_cat, ai_lbl)
+            self.tree.SetItemData(sub, {'type': 'category', 'id': 'ai_generate'})
+
         # ---- Generative (Phase 4) ----
         gen_cat = self.tree.AppendItem(root, "Generative")
         self.tree.SetItemData(gen_cat, {'type': 'category', 'id': 'generative'})
@@ -3781,18 +4254,37 @@ class ObjectBrowser(wx.Panel):
 
             elif cat_id == 'modulation':
                 m_add_fm = wx.NewIdRef()
+                m_add_tfm = wx.NewIdRef()
                 m_add_am = wx.NewIdRef()
+                m_add_rm = wx.NewIdRef()
+                m_add_pm = wx.NewIdRef()
+                m_show = wx.NewIdRef()
                 m_clear = wx.NewIdRef()
-                menu.Append(m_add_fm, "Add FM Routing...")
-                menu.Append(m_add_am, "Add AM Routing...")
+                menu.Append(m_add_fm, "Add FM Routing (Frequency Mod)...")
+                menu.Append(m_add_tfm, "Add TFM Routing (Through-Zero FM)...")
+                menu.Append(m_add_am, "Add AM Routing (Amplitude Mod)...")
+                menu.Append(m_add_rm, "Add RM Routing (Ring Mod)...")
+                menu.Append(m_add_pm, "Add PM Routing (Phase Mod)...")
                 menu.AppendSeparator()
+                menu.Append(m_show, "Show All Routings")
                 menu.Append(m_clear, "Clear All Routings")
                 self.Bind(wx.EVT_MENU,
                     lambda e: self._show_routing_picker(None, 'fm'),
                     id=m_add_fm)
                 self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_routing_picker(None, 'tfm'),
+                    id=m_add_tfm)
+                self.Bind(wx.EVT_MENU,
                     lambda e: self._show_routing_picker(None, 'am'),
                     id=m_add_am)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_routing_picker(None, 'rm'),
+                    id=m_add_rm)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_routing_picker(None, 'pm'),
+                    id=m_add_pm)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/rt'), id=m_show)
                 self.Bind(wx.EVT_MENU,
                     lambda e: self._exec('/rt clear'), id=m_clear)
 
@@ -3898,6 +4390,95 @@ class ObjectBrowser(wx.Panel):
                         '/irgranular morph {}'), id=m_morph)
                 self.Bind(wx.EVT_MENU,
                     lambda e: self._exec('/irgranular redesign'), id=m_redesign)
+
+            elif cat_id == 'granular_engine':
+                m_proc = wx.NewIdRef()
+                m_freeze = wx.NewIdRef()
+                m_stretch = wx.NewIdRef()
+                m_shift = wx.NewIdRef()
+                m_status = wx.NewIdRef()
+                menu.Append(m_proc, "Process Buffer (Granular)...")
+                menu.Append(m_freeze, "Freeze at Position...")
+                menu.Append(m_stretch, "Time-Stretch...")
+                menu.Append(m_shift, "Pitch Shift...")
+                menu.AppendSeparator()
+                menu.Append(m_status, "Show Granular Status")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Granular Process", "Duration (s):", "2.0",
+                        '/gr process {}'), id=m_proc)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Granular Freeze", "Position (0-1):", "0.5",
+                        '/gr freeze {} 4'), id=m_freeze)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Granular Stretch", "Factor:", "2.0",
+                        '/gr stretch {}'), id=m_stretch)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Granular Pitch Shift", "Semitones:", "0",
+                        '/gr shift {}'), id=m_shift)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/gr'), id=m_status)
+
+            elif cat_id == 'gpu':
+                m_status = wx.NewIdRef()
+                m_steps = wx.NewIdRef()
+                m_cfg = wx.NewIdRef()
+                m_device = wx.NewIdRef()
+                m_reset = wx.NewIdRef()
+                menu.Append(m_status, "Show GPU Settings")
+                menu.Append(m_steps, "Set Inference Steps...")
+                menu.Append(m_cfg, "Set CFG Scale...")
+                menu.Append(m_device, "Set Device...")
+                menu.AppendSeparator()
+                menu.Append(m_reset, "Reset GPU to Defaults")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/gpu'), id=m_status)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Steps", "Inference steps (1-500):", "150",
+                        '/gpu steps {}'), id=m_steps)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "CFG Scale", "CFG (1-30):", "10",
+                        '/gpu cfg {}'), id=m_cfg)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_device_picker(), id=m_device)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/gpu reset'), id=m_reset)
+
+            elif cat_id == 'ai_generate':
+                m_gen = wx.NewIdRef()
+                m_genv = wx.NewIdRef()
+                m_analyze = wx.NewIdRef()
+                m_describe = wx.NewIdRef()
+                m_ask = wx.NewIdRef()
+                menu.Append(m_gen, "Generate Audio from Prompt...")
+                menu.Append(m_genv, "Generate Variations...")
+                menu.AppendSeparator()
+                menu.Append(m_analyze, "Analyze Working Buffer")
+                menu.Append(m_describe, "Describe Working Buffer")
+                menu.AppendSeparator()
+                menu.Append(m_ask, "Ask AI (Natural Language)...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Generate Audio", "Text prompt:", "warm ambient pad",
+                        '/gen {}'), id=m_gen)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Generate Variations", "Text prompt:", "warm ambient pad",
+                        '/genv {} 3'), id=m_genv)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/analyze detailed'), id=m_analyze)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/describe'), id=m_describe)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Ask AI", "What would you like?:",
+                        "make a dark ambient pad in D minor",
+                        '/ask {}'), id=m_ask)
 
             elif cat_id == 'engine':
                 m_bpm = wx.NewIdRef()
@@ -4531,6 +5112,17 @@ class ObjectBrowser(wx.Panel):
             val = dlg.GetValue().strip()
             if val:
                 self._exec(f'/{route_type} {val}')
+        dlg.Destroy()
+
+    def _show_device_picker(self):
+        """Show picker for GPU compute device."""
+        devices = ['cuda (NVIDIA GPU)', 'cpu (CPU fallback)', 'mps (Apple Silicon)']
+        dev_cmds = ['cuda', 'cpu', 'mps']
+        dlg = wx.SingleChoiceDialog(self, "Select compute device:",
+                                     "GPU Device", devices)
+        if dlg.ShowModal() == wx.ID_OK:
+            device = dev_cmds[dlg.GetSelection()]
+            self._exec(f'/gpu device {device}')
         dlg.Destroy()
 
     def _show_voice_algo_picker(self):
@@ -5729,6 +6321,37 @@ class InspectorPanel(wx.Panel):
                     self._add_prop("Descriptors:", f"{len(descs)} available")
                 except Exception:
                     self._add_prop("Descriptors:", "Module not available")
+        elif cat_id == 'granular_engine':
+            self._add_prop("Engine:", "GranularEngine (DSP)")
+            self._add_prop("Envelopes:", "hann, triangle, gaussian, trapezoid, tukey, rect")
+            self._add_prop("Parameters:", "size, density, position, spread, pitch, reverse")
+            self._add_prop("Modulation:", "Audio-rate mod for position, pitch, density, size")
+            self._add_separator("Operations")
+            self._add_prop("Process:", "/gr process <dur> — full granular cloud")
+            self._add_prop("Freeze:", "/gr freeze <pos> <dur> — sustain texture")
+            self._add_prop("Stretch:", "/gr stretch <factor> — time-stretch")
+            self._add_prop("Shift:", "/gr shift <semi> — pitch shift")
+            self._add_separator("Quick Actions")
+            self._add_action_btn("Status", "/gr")
+            self._add_action_btn("Process 2s", "/gr process 2")
+            self._add_action_btn("Freeze Center", "/gr freeze 0.5 4")
+        elif cat_id == 'gpu':
+            self._add_prop("Engine:", "AudioLDM2 (AI Generation)")
+            self._add_prop("Models:", "audioldm2-large, audioldm2-music, audioldm2-full")
+            self._add_prop("Schedulers:", "DDPM, DDIM, PNDM, LMS, Euler, DPM++, UniPC")
+            self._add_prop("Devices:", "cuda (GPU), cpu, mps (Apple)")
+            self._add_separator("Quick Actions")
+            self._add_action_btn("Show Status", "/gpu")
+            self._add_action_btn("Reset Defaults", "/gpu reset")
+        elif cat_id == 'ai_generate':
+            self._add_prop("Text-to-Audio:", "/gen <prompt> [dur] — generate from description")
+            self._add_prop("Variations:", "/genv <prompt> <count> — multiple versions")
+            self._add_prop("Analysis:", "/analyze — attribute vector of audio")
+            self._add_prop("Describe:", "/describe — semantic descriptor profile")
+            self._add_prop("Ask AI:", "/ask <request> — natural language commands")
+            self._add_separator("Quick Actions")
+            self._add_action_btn("Analyze", "/analyze detailed")
+            self._add_action_btn("Describe", "/describe")
         elif cat_id == 'generative':
             try:
                 from mdma_rebuild.dsp import beat_gen
@@ -7368,14 +7991,18 @@ class MDMAFrame(wx.Frame):
 
         # Update action panel category
         if obj_type == 'category':
-            # Map new category IDs to action panel categories
-            cat_map = {'tracks': 'engine', 'buffers': 'engine',
-                       'decks': 'engine'}
+            # Map tree category IDs to action panel categories
+            cat_map = {'tracks': 'engine', 'buffers': 'buffers',
+                       'decks': 'engine',
+                       'granular_engine': 'granular_engine',
+                       'gpu': 'gpu', 'ai_generate': 'ai_generate'}
             action_cat = cat_map.get(obj_id, obj_id)
             if action_cat in ACTIONS:
                 self.action_panel.set_category(action_cat)
-        elif obj_type in ('track', 'buffer', 'working_buffer', 'deck'):
+        elif obj_type in ('track', 'deck'):
             self.action_panel.set_category('engine')
+        elif obj_type in ('buffer', 'working_buffer'):
+            self.action_panel.set_category('buffers')
         elif obj_type in ('operator', 'envelope_param'):
             self.action_panel.set_category('synth')
         elif obj_type == 'filter_slot':
@@ -7405,8 +8032,21 @@ class MDMAFrame(wx.Frame):
         elif obj_type in ('preset_slot',):
             self.action_panel.set_category('preset')
         elif obj_type in ('gen_genre', 'gen_layer', 'gen_xform_preset',
-                          'gen_theory_item', 'gen_content_item', 'gen_section'):
-            pass  # Inspector handles display; no action panel category needed
+                          'gen_theory_item', 'gen_content_item'):
+            self.action_panel.set_category('text_to_audio')
+        elif obj_type == 'gen_tta_item':
+            self.action_panel.set_category('text_to_audio')
+        elif obj_type == 'gen_breed_item':
+            self.action_panel.set_category('breeding')
+        elif obj_type == 'gen_section':
+            section = data.get('section', '')
+            sec_map = {'beat': 'text_to_audio', 'loop': 'text_to_audio',
+                       'xform': 'text_to_audio', 'theory': 'text_to_audio',
+                       'gen2': 'text_to_audio', 'text_to_audio': 'text_to_audio',
+                       'breeding': 'breeding'}
+            cat = sec_map.get(section, 'text_to_audio')
+            if cat in ACTIONS:
+                self.action_panel.set_category(cat)
 
         # Update inspector with full object details
         self.inspector.inspect(data)
@@ -7482,10 +8122,11 @@ class MDMAFrame(wx.Frame):
             "Music Design Made Accessible\n\n"
             "Phase 1: Core Interface & Workflow\n"
             "Phase 2: Monolith Engine & Synthesis Expansion\n"
-            "Phase 3: Modulation, Impulse & Convolution\n\n"
-            "Advanced convolution reverb, impulse-to-LFO/envelope,\n"
-            "neural IR enhancement, AI descriptor transforms,\n"
-            "granular IR tools, 15 semantic descriptors.")
+            "Phase 3: Modulation, Impulse & Convolution\n"
+            "Phase A: Accessibility Audit & Engine Parity\n\n"
+            "Full 5-type modulation (FM/TFM/AM/RM/PM),\n"
+            "granular engine, GPU/AI generation,\n"
+            "command input, keyboard context menus.")
         info.SetCopyright("(C) 2026")
         wx.adv.AboutBox(info)
 
