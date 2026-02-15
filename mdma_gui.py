@@ -273,6 +273,179 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             description='Configure physical model harmonic parameters'
         ),
         ActionDef(
+            name='op_select',
+            label='Select Operator',
+            command_template='/op {index}',
+            params=[
+                ActionParam('index', 'Operator Index', 'int', 1, min_val=1, max_val=32),
+            ],
+            description='Select the active operator by index'
+        ),
+        ActionDef(
+            name='tone',
+            label='Tone Generator',
+            command_template='/tone {freq}',
+            params=[
+                ActionParam('freq', 'Frequency (Hz)', 'float', 440.0, min_val=20, max_val=20000),
+            ],
+            description='Play a tone at the specified frequency'
+        ),
+        ActionDef(
+            name='note',
+            label='Play Note',
+            command_template='/n {note}',
+            params=[
+                ActionParam('note', 'Note Name', 'enum', 'A4',
+                           choices=['C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'B3',
+                                    'C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4',
+                                    'C5', 'D5', 'E5', 'F5', 'G5', 'A5', 'B5']),
+            ],
+            description='Play a note by name (e.g. A4, C#5)'
+        ),
+        ActionDef(
+            name='note_seq',
+            label='Note Sequence',
+            command_template='/ns {notes}',
+            params=[
+                ActionParam('notes', 'Notes (comma-sep)', 'str', 'C4,E4,G4'),
+            ],
+            description='Play a sequence of notes (e.g. C4,E4,G4,C5)'
+        ),
+        ActionDef(
+            name='envelope',
+            label='Full Envelope',
+            command_template='/env {attack} {decay} {sustain} {release}',
+            params=[
+                ActionParam('attack', 'Attack (s)', 'float', 0.01, min_val=0, max_val=10),
+                ActionParam('decay', 'Decay (s)', 'float', 0.1, min_val=0, max_val=10),
+                ActionParam('sustain', 'Sustain (0-1)', 'float', 0.7, min_val=0, max_val=1),
+                ActionParam('release', 'Release (s)', 'float', 0.3, min_val=0, max_val=10),
+            ],
+            description='Set full ADSR envelope in one action'
+        ),
+        ActionDef(
+            name='attack',
+            label='Attack',
+            command_template='/atk {time}',
+            params=[
+                ActionParam('time', 'Attack Time (s)', 'float', 0.01, min_val=0, max_val=10),
+            ],
+            description='Set envelope attack time'
+        ),
+        ActionDef(
+            name='decay',
+            label='Decay',
+            command_template='/dec {time}',
+            params=[
+                ActionParam('time', 'Decay Time (s)', 'float', 0.1, min_val=0, max_val=10),
+            ],
+            description='Set envelope decay time'
+        ),
+        ActionDef(
+            name='sustain',
+            label='Sustain',
+            command_template='/sus {level}',
+            params=[
+                ActionParam('level', 'Sustain Level (0-1)', 'float', 0.7, min_val=0, max_val=1),
+            ],
+            description='Set envelope sustain level'
+        ),
+        ActionDef(
+            name='release',
+            label='Release',
+            command_template='/rel {time}',
+            params=[
+                ActionParam('time', 'Release Time (s)', 'float', 0.3, min_val=0, max_val=10),
+            ],
+            description='Set envelope release time'
+        ),
+        ActionDef(
+            name='phase',
+            label='Phase',
+            command_template='/ph {phase}',
+            params=[
+                ActionParam('phase', 'Phase (0-360)', 'float', 0.0, min_val=0, max_val=360),
+            ],
+            description='Set oscillator phase offset'
+        ),
+        ActionDef(
+            name='carriers',
+            label='Carrier Count',
+            command_template='/car {count}',
+            params=[
+                ActionParam('count', 'Carriers', 'int', 4, min_val=1, max_val=32),
+            ],
+            description='Set the number of carrier operators'
+        ),
+        ActionDef(
+            name='modulators',
+            label='Modulator Count',
+            command_template='/mod {count}',
+            params=[
+                ActionParam('count', 'Modulators', 'int', 2, min_val=0, max_val=32),
+            ],
+            description='Set the number of modulator operators'
+        ),
+        ActionDef(
+            name='detune',
+            label='Detune',
+            command_template='/dt {cents}',
+            params=[
+                ActionParam('cents', 'Detune (cents)', 'float', 0.0, min_val=-1200, max_val=1200),
+            ],
+            description='Detune operator by cents'
+        ),
+        ActionDef(
+            name='stereo',
+            label='Stereo Pan',
+            command_template='/stereo {pan}',
+            params=[
+                ActionParam('pan', 'Pan (-1 to 1)', 'float', 0.0, min_val=-1, max_val=1),
+            ],
+            description='Set operator stereo panning (-1 left, 0 center, 1 right)'
+        ),
+        ActionDef(
+            name='key_track',
+            label='Key Tracking',
+            command_template='/key {amount}',
+            params=[
+                ActionParam('amount', 'Amount (0-1)', 'float', 1.0, min_val=0, max_val=4),
+            ],
+            description='Set keyboard frequency tracking amount'
+        ),
+        ActionDef(
+            name='supersaw',
+            label='SuperSaw Params',
+            command_template='/ssaw {voices} {spread} {mix}',
+            params=[
+                ActionParam('voices', 'Voices', 'int', 7, min_val=1, max_val=32),
+                ActionParam('spread', 'Spread', 'float', 0.5, min_val=0, max_val=1),
+                ActionParam('mix', 'Mix', 'float', 0.75, min_val=0, max_val=1),
+            ],
+            description='Configure supersaw parameters (voices, detune spread, mix)'
+        ),
+        ActionDef(
+            name='harmonic',
+            label='Harmonic Params',
+            command_template='/harm {partials} {rolloff}',
+            params=[
+                ActionParam('partials', 'Partials', 'int', 8, min_val=1, max_val=64),
+                ActionParam('rolloff', 'Rolloff', 'float', 1.0, min_val=0.1, max_val=4),
+            ],
+            description='Configure harmonic oscillator (partials count, rolloff)'
+        ),
+        ActionDef(
+            name='waveguide',
+            label='Waveguide Params',
+            command_template='/waveguide {damping} {position} {feedback}',
+            params=[
+                ActionParam('damping', 'Damping', 'float', 0.5, min_val=0, max_val=1),
+                ActionParam('position', 'Exciter Pos', 'float', 0.5, min_val=0, max_val=1),
+                ActionParam('feedback', 'Feedback', 'float', 0.99, min_val=0, max_val=1),
+            ],
+            description='Configure waveguide model (damping, exciter position, feedback)'
+        ),
+        ActionDef(
             name='opinfo',
             label='Operator Info',
             command_template='/opinfo all',
@@ -2765,7 +2938,27 @@ class ObjectBrowser(wx.Panel):
     # ------------------------------------------------------------------
 
     def populate_tree(self):
-        """Build the full object tree from live session data."""
+        """Build the full object tree from live session data.
+
+        Preserves which categories are expanded and which item is selected
+        so the user doesn't lose their place after command execution.
+        """
+        # ---- Save expansion and selection state ----
+        expanded_ids = set()
+        selected_id = None
+
+        sel_item = self.tree.GetSelection()
+        if sel_item and sel_item.IsOk():
+            sel_data = self.tree.GetItemData(sel_item)
+            if sel_data:
+                selected_id = (sel_data.get('type', ''), sel_data.get('id', ''),
+                               sel_data.get('name', ''), sel_data.get('index', ''))
+
+        for cat_key, cat_item in self.category_items.items():
+            if cat_item and cat_item.IsOk() and self.tree.IsExpanded(cat_item):
+                expanded_ids.add(cat_key)
+
+        # ---- Rebuild tree ----
         self.tree.DeleteAllItems()
         root = self.tree.AddRoot("MDMA Session")
         self.category_items = {}
@@ -3302,7 +3495,41 @@ class ObjectBrowser(wx.Panel):
             self.tree.SetItemData(sub, {'type': 'phase_t_cmd', 'command': cmd,
                                          'id': 'phase_t'})
 
-        self.tree.ExpandAll()
+        # ---- Restore expansion and selection state ----
+        if expanded_ids:
+            # Only expand categories that were previously expanded
+            for cat_key, cat_item in self.category_items.items():
+                if cat_item and cat_item.IsOk():
+                    if cat_key in expanded_ids:
+                        self.tree.Expand(cat_item)
+                    else:
+                        self.tree.Collapse(cat_item)
+        else:
+            # First load: expand everything
+            self.tree.ExpandAll()
+
+        # Restore selection by matching item data
+        if selected_id:
+            self._restore_selection(root, selected_id)
+
+    def _restore_selection(self, parent, target_id):
+        """Walk the tree to find and select an item matching target_id."""
+        child, cookie = self.tree.GetFirstChild(parent)
+        while child.IsOk():
+            data = self.tree.GetItemData(child)
+            if data:
+                item_id = (data.get('type', ''), data.get('id', ''),
+                           data.get('name', ''), data.get('index', ''))
+                if item_id == target_id:
+                    self.tree.SelectItem(child)
+                    self.tree.EnsureVisible(child)
+                    return True
+            # Recurse into children
+            if self.tree.ItemHasChildren(child):
+                if self._restore_selection(child, target_id):
+                    return True
+            child, cookie = self.tree.GetNextChild(parent, cookie)
+        return False
 
     # ------------------------------------------------------------------
     # Selection
@@ -3566,12 +3793,27 @@ class ObjectBrowser(wx.Panel):
             m_select = wx.NewIdRef()
             m_gen = wx.NewIdRef()
             m_wave = wx.NewIdRef()
+            m_freq = wx.NewIdRef()
+            m_amp = wx.NewIdRef()
             m_fm = wx.NewIdRef()
+            m_tfm = wx.NewIdRef()
+            m_am = wx.NewIdRef()
+            m_rm = wx.NewIdRef()
+            m_pm = wx.NewIdRef()
             menu.Append(m_select, f"Select Operator {idx}")
             menu.Append(m_gen, "Generate Tone (440Hz)")
             menu.AppendSeparator()
             menu.Append(m_wave, "Set Waveform...")
-            menu.Append(m_fm, "Add FM Routing...")
+            menu.Append(m_freq, "Set Frequency...")
+            menu.Append(m_amp, "Set Amplitude...")
+            menu.AppendSeparator()
+            mod_sub = wx.Menu()
+            mod_sub.Append(m_fm, "FM (Frequency Mod)...")
+            mod_sub.Append(m_tfm, "TFM (Through-Zero FM)...")
+            mod_sub.Append(m_am, "AM (Amplitude Mod)...")
+            mod_sub.Append(m_rm, "RM (Ring Mod)...")
+            mod_sub.Append(m_pm, "PM (Phase Mod)...")
+            menu.AppendSubMenu(mod_sub, f"Add Routing from Op {idx}")
 
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/op {i}'), id=m_select)
@@ -3581,7 +3823,23 @@ class ObjectBrowser(wx.Panel):
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._show_waveform_picker(i), id=m_wave)
             self.Bind(wx.EVT_MENU,
-                lambda e, i=idx: self._show_routing_picker(i), id=m_fm)
+                lambda e, i=idx: self._show_value_editor(
+                    "Frequency", "Enter frequency (Hz):", "440",
+                    f'/op {i}\n/fr {{}}'), id=m_freq)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_value_editor(
+                    "Amplitude", "Enter amplitude (0-1):", "0.8",
+                    f'/op {i}\n/amp {{}}'), id=m_amp)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_routing_picker(i, 'fm'), id=m_fm)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_routing_picker(i, 'tfm'), id=m_tfm)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_routing_picker(i, 'am'), id=m_am)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_routing_picker(i, 'rm'), id=m_rm)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_routing_picker(i, 'pm'), id=m_pm)
 
         # ==============================================================
         # Filter Slot
@@ -3679,10 +3937,32 @@ class ObjectBrowser(wx.Panel):
         elif obj_type == 'sydef':
             name = data.get('name', '')
             m_use = wx.NewIdRef()
+            m_use_args = wx.NewIdRef()
+            m_show = wx.NewIdRef()
+            m_copy = wx.NewIdRef()
             m_del = wx.NewIdRef()
+
             menu.Append(m_use, f"Use Preset: {name}")
             self.Bind(wx.EVT_MENU,
                 lambda e, n=name: self._exec(f'/use {n}'), id=m_use)
+
+            menu.Append(m_use_args, "Use with Arguments...")
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._sydef_use_with_args(n), id=m_use_args)
+
+            menu.AppendSeparator()
+            menu.Append(m_show, "Show Contents")
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/sydef show {n}'), id=m_show)
+
+            menu.Append(m_copy, "Copy...")
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._sydef_copy_dialog(n), id=m_copy)
+
+            menu.AppendSeparator()
+            menu.Append(m_del, "Delete")
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/sydef del {n}'), id=m_del)
 
         # ==============================================================
         # Chain
@@ -4592,6 +4872,68 @@ class ObjectBrowser(wx.Panel):
             self.console_cb("\n", 'stdout')
         self.populate_tree()
 
+    def _sydef_use_with_args(self, name):
+        """Show a dialog to supply arguments when using a SyDef preset."""
+        s = self.executor.session
+        sydef = None
+        if s and hasattr(s, 'sydefs') and name in s.sydefs:
+            sydef = s.sydefs[name]
+
+        params = getattr(sydef, 'params', []) if sydef else []
+        if not params:
+            # No parameters — just use directly
+            self._exec(f'/use {name}')
+            return
+
+        dlg = wx.Dialog(self, title=f"Use SyDef: {name}", size=(400, 300))
+        panel = wx.Panel(dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+
+        sizer.Add(wx.StaticText(panel, label=f"Parameters for {name}:"),
+                   0, wx.ALL, 5)
+
+        entries = []
+        for p in params:
+            p_name = p.name if hasattr(p, 'name') else str(p)
+            p_default = str(p.default) if hasattr(p, 'default') else ''
+            row = wx.BoxSizer(wx.HORIZONTAL)
+            lbl = wx.StaticText(panel, label=f"${p_name}:")
+            txt = wx.TextCtrl(panel, value=p_default, name=f"Param {p_name}")
+            txt.SetName(f"Parameter {p_name}, default {p_default}")
+            row.Add(lbl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+            row.Add(txt, 1, wx.EXPAND)
+            sizer.Add(row, 0, wx.EXPAND | wx.ALL, 3)
+            entries.append((p_name, txt))
+
+        btn_sizer = dlg.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
+        sizer.Add(btn_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        panel.SetSizer(sizer)
+        dlg_sizer = wx.BoxSizer(wx.VERTICAL)
+        dlg_sizer.Add(panel, 1, wx.EXPAND)
+        dlg.SetSizer(dlg_sizer)
+        dlg.Fit()
+
+        if dlg.ShowModal() == wx.ID_OK:
+            arg_parts = []
+            for p_name, txt in entries:
+                val = txt.GetValue().strip()
+                if val:
+                    arg_parts.append(f'{p_name}={val}')
+            arg_str = ' '.join(arg_parts)
+            self._exec(f'/use {name} {arg_str}')
+        dlg.Destroy()
+
+    def _sydef_copy_dialog(self, name):
+        """Show a dialog to copy a SyDef preset under a new name."""
+        dlg = wx.TextEntryDialog(self, f"Copy '{name}' — enter new name:",
+                                  "Copy SyDef", f"{name}_copy")
+        if dlg.ShowModal() == wx.ID_OK:
+            new_name = dlg.GetValue().strip()
+            if new_name:
+                self._exec(f'/sydef copy {name} {new_name}')
+        dlg.Destroy()
+
     # ------------------------------------------------------------------
     # Categorised effect catalogue (aliases → canonical names)
     # ------------------------------------------------------------------
@@ -5102,17 +5444,35 @@ class ObjectBrowser(wx.Panel):
         dlg.Destroy()
 
     def _show_routing_picker(self, op_index, route_type='fm'):
-        """Show a dialog to add a modulation routing."""
-        dlg = wx.TextEntryDialog(
-            self,
-            f"Enter {route_type.upper()} routing (source -> dest, e.g. 1 2):",
-            f"Add {route_type.upper()} Routing",
-            "1 2")
-        if dlg.ShowModal() == wx.ID_OK:
-            val = dlg.GetValue().strip()
-            if val:
-                self._exec(f'/{route_type} {val}')
-        dlg.Destroy()
+        """Show a dialog to add a modulation routing.
+
+        If *op_index* is not None, it's pre-filled as the source operator
+        and the user only needs to enter the target (and optional amount).
+        """
+        if op_index is not None:
+            dlg = wx.TextEntryDialog(
+                self,
+                f"Enter target operator for {route_type.upper()} from Op {op_index}:\n"
+                f"(e.g. '0' or '0 2.5' for target with amount)",
+                f"Add {route_type.upper()} Routing from Op {op_index}",
+                "0")
+            if dlg.ShowModal() == wx.ID_OK:
+                val = dlg.GetValue().strip()
+                if val:
+                    self._exec(f'/{route_type} {op_index} {val}')
+            dlg.Destroy()
+        else:
+            dlg = wx.TextEntryDialog(
+                self,
+                f"Enter {route_type.upper()} routing  source target [amount]:\n"
+                f"e.g. '1 0' or '1 0 2.5'",
+                f"Add {route_type.upper()} Routing",
+                "1 0")
+            if dlg.ShowModal() == wx.ID_OK:
+                val = dlg.GetValue().strip()
+                if val:
+                    self._exec(f'/{route_type} {val}')
+            dlg.Destroy()
 
     def _show_device_picker(self):
         """Show picker for GPU compute device."""
@@ -5862,7 +6222,51 @@ class InspectorPanel(wx.Panel):
         self.subtitle.SetLabel("Synth Definition Preset")
 
         self._add_prop("Name:", name)
-        self._add_action_btn("Use", f"/use {name}")
+
+        # Look up full SyDef details from session
+        sydef = None
+        s = self.executor.session
+        if s and hasattr(s, 'sydefs') and name in s.sydefs:
+            sydef = s.sydefs[name]
+
+        if sydef:
+            # Description
+            desc = getattr(sydef, 'description', '') or ''
+            if desc:
+                self._add_prop("Description:", desc)
+
+            # Parameters
+            params = getattr(sydef, 'params', [])
+            if params:
+                self._add_separator("Parameters")
+                for p in params:
+                    p_name = p.name if hasattr(p, 'name') else str(p)
+                    p_default = p.default if hasattr(p, 'default') else '?'
+                    self._add_prop(f"  ${p_name}:", str(p_default))
+
+            # Commands
+            commands = getattr(sydef, 'commands', [])
+            if commands:
+                self._add_separator(f"Commands ({len(commands)})")
+                for i, cmd in enumerate(commands[:12]):
+                    self._add_prop(f"  {i+1}:", cmd)
+                if len(commands) > 12:
+                    self._add_prop("  ...:", f"+{len(commands) - 12} more")
+
+            # Factory preset indicator
+            factory_names = getattr(s, '_factory_sydef_names', set())
+            if name in factory_names:
+                self._add_prop("Origin:", "Factory Preset")
+            else:
+                self._add_prop("Origin:", "User-Defined")
+        else:
+            self._add_prop("Status:", "Definition not found in session")
+
+        self._add_separator("Actions")
+        self._add_action_btn("Use (defaults)", f"/use {name}")
+        self._add_action_btn("Show Contents", f"/sydef show {name}")
+        self._add_action_btn("Copy...", f"/sydef copy {name} {name}_copy")
+        self._add_action_btn("Delete", f"/sydef del {name}")
 
     def _inspect_chain(self, data):
         name = data.get('name', '')
@@ -7111,6 +7515,10 @@ class PatchBuilderPanel(wx.Panel):
         m_amp = wx.NewIdRef()
         m_gen = wx.NewIdRef()
         m_fm = wx.NewIdRef()
+        m_tfm = wx.NewIdRef()
+        m_am = wx.NewIdRef()
+        m_rm = wx.NewIdRef()
+        m_pm = wx.NewIdRef()
 
         menu.Append(m_select, f"Select Operator {op_idx}")
         menu.Append(m_gen, "Generate Tone (440Hz)")
@@ -7119,7 +7527,13 @@ class PatchBuilderPanel(wx.Panel):
         menu.Append(m_freq, "Set Frequency...")
         menu.Append(m_amp, "Set Amplitude...")
         menu.AppendSeparator()
-        menu.Append(m_fm, "Add FM Routing from This Op...")
+        mod_sub = wx.Menu()
+        mod_sub.Append(m_fm, "FM (Frequency Mod)...")
+        mod_sub.Append(m_tfm, "TFM (Through-Zero FM)...")
+        mod_sub.Append(m_am, "AM (Amplitude Mod)...")
+        mod_sub.Append(m_rm, "RM (Ring Mod)...")
+        mod_sub.Append(m_pm, "PM (Phase Mod)...")
+        menu.AppendSubMenu(mod_sub, f"Add Routing from Op {op_idx}")
 
         self.Bind(wx.EVT_MENU,
             lambda e, i=op_idx: self._exec(f'/op {i}'), id=m_select)
@@ -7132,7 +7546,15 @@ class PatchBuilderPanel(wx.Panel):
         self.Bind(wx.EVT_MENU,
             lambda e, i=op_idx: self._on_set_amp(i), id=m_amp)
         self.Bind(wx.EVT_MENU,
-            lambda e, i=op_idx: self._on_add_routing(None), id=m_fm)
+            lambda e, i=op_idx: self._on_add_routing_typed(i, 'fm'), id=m_fm)
+        self.Bind(wx.EVT_MENU,
+            lambda e, i=op_idx: self._on_add_routing_typed(i, 'tfm'), id=m_tfm)
+        self.Bind(wx.EVT_MENU,
+            lambda e, i=op_idx: self._on_add_routing_typed(i, 'am'), id=m_am)
+        self.Bind(wx.EVT_MENU,
+            lambda e, i=op_idx: self._on_add_routing_typed(i, 'rm'), id=m_rm)
+        self.Bind(wx.EVT_MENU,
+            lambda e, i=op_idx: self._on_add_routing_typed(i, 'pm'), id=m_pm)
 
         self.PopupMenu(menu)
         menu.Destroy()
@@ -7166,6 +7588,20 @@ class PatchBuilderPanel(wx.Panel):
 
         self.PopupMenu(menu)
         menu.Destroy()
+
+    def _on_add_routing_typed(self, source_op, route_type='fm'):
+        """Add a modulation routing with source pre-filled from operator."""
+        dlg = wx.TextEntryDialog(
+            self,
+            f"Enter target operator for {route_type.upper()} from Op {source_op}:\n"
+            f"(e.g. '0' or '0 2.5' for target with amount)",
+            f"Add {route_type.upper()} Routing from Op {source_op}",
+            "0")
+        if dlg.ShowModal() == wx.ID_OK:
+            val = dlg.GetValue().strip()
+            if val:
+                self._exec(f'/{route_type} {source_op} {val}')
+        dlg.Destroy()
 
     def _on_set_wave_for_op(self, op_idx):
         """Show waveform picker targeting a specific operator."""
