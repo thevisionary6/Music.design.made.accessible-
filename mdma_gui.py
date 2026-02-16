@@ -6855,7 +6855,7 @@ class StepGridPanel(wx.Panel):
 
         # Grid canvas
         self.canvas = wx.Panel(self, name="StepGridCanvas")
-        self.canvas.SetName("Step grid — use arrow keys to navigate, Shift+Arrow to select, Ctrl+A for all")
+        self.canvas.SetName("Step grid — arrows to navigate, Shift+Arrow select, Ctrl+A all, Ctrl+C copy, Ctrl+V paste, Delete clear")
         self.canvas.SetBackgroundColour(self.COL_GRID_BG)
         self.canvas.Bind(wx.EVT_PAINT, self.on_paint)
         self.canvas.Bind(wx.EVT_LEFT_DOWN, self.on_grid_mouse_down)
@@ -6887,34 +6887,40 @@ class StepGridPanel(wx.Panel):
         self.sizer.Add(legend_sizer, 0, wx.ALL, 5)
 
         # ------------------------------------------------------------------
-        # Accessible text field: step characters for screen readers
-        # Each step maps to a single character. Screen readers can read,
-        # arrow-navigate, and select ranges using standard text shortcuts
-        # (Shift+Arrow, Ctrl+Shift+Arrow, etc.).  Characters:
-        #   -  = empty step       #  = filled (has audio)
-        #   >  = playhead         W  = write position
-        #   *  = selected
+        # Accessible step list: rich ListCtrl for screen readers
+        # Each row = one step with columns: Step#, Position, Marker,
+        # Source, Content.  Screen readers can arrow through rows and
+        # hear detailed info per step.  Ctrl+C copies selection,
+        # Ctrl+V pastes at write position.
         # ------------------------------------------------------------------
-        acc_label = wx.StaticText(self, label="Steps (text, for screen reader selection):")
+        acc_label = wx.StaticText(self, label="Steps (detailed list for screen reader navigation):")
         acc_label.SetForegroundColour(Theme.FG_DIM)
         self.sizer.Add(acc_label, 0, wx.LEFT | wx.TOP, 5)
 
-        self.step_text = wx.TextCtrl(
+        self.step_list = wx.ListCtrl(
             self,
-            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2,
-            name="StepGridText")
-        self.step_text.SetBackgroundColour(Theme.BG_INPUT)
-        self.step_text.SetForegroundColour(Theme.FG_TEXT)
-        font = wx.Font(11, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL,
-                        wx.FONTWEIGHT_NORMAL)
-        self.step_text.SetFont(font)
-        self.step_text.SetToolTip(
-            "Step grid as text. Each character is one step: "
-            "- empty, # audio, > playhead, W write-pos, * selected. "
-            "Use arrow keys and Shift+Arrow to select ranges.")
-        # Accessible name/description
-        self.step_text.SetName("Step grid text view")
-        self.sizer.Add(self.step_text, 0, wx.EXPAND | wx.ALL, 5)
+            style=wx.LC_REPORT | wx.LC_SINGLE_SEL,
+            name="StepGridList")
+        self.step_list.SetName("Step grid — arrow keys to browse, Ctrl+C copy, Ctrl+V paste")
+        self.step_list.SetBackgroundColour(Theme.BG_INPUT)
+        self.step_list.SetForegroundColour(Theme.FG_TEXT)
+        self.step_list.InsertColumn(0, "Step", width=45)
+        self.step_list.InsertColumn(1, "Position", width=120)
+        self.step_list.InsertColumn(2, "Marker", width=55)
+        self.step_list.InsertColumn(3, "Source", width=100)
+        self.step_list.InsertColumn(4, "Content", width=200)
+        self.step_list.SetToolTip(
+            "Step grid list. Each row is one step with position, "
+            "marker (# audio, - empty, > playhead, W write-pos), "
+            "source track, and content description. "
+            "Ctrl+C to copy selected steps, Ctrl+V to paste at write position.")
+        self.step_list.Bind(wx.EVT_KEY_DOWN, self._on_step_list_key)
+        self.step_list.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_step_list_select)
+        self.sizer.Add(self.step_list, 1, wx.EXPAND | wx.ALL, 5)
+
+        # Clipboard for copy/paste of step audio
+        self._clipboard_audio = None
+        self._clipboard_steps = 0
 
         self.SetSizer(self.sizer)
 
@@ -7001,7 +7007,8 @@ class StepGridPanel(wx.Panel):
         Arrow Left/Right moves cursor. Shift+Arrow extends selection.
         Up/Down moves by row (16 steps). Home/End jumps to start/end.
         Ctrl+A selects all steps. Space toggles write-position at cursor.
-        Escape clears selection.
+        Ctrl+C copies selected steps. Ctrl+V pastes at write position.
+        Delete clears selected steps. Escape clears selection.
         """
         key = event.GetKeyCode()
         shift = event.ShiftDown()
@@ -7013,6 +7020,21 @@ class StepGridPanel(wx.Panel):
             self.selected_steps = set(range(self.total_steps))
             self.canvas.Refresh()
             self._update_step_text()
+            return
+
+        # Ctrl+C: copy selected steps
+        if ctrl and key == ord('C'):
+            self._copy_steps()
+            return
+
+        # Ctrl+V: paste at write position
+        if ctrl and key == ord('V'):
+            self._paste_steps()
+            return
+
+        # Delete: clear selected steps
+        if key == wx.WXK_DELETE:
+            self._clear_selected_steps()
             return
 
         if key == wx.WXK_RIGHT:
@@ -7157,44 +7179,291 @@ class StepGridPanel(wx.Panel):
                 dc.DrawText(f"{row+1}", 2, y + (cs // 2) - 5)
 
     # ------------------------------------------------------------------
-    # Accessible text field
+    # Accessible step list
     # ------------------------------------------------------------------
 
-    def _update_step_text(self):
-        """Rebuild the text representation of the step grid.
+    def _step_position_label(self, step):
+        """Return a human-readable beat/bar position for a step index.
 
-        Each step is one character.  Rows of STEPS_PER_ROW characters are
-        separated by newlines so the text wraps identically to the visual
-        grid.  Beat boundaries (every 4 steps) are separated by a space
-        for easier screen-reader word-navigation (Ctrl+Arrow).
+        Assumes 4/4 time with 4 steps per beat (sixteenth notes).
+        Step 0 → Bar 1, Beat 1.1
+        Step 4 → Bar 1, Beat 2.1
+        Step 16 → Bar 2, Beat 1.1
         """
-        cols = self.STEPS_PER_ROW
-        lines: List[str] = []
-        for row_start in range(0, self.total_steps, cols):
-            row_chars: List[str] = []
-            for step in range(row_start, min(row_start + cols, self.total_steps)):
-                if step in self.selected_steps:
-                    ch = self.CHAR_SELECTED
-                elif step == self.playhead_pos:
-                    ch = self.CHAR_PLAYHEAD
-                elif step == self.write_pos:
-                    ch = self.CHAR_WRITE
-                elif step in self.filled_steps:
-                    ch = self.CHAR_FILLED
-                else:
-                    ch = self.CHAR_EMPTY
-                row_chars.append(ch)
-                # Space after every 4 characters for word-navigation
-                if (step - row_start + 1) % 4 == 0 and step != row_start + cols - 1:
-                    row_chars.append(' ')
-            lines.append(''.join(row_chars))
+        steps_per_beat = 4
+        beats_per_bar = 4
+        steps_per_bar = steps_per_beat * beats_per_bar  # 16
 
-        text = '\n'.join(lines)
-        # Preserve insertion point across updates
-        pos = self.step_text.GetInsertionPoint()
-        self.step_text.SetValue(text)
-        if pos <= len(text):
-            self.step_text.SetInsertionPoint(pos)
+        bar = step // steps_per_bar + 1
+        beat_in_bar = (step % steps_per_bar) // steps_per_beat + 1
+        sub_step = step % steps_per_beat + 1
+        return f"Bar {bar}, Beat {beat_in_bar}.{sub_step}"
+
+    def _step_marker(self, step):
+        """Return a marker character and label for a step."""
+        if step in self.selected_steps:
+            return '*', 'Selected'
+        elif step == self.playhead_pos:
+            return '>', 'Playhead'
+        elif step == self.write_pos:
+            return 'W', 'Write Pos'
+        elif step in self.filled_steps:
+            return '#', 'Audio'
+        else:
+            return '-', 'Empty'
+
+    def _step_source_info(self, step):
+        """Return source info (which track wrote audio to this step)."""
+        s = self.executor.session
+        if not s:
+            return ''
+        tracks = getattr(s, 'tracks', [])
+        sr = getattr(s, 'sample_rate', 48000)
+        bpm = getattr(s, 'bpm', 128)
+        beat_samples = int(60.0 / bpm * sr)
+        if beat_samples <= 0:
+            return ''
+
+        sample_start = step * beat_samples
+        sample_end = sample_start + beat_samples
+
+        sources = []
+        for i, t in enumerate(tracks):
+            audio = t.get('audio')
+            if audio is not None and len(audio) > 0:
+                wp = t.get('write_pos', 0)
+                if wp > sample_start:
+                    name = t.get('name', f'Track {i + 1}')
+                    sources.append(name)
+        if sources:
+            return ', '.join(sources[:3])
+        return ''
+
+    def _step_content_info(self, step):
+        """Return content description for a step (peak level, operator info)."""
+        s = self.executor.session
+        if not s or step not in self.filled_steps:
+            return ''
+
+        sr = getattr(s, 'sample_rate', 48000)
+        bpm = getattr(s, 'bpm', 128)
+        beat_samples = int(60.0 / bpm * sr)
+        if beat_samples <= 0:
+            return ''
+
+        sample_start = step * beat_samples
+        sample_end = sample_start + beat_samples
+
+        # Try to get peak level from working buffer
+        wb = getattr(s, 'working_buffer', None)
+        if wb is not None and len(wb) > sample_start:
+            chunk = wb[sample_start:min(sample_end, len(wb))]
+            if len(chunk) > 0:
+                peak = float(np.max(np.abs(chunk)))
+                peak_db = max(-60, 20 * np.log10(peak + 1e-10))
+                desc_parts = [f"Peak: {peak_db:.1f}dB"]
+
+                # Add operator waveform info for context
+                ops = getattr(s, 'operators', [])
+                cur_op_idx = getattr(s, 'current_operator', 0)
+                if ops and cur_op_idx < len(ops):
+                    op = ops[cur_op_idx]
+                    wave = op.get('wave', 'unknown')
+                    freq = op.get('freq', 0)
+                    desc_parts.append(f"{wave} {freq:.0f}Hz")
+
+                return ' | '.join(desc_parts)
+
+        return 'Audio present'
+
+    def _update_step_text(self):
+        """Rebuild the accessible step list with rich per-step info.
+
+        Each row in the ListCtrl represents one step with columns:
+        Step#, Position (Bar/Beat), Marker (#/–/>), Source, Content.
+        """
+        # Preserve current selection
+        sel_idx = self.step_list.GetFirstSelected()
+
+        self.step_list.DeleteAllItems()
+
+        for step in range(self.total_steps):
+            idx = self.step_list.InsertItem(step, str(step + 1))
+
+            # Position column: Bar X, Beat Y.Z
+            pos_label = self._step_position_label(step)
+            self.step_list.SetItem(idx, 1, pos_label)
+
+            # Marker column: # filled, - empty, > playhead, W write, * selected
+            marker_char, marker_label = self._step_marker(step)
+            self.step_list.SetItem(idx, 2, f"{marker_char} {marker_label}")
+
+            # Source column: which track(s) contributed
+            source = self._step_source_info(step)
+            self.step_list.SetItem(idx, 3, source)
+
+            # Content column: peak level, waveform info
+            content = self._step_content_info(step)
+            self.step_list.SetItem(idx, 4, content)
+
+        # Restore selection
+        if sel_idx >= 0 and sel_idx < self.step_list.GetItemCount():
+            self.step_list.Select(sel_idx)
+            self.step_list.EnsureVisible(sel_idx)
+
+        # Update overall accessible name with summary
+        n_filled = len(self.filled_steps)
+        n_sel = len(self.selected_steps)
+        summary = f"Step grid: {self.total_steps} steps, {n_filled} with audio"
+        if n_sel > 0:
+            summary += f", {n_sel} selected"
+        if self.playhead_pos >= 0:
+            summary += f", playhead at step {self.playhead_pos + 1}"
+        summary += f", write at step {self.write_pos + 1}"
+        self.step_list.SetName(summary)
+
+    # ------------------------------------------------------------------
+    # Step list keyboard: copy, paste, navigation
+    # ------------------------------------------------------------------
+
+    def _on_step_list_key(self, event):
+        """Handle keyboard shortcuts on the step list.
+
+        Ctrl+C: copy audio from selected steps to clipboard.
+        Ctrl+V: paste clipboard audio at write position.
+        Delete: clear selected steps.
+        """
+        key = event.GetKeyCode()
+        ctrl = event.ControlDown()
+
+        if ctrl and key == ord('C'):
+            self._copy_steps()
+            return
+        elif ctrl and key == ord('V'):
+            self._paste_steps()
+            return
+        elif key == wx.WXK_DELETE:
+            self._clear_selected_steps()
+            return
+        event.Skip()
+
+    def _on_step_list_select(self, event):
+        """Sync list selection to grid selection for visual feedback."""
+        idx = event.GetIndex()
+        if 0 <= idx < self.total_steps:
+            self.selected_steps = {idx}
+            self._kb_cursor = idx
+            self.canvas.Refresh()
+
+    def _copy_steps(self):
+        """Copy audio from selected step range to internal clipboard."""
+        if not self.selected_steps:
+            return
+
+        s = self.executor.session
+        if not s:
+            return
+
+        sr = getattr(s, 'sample_rate', 48000)
+        bpm = getattr(s, 'bpm', 128)
+        beat_samples = int(60.0 / bpm * sr)
+        if beat_samples <= 0:
+            return
+
+        lo = min(self.selected_steps)
+        hi = max(self.selected_steps)
+        sample_start = lo * beat_samples
+        sample_end = (hi + 1) * beat_samples
+
+        wb = getattr(s, 'working_buffer', None)
+        if wb is not None and len(wb) > sample_start:
+            self._clipboard_audio = np.copy(
+                wb[sample_start:min(sample_end, len(wb))]
+            )
+            self._clipboard_steps = hi - lo + 1
+            # Announce via accessible name update
+            self.step_list.SetName(
+                f"Copied {self._clipboard_steps} steps "
+                f"(steps {lo+1} to {hi+1}) to clipboard"
+            )
+
+    def _paste_steps(self):
+        """Paste clipboard audio at write position using buffer overlay."""
+        if self._clipboard_audio is None or len(self._clipboard_audio) == 0:
+            return
+
+        s = self.executor.session
+        if not s:
+            return
+
+        sr = getattr(s, 'sample_rate', 48000)
+        bpm = getattr(s, 'bpm', 128)
+        beat_samples = int(60.0 / bpm * sr)
+        if beat_samples <= 0:
+            return
+
+        paste_sample = self.write_pos * beat_samples
+
+        wb = getattr(s, 'working_buffer', None)
+        if wb is not None:
+            end = paste_sample + len(self._clipboard_audio)
+            if end > len(wb):
+                # Extend buffer if needed
+                extra = end - len(wb)
+                if wb.ndim == 2:
+                    wb = np.concatenate([wb, np.zeros((extra, wb.shape[1]),
+                                                       dtype=wb.dtype)])
+                else:
+                    wb = np.concatenate([wb, np.zeros(extra, dtype=wb.dtype)])
+                s.working_buffer = wb
+
+            clip = self._clipboard_audio
+            dest = wb[paste_sample:paste_sample + len(clip)]
+            # Mix/overlay rather than overwrite
+            mix_len = min(len(clip), len(dest))
+            if clip.ndim != dest[:mix_len].ndim:
+                # Shape mismatch — just overwrite
+                wb[paste_sample:paste_sample + mix_len] = clip[:mix_len]
+            else:
+                wb[paste_sample:paste_sample + mix_len] = (
+                    dest[:mix_len] + clip[:mix_len]
+                )
+
+            self.update_from_session()
+            self.step_list.SetName(
+                f"Pasted {self._clipboard_steps} steps at "
+                f"step {self.write_pos + 1} "
+                f"({self._step_position_label(self.write_pos)})"
+            )
+
+    def _clear_selected_steps(self):
+        """Clear audio in selected step range."""
+        if not self.selected_steps:
+            return
+
+        s = self.executor.session
+        if not s:
+            return
+
+        sr = getattr(s, 'sample_rate', 48000)
+        bpm = getattr(s, 'bpm', 128)
+        beat_samples = int(60.0 / bpm * sr)
+        if beat_samples <= 0:
+            return
+
+        lo = min(self.selected_steps)
+        hi = max(self.selected_steps)
+        sample_start = lo * beat_samples
+        sample_end = (hi + 1) * beat_samples
+
+        wb = getattr(s, 'working_buffer', None)
+        if wb is not None and len(wb) > sample_start:
+            clear_end = min(sample_end, len(wb))
+            wb[sample_start:clear_end] = 0
+            self.update_from_session()
+            self.step_list.SetName(
+                f"Cleared steps {lo+1} to {hi+1}"
+            )
 
     # ------------------------------------------------------------------
     # Step count / playhead
