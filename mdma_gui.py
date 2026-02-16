@@ -273,6 +273,179 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             description='Configure physical model harmonic parameters'
         ),
         ActionDef(
+            name='op_select',
+            label='Select Operator',
+            command_template='/op {index}',
+            params=[
+                ActionParam('index', 'Operator Index', 'int', 1, min_val=1, max_val=32),
+            ],
+            description='Select the active operator by index'
+        ),
+        ActionDef(
+            name='tone',
+            label='Tone Generator',
+            command_template='/tone {freq}',
+            params=[
+                ActionParam('freq', 'Frequency (Hz)', 'float', 440.0, min_val=20, max_val=20000),
+            ],
+            description='Play a tone at the specified frequency'
+        ),
+        ActionDef(
+            name='note',
+            label='Play Note',
+            command_template='/n {note}',
+            params=[
+                ActionParam('note', 'Note Name', 'enum', 'A4',
+                           choices=['C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'B3',
+                                    'C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4',
+                                    'C5', 'D5', 'E5', 'F5', 'G5', 'A5', 'B5']),
+            ],
+            description='Play a note by name (e.g. A4, C#5)'
+        ),
+        ActionDef(
+            name='note_seq',
+            label='Note Sequence',
+            command_template='/ns {notes}',
+            params=[
+                ActionParam('notes', 'Notes (comma-sep)', 'str', 'C4,E4,G4'),
+            ],
+            description='Play a sequence of notes (e.g. C4,E4,G4,C5)'
+        ),
+        ActionDef(
+            name='envelope',
+            label='Full Envelope',
+            command_template='/env {attack} {decay} {sustain} {release}',
+            params=[
+                ActionParam('attack', 'Attack (s)', 'float', 0.01, min_val=0, max_val=10),
+                ActionParam('decay', 'Decay (s)', 'float', 0.1, min_val=0, max_val=10),
+                ActionParam('sustain', 'Sustain (0-1)', 'float', 0.7, min_val=0, max_val=1),
+                ActionParam('release', 'Release (s)', 'float', 0.3, min_val=0, max_val=10),
+            ],
+            description='Set full ADSR envelope in one action'
+        ),
+        ActionDef(
+            name='attack',
+            label='Attack',
+            command_template='/atk {time}',
+            params=[
+                ActionParam('time', 'Attack Time (s)', 'float', 0.01, min_val=0, max_val=10),
+            ],
+            description='Set envelope attack time'
+        ),
+        ActionDef(
+            name='decay',
+            label='Decay',
+            command_template='/dec {time}',
+            params=[
+                ActionParam('time', 'Decay Time (s)', 'float', 0.1, min_val=0, max_val=10),
+            ],
+            description='Set envelope decay time'
+        ),
+        ActionDef(
+            name='sustain',
+            label='Sustain',
+            command_template='/sus {level}',
+            params=[
+                ActionParam('level', 'Sustain Level (0-1)', 'float', 0.7, min_val=0, max_val=1),
+            ],
+            description='Set envelope sustain level'
+        ),
+        ActionDef(
+            name='release',
+            label='Release',
+            command_template='/rel {time}',
+            params=[
+                ActionParam('time', 'Release Time (s)', 'float', 0.3, min_val=0, max_val=10),
+            ],
+            description='Set envelope release time'
+        ),
+        ActionDef(
+            name='phase',
+            label='Phase',
+            command_template='/ph {phase}',
+            params=[
+                ActionParam('phase', 'Phase (0-360)', 'float', 0.0, min_val=0, max_val=360),
+            ],
+            description='Set oscillator phase offset'
+        ),
+        ActionDef(
+            name='carriers',
+            label='Carrier Count',
+            command_template='/car {count}',
+            params=[
+                ActionParam('count', 'Carriers', 'int', 4, min_val=1, max_val=32),
+            ],
+            description='Set the number of carrier operators'
+        ),
+        ActionDef(
+            name='modulators',
+            label='Modulator Count',
+            command_template='/mod {count}',
+            params=[
+                ActionParam('count', 'Modulators', 'int', 2, min_val=0, max_val=32),
+            ],
+            description='Set the number of modulator operators'
+        ),
+        ActionDef(
+            name='detune',
+            label='Detune',
+            command_template='/dt {cents}',
+            params=[
+                ActionParam('cents', 'Detune (cents)', 'float', 0.0, min_val=-1200, max_val=1200),
+            ],
+            description='Detune operator by cents'
+        ),
+        ActionDef(
+            name='stereo',
+            label='Stereo Pan',
+            command_template='/stereo {pan}',
+            params=[
+                ActionParam('pan', 'Pan (-1 to 1)', 'float', 0.0, min_val=-1, max_val=1),
+            ],
+            description='Set operator stereo panning (-1 left, 0 center, 1 right)'
+        ),
+        ActionDef(
+            name='key_track',
+            label='Key Tracking',
+            command_template='/key {amount}',
+            params=[
+                ActionParam('amount', 'Amount (0-1)', 'float', 1.0, min_val=0, max_val=4),
+            ],
+            description='Set keyboard frequency tracking amount'
+        ),
+        ActionDef(
+            name='supersaw',
+            label='SuperSaw Params',
+            command_template='/ssaw {voices} {spread} {mix}',
+            params=[
+                ActionParam('voices', 'Voices', 'int', 7, min_val=1, max_val=32),
+                ActionParam('spread', 'Spread', 'float', 0.5, min_val=0, max_val=1),
+                ActionParam('mix', 'Mix', 'float', 0.75, min_val=0, max_val=1),
+            ],
+            description='Configure supersaw parameters (voices, detune spread, mix)'
+        ),
+        ActionDef(
+            name='harmonic',
+            label='Harmonic Params',
+            command_template='/harm {partials} {rolloff}',
+            params=[
+                ActionParam('partials', 'Partials', 'int', 8, min_val=1, max_val=64),
+                ActionParam('rolloff', 'Rolloff', 'float', 1.0, min_val=0.1, max_val=4),
+            ],
+            description='Configure harmonic oscillator (partials count, rolloff)'
+        ),
+        ActionDef(
+            name='waveguide',
+            label='Waveguide Params',
+            command_template='/waveguide {damping} {position} {feedback}',
+            params=[
+                ActionParam('damping', 'Damping', 'float', 0.5, min_val=0, max_val=1),
+                ActionParam('position', 'Exciter Pos', 'float', 0.5, min_val=0, max_val=1),
+                ActionParam('feedback', 'Feedback', 'float', 0.99, min_val=0, max_val=1),
+            ],
+            description='Configure waveguide model (damping, exciter position, feedback)'
+        ),
+        ActionDef(
             name='opinfo',
             label='Operator Info',
             command_template='/opinfo all',
@@ -560,6 +733,45 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             ],
             description='Set limiter threshold'
         ),
+        ActionDef(
+            name='hq_subsonic',
+            label='Subsonic Filter',
+            command_template='/hq subsonic {freq}',
+            params=[
+                ActionParam('freq', 'Cutoff (Hz)', 'float', 20, min_val=1, max_val=100),
+            ],
+            description='Set subsonic filter cutoff frequency (removes rumble below)'
+        ),
+        ActionDef(
+            name='hq_highend',
+            label='High-End Smooth',
+            command_template='/hq highend {freq} {db}',
+            params=[
+                ActionParam('freq', 'Frequency (Hz)', 'float', 16000, min_val=1000, max_val=22000),
+                ActionParam('db', 'Reduction (dB)', 'float', -3.0, min_val=-12, max_val=0),
+            ],
+            description='Set high-end smoothing filter (tames harsh frequencies)'
+        ),
+        ActionDef(
+            name='hq_format',
+            label='Export Format',
+            command_template='/hq format {format}',
+            params=[
+                ActionParam('format', 'Format', 'enum', 'wav',
+                           choices=['wav', 'flac']),
+            ],
+            description='Set HQ export format (wav or flac)'
+        ),
+        ActionDef(
+            name='hq_bits',
+            label='Bit Depth',
+            command_template='/hq bits {bits}',
+            params=[
+                ActionParam('bits', 'Bits', 'enum', '24',
+                           choices=['16', '24', '32']),
+            ],
+            description='Set HQ export bit depth'
+        ),
     ],
     'key': [
         ActionDef(
@@ -624,6 +836,59 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             description='Add phase modulation routing'
         ),
         ActionDef(
+            name='tfm',
+            label='Add TFM Routing',
+            command_template='/tfm {source} {target} {amount}',
+            params=[
+                ActionParam('source', 'Source Op', 'int', 2, min_val=1, max_val=16),
+                ActionParam('target', 'Target Op', 'int', 1, min_val=1, max_val=16),
+                ActionParam('amount', 'Amount (0-100)', 'float', 50, min_val=0, max_val=100),
+            ],
+            description='Add through-zero FM routing (harsher, more metallic)'
+        ),
+        ActionDef(
+            name='route_add',
+            label='Add Routing (All Types)',
+            command_template='/route add {route_type} {source} {target} {amount}',
+            params=[
+                ActionParam('route_type', 'Type', 'enum', 'fm',
+                           choices=['fm', 'tfm', 'am', 'rm', 'pm']),
+                ActionParam('source', 'Source Op', 'int', 2, min_val=0, max_val=15),
+                ActionParam('target', 'Target Op', 'int', 1, min_val=0, max_val=15),
+                ActionParam('amount', 'Amount', 'float', 0.5, min_val=0, max_val=10),
+            ],
+            description='Add modulation routing (unified — supports all 5 types)'
+        ),
+        ActionDef(
+            name='route_rm',
+            label='Remove Routing',
+            command_template='/route rm {index}',
+            params=[
+                ActionParam('index', 'Routing Index', 'int', 0, min_val=0, max_val=32),
+            ],
+            description='Remove a modulation routing by index'
+        ),
+        ActionDef(
+            name='route_swap',
+            label='Swap Routing Order',
+            command_template='/route swap {idx1} {idx2}',
+            params=[
+                ActionParam('idx1', 'Index A', 'int', 0, min_val=0, max_val=32),
+                ActionParam('idx2', 'Index B', 'int', 1, min_val=0, max_val=32),
+            ],
+            description='Swap execution order of two routings'
+        ),
+        ActionDef(
+            name='route_scale',
+            label='Scale Routing Amount',
+            command_template='/route scale {index} {amount}',
+            params=[
+                ActionParam('index', 'Routing Index', 'int', 0, min_val=0, max_val=32),
+                ActionParam('amount', 'New Amount', 'float', 1.0, min_val=0, max_val=10),
+            ],
+            description='Change the modulation amount of a routing'
+        ),
+        ActionDef(
             name='clearalg',
             label='Clear All Routings',
             command_template='/clearalg',
@@ -633,32 +898,73 @@ ACTIONS: Dict[str, List[ActionDef]] = {
         ActionDef(
             name='ar_interval',
             label='Interval LFO',
-            command_template='/audiorate interval {op} lfo {rate} {depth} {wave}',
+            command_template='/imod {op} lfo {rate} {depth} {wave}',
             params=[
-                ActionParam('op', 'Operator', 'int', 1, min_val=1, max_val=16),
+                ActionParam('op', 'Operator', 'int', 0, min_val=0, max_val=15),
                 ActionParam('rate', 'Rate (Hz)', 'float', 5.0, min_val=0.1, max_val=100),
                 ActionParam('depth', 'Depth (semitones)', 'float', 1.0, min_val=0, max_val=24),
                 ActionParam('wave', 'LFO Shape', 'enum', 'sine',
                            choices=['sine', 'triangle', 'saw', 'square']),
             ],
-            description='Set audio-rate interval LFO modulation'
+            description='Set interval (pitch) LFO on an operator — vibrato / trill'
+        ),
+        ActionDef(
+            name='ar_interval_src',
+            label='Interval Mod (Op Source)',
+            command_template='/imod {op} src {source_op} {depth}',
+            params=[
+                ActionParam('op', 'Target Operator', 'int', 0, min_val=0, max_val=15),
+                ActionParam('source_op', 'Source Operator', 'int', 1, min_val=0, max_val=15),
+                ActionParam('depth', 'Depth (semitones)', 'float', 7.0, min_val=0, max_val=24),
+            ],
+            description='Use one operator as interval modulation source for another'
+        ),
+        ActionDef(
+            name='ar_interval_off',
+            label='Interval Mod Off',
+            command_template='/imod {op} off',
+            params=[
+                ActionParam('op', 'Operator', 'int', 0, min_val=0, max_val=15),
+            ],
+            description='Disable interval modulation on an operator'
         ),
         ActionDef(
             name='ar_filter',
             label='Filter LFO',
-            command_template='/audiorate filter lfo {rate} {depth}',
+            command_template='/fmod lfo {rate} {depth}',
             params=[
                 ActionParam('rate', 'Rate (Hz)', 'float', 2.0, min_val=0.1, max_val=100),
                 ActionParam('depth', 'Depth (octaves)', 'float', 1.0, min_val=0, max_val=8),
             ],
-            description='Set audio-rate filter cutoff LFO'
+            description='Set filter cutoff LFO modulation'
+        ),
+        ActionDef(
+            name='ar_filter_src',
+            label='Filter Mod (Op Source)',
+            command_template='/fmod src {source_op} {depth}',
+            params=[
+                ActionParam('source_op', 'Source Operator', 'int', 1, min_val=0, max_val=15),
+                ActionParam('depth', 'Depth (octaves)', 'float', 1.5, min_val=0, max_val=8),
+            ],
+            description='Use an operator as filter modulation source'
+        ),
+        ActionDef(
+            name='ar_filter_op',
+            label='Per-Op Filter',
+            command_template='/fmod op {op} {cutoff} {resonance}',
+            params=[
+                ActionParam('op', 'Operator', 'int', 0, min_val=0, max_val=15),
+                ActionParam('cutoff', 'Cutoff (Hz)', 'float', 2000, min_val=20, max_val=20000),
+                ActionParam('resonance', 'Resonance (0-1)', 'float', 0.5, min_val=0, max_val=1),
+            ],
+            description='Set per-operator filter with audio-rate modulation'
         ),
         ActionDef(
             name='ar_clear',
             label='Clear Audio-Rate Mod',
-            command_template='/audiorate clear',
+            command_template='/imod clear',
             params=[],
-            description='Clear all audio-rate modulation sources'
+            description='Clear all audio-rate interval and filter modulation'
         ),
     ],
     'wavetable': [
@@ -1144,6 +1450,271 @@ ACTIONS: Dict[str, List[ActionDef]] = {
     ],
 
     # ------------------------------------------------------------------
+    # Granular Engine (direct /gr access)
+    # ------------------------------------------------------------------
+
+    'granular_engine': [
+        ActionDef(
+            name='gr_process',
+            label='Granular Process',
+            command_template='/gr process {duration}',
+            params=[
+                ActionParam('duration', 'Duration (s)', 'float', 2.0, min_val=0.1, max_val=30),
+            ],
+            description='Process working buffer through granular engine'
+        ),
+        ActionDef(
+            name='gr_freeze',
+            label='Granular Freeze',
+            command_template='/gr freeze {position} {duration}',
+            params=[
+                ActionParam('position', 'Position (0-1)', 'float', 0.5, min_val=0, max_val=1),
+                ActionParam('duration', 'Duration (s)', 'float', 4.0, min_val=0.1, max_val=30),
+            ],
+            description='Freeze and sustain grain cloud at a position'
+        ),
+        ActionDef(
+            name='gr_stretch',
+            label='Granular Time-Stretch',
+            command_template='/gr stretch {factor}',
+            params=[
+                ActionParam('factor', 'Stretch Factor', 'float', 2.0, min_val=0.25, max_val=8),
+            ],
+            description='Time-stretch without pitch change (granular)'
+        ),
+        ActionDef(
+            name='gr_shift',
+            label='Granular Pitch Shift',
+            command_template='/gr shift {semitones}',
+            params=[
+                ActionParam('semitones', 'Semitones', 'float', 0, min_val=-24, max_val=24),
+            ],
+            description='Pitch-shift without time change (granular)'
+        ),
+        ActionDef(
+            name='gr_size',
+            label='Set Grain Size',
+            command_template='/gr size {ms}',
+            params=[
+                ActionParam('ms', 'Size (ms)', 'float', 50, min_val=1, max_val=500),
+            ],
+            description='Set grain size in milliseconds'
+        ),
+        ActionDef(
+            name='gr_density',
+            label='Set Density',
+            command_template='/gr density {value}',
+            params=[
+                ActionParam('value', 'Density', 'float', 4.0, min_val=0.5, max_val=32),
+            ],
+            description='Set grain overlap density (higher = denser texture)'
+        ),
+        ActionDef(
+            name='gr_pos',
+            label='Set Position',
+            command_template='/gr pos {value}',
+            params=[
+                ActionParam('value', 'Position (0-1)', 'float', 0.5, min_val=0, max_val=1),
+            ],
+            description='Set read position in source audio'
+        ),
+        ActionDef(
+            name='gr_spread',
+            label='Set Spread',
+            command_template='/gr spread {value}',
+            params=[
+                ActionParam('value', 'Spread (0-1)', 'float', 0.1, min_val=0, max_val=1),
+            ],
+            description='Set random position spread around read position'
+        ),
+        ActionDef(
+            name='gr_pitch',
+            label='Set Pitch Ratio',
+            command_template='/gr pitch {value}',
+            params=[
+                ActionParam('value', 'Pitch Ratio', 'float', 1.0, min_val=0.25, max_val=4),
+            ],
+            description='Set grain pitch playback ratio (1.0 = normal)'
+        ),
+        ActionDef(
+            name='gr_env',
+            label='Set Grain Envelope',
+            command_template='/gr env {shape}',
+            params=[
+                ActionParam('shape', 'Shape', 'enum', 'hann',
+                           choices=['hann', 'triangle', 'gaussian', 'trapezoid',
+                                    'tukey', 'rect']),
+            ],
+            description='Set grain window envelope shape'
+        ),
+        ActionDef(
+            name='gr_reverse',
+            label='Set Reverse Probability',
+            command_template='/gr reverse {value}',
+            params=[
+                ActionParam('value', 'Probability (0-1)', 'float', 0.0, min_val=0, max_val=1),
+            ],
+            description='Probability of reversed grains (0 = none, 1 = all)'
+        ),
+        ActionDef(
+            name='gr_status',
+            label='Granular Status',
+            command_template='/gr',
+            params=[],
+            description='Show current granular engine parameters'
+        ),
+    ],
+
+    # ------------------------------------------------------------------
+    # GPU / AI Settings and Generation
+    # ------------------------------------------------------------------
+
+    'gpu': [
+        ActionDef(
+            name='gpu_steps',
+            label='Set Inference Steps',
+            command_template='/gpu steps {steps}',
+            params=[
+                ActionParam('steps', 'Steps', 'int', 150, min_val=1, max_val=500),
+            ],
+            description='Set AI generation inference steps (more = better quality, slower)'
+        ),
+        ActionDef(
+            name='gpu_cfg',
+            label='Set CFG Scale',
+            command_template='/gpu cfg {scale}',
+            params=[
+                ActionParam('scale', 'CFG Scale', 'float', 10, min_val=1, max_val=30),
+            ],
+            description='Set classifier-free guidance scale (higher = closer to prompt)'
+        ),
+        ActionDef(
+            name='gpu_scheduler',
+            label='Set Scheduler',
+            command_template='/gpu sk {scheduler}',
+            params=[
+                ActionParam('scheduler', 'Scheduler', 'enum', '6',
+                           choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']),
+            ],
+            description='Set diffusion scheduler (0=DDPM 1=DDIM 4=Euler 6=DPM++ 9=UniPC)'
+        ),
+        ActionDef(
+            name='gpu_model',
+            label='Set Model',
+            command_template='/gpu model {model}',
+            params=[
+                ActionParam('model', 'Model', 'enum', '0',
+                           choices=['0', '1', '2']),
+            ],
+            description='Set AI model (0=audioldm2-large 1=music 2=full)'
+        ),
+        ActionDef(
+            name='gpu_device',
+            label='Set Device',
+            command_template='/gpu device {device}',
+            params=[
+                ActionParam('device', 'Device', 'enum', 'cuda',
+                           choices=['cuda', 'cpu', 'mps']),
+            ],
+            description='Set compute device (cuda=GPU, cpu=CPU, mps=Apple Silicon)'
+        ),
+        ActionDef(
+            name='gpu_fp16',
+            label='Toggle FP16',
+            command_template='/gpu fp16 {state}',
+            params=[
+                ActionParam('state', 'Half Precision', 'enum', 'on',
+                           choices=['on', 'off']),
+            ],
+            description='Enable/disable half-precision for faster GPU inference'
+        ),
+        ActionDef(
+            name='gpu_offload',
+            label='CPU Offload',
+            command_template='/gpu offload {state}',
+            params=[
+                ActionParam('state', 'Offload', 'enum', 'off',
+                           choices=['on', 'off']),
+            ],
+            description='Enable CPU offloading to reduce GPU memory usage'
+        ),
+        ActionDef(
+            name='gpu_dur',
+            label='Default Duration',
+            command_template='/gpu dur {seconds}',
+            params=[
+                ActionParam('seconds', 'Duration (s)', 'float', 5.0, min_val=0.1, max_val=30),
+            ],
+            description='Set default generation duration in seconds'
+        ),
+        ActionDef(
+            name='gpu_reset',
+            label='Reset GPU Settings',
+            command_template='/gpu reset',
+            params=[],
+            description='Reset all GPU/AI settings to defaults'
+        ),
+        ActionDef(
+            name='gpu_status',
+            label='GPU Status',
+            command_template='/gpu',
+            params=[],
+            description='Show current GPU/AI configuration'
+        ),
+    ],
+
+    'ai_generate': [
+        ActionDef(
+            name='gen_audio',
+            label='Generate from Prompt',
+            command_template='/gen {prompt} {duration}',
+            params=[
+                ActionParam('prompt', 'Text Prompt', 'string', 'warm ambient pad'),
+                ActionParam('duration', 'Duration (s)', 'float', 5.0, min_val=0.1, max_val=30),
+            ],
+            description='Generate audio from text description using AI (requires GPU)'
+        ),
+        ActionDef(
+            name='gen_variations',
+            label='Generate Variations',
+            command_template='/genv {prompt} {count} {duration}',
+            params=[
+                ActionParam('prompt', 'Text Prompt', 'string', 'warm ambient pad'),
+                ActionParam('count', 'Variations', 'int', 3, min_val=1, max_val=8),
+                ActionParam('duration', 'Duration (s)', 'float', 5.0, min_val=0.1, max_val=30),
+            ],
+            description='Generate multiple variations from text prompt'
+        ),
+        ActionDef(
+            name='ai_analyze',
+            label='Analyze Audio',
+            command_template='/analyze {mode}',
+            params=[
+                ActionParam('mode', 'Mode', 'enum', 'detailed',
+                           choices=['detailed', 'brief']),
+            ],
+            description='AI analysis of working buffer attributes'
+        ),
+        ActionDef(
+            name='ai_describe',
+            label='Describe Audio',
+            command_template='/describe',
+            params=[],
+            description='Generate semantic description of working buffer'
+        ),
+        ActionDef(
+            name='ai_ask',
+            label='Ask AI (Natural Language)',
+            command_template='/ask {request}',
+            params=[
+                ActionParam('request', 'Request', 'string',
+                           'make a dark ambient pad in D minor'),
+            ],
+            description='Natural language request — AI plans and suggests commands'
+        ),
+    ],
+
+    # ------------------------------------------------------------------
     # Phase 4+: Buffer Operations, Text-to-Audio, Genetic Breeding
     # ------------------------------------------------------------------
 
@@ -1231,6 +1802,34 @@ ACTIONS: Dict[str, List[ActionDef]] = {
                 ActionParam('path', 'File Path', 'file', ''),
             ],
             description='Import a WAV file directly to the current track'
+        ),
+        ActionDef(
+            name='buf_stretch',
+            label='Time-Stretch',
+            command_template='/stretch {factor}',
+            params=[
+                ActionParam('factor', 'Factor', 'float', 2.0, min_val=0.1, max_val=8),
+            ],
+            description='Time-stretch working buffer (2.0 = double length, 0.5 = half)'
+        ),
+        ActionDef(
+            name='buf_swap',
+            label='Swap Buffers',
+            command_template='/swap {buf1} {buf2}',
+            params=[
+                ActionParam('buf1', 'Buffer A', 'int', 1, min_val=1, max_val=10),
+                ActionParam('buf2', 'Buffer B', 'int', 2, min_val=1, max_val=10),
+            ],
+            description='Swap contents of two buffers'
+        ),
+        ActionDef(
+            name='buf_dup',
+            label='Copy Buffer to Next Slot',
+            command_template='/dup {index}',
+            params=[
+                ActionParam('index', 'Source Buffer', 'int', 1, min_val=1, max_val=10),
+            ],
+            description='Duplicate buffer to next empty slot'
         ),
     ],
 
@@ -2339,7 +2938,27 @@ class ObjectBrowser(wx.Panel):
     # ------------------------------------------------------------------
 
     def populate_tree(self):
-        """Build the full object tree from live session data."""
+        """Build the full object tree from live session data.
+
+        Preserves which categories are expanded and which item is selected
+        so the user doesn't lose their place after command execution.
+        """
+        # ---- Save expansion and selection state ----
+        expanded_ids = set()
+        selected_id = None
+
+        sel_item = self.tree.GetSelection()
+        if sel_item and sel_item.IsOk():
+            sel_data = self.tree.GetItemData(sel_item)
+            if sel_data:
+                selected_id = (sel_data.get('type', ''), sel_data.get('id', ''),
+                               sel_data.get('name', ''), sel_data.get('index', ''))
+
+        for cat_key, cat_item in self.category_items.items():
+            if cat_item and cat_item.IsOk() and self.tree.IsExpanded(cat_item):
+                expanded_ids.add(cat_key)
+
+        # ---- Rebuild tree ----
         self.tree.DeleteAllItems()
         root = self.tree.AddRoot("MDMA Session")
         self.category_items = {}
@@ -2687,6 +3306,53 @@ class ObjectBrowser(wx.Panel):
                     self.tree.SetItemData(sub, {'type': 'preset_slot',
                                                  'slot': slot_num, 'id': 'bank'})
 
+        # ---- Granular Engine ----
+        gr_cat = self.tree.AppendItem(root, "Granular Engine")
+        self.tree.SetItemData(gr_cat, {'type': 'category', 'id': 'granular_engine'})
+        self.category_items['granular_engine'] = gr_cat
+        # Show granular status as child items
+        for gr_lbl in [
+            "Grain Size (ms): /gr size",
+            "Density: /gr density",
+            "Position: /gr pos",
+            "Spread: /gr spread",
+            "Pitch Ratio: /gr pitch",
+            "Envelope: /gr env",
+            "Reverse Prob: /gr reverse",
+        ]:
+            sub = self.tree.AppendItem(gr_cat, gr_lbl)
+            self.tree.SetItemData(sub, {'type': 'category',
+                                         'id': 'granular_engine'})
+
+        # ---- GPU / AI Settings ----
+        gpu_cat = self.tree.AppendItem(root, "GPU / AI Settings")
+        self.tree.SetItemData(gpu_cat, {'type': 'category', 'id': 'gpu'})
+        self.category_items['gpu'] = gpu_cat
+        for gpu_lbl in [
+            "Inference Steps: /gpu steps",
+            "CFG Scale: /gpu cfg",
+            "Scheduler: /gpu sk",
+            "Model: /gpu model",
+            "Device: /gpu device",
+            "FP16 / Offload: /gpu fp16, /gpu offload",
+        ]:
+            sub = self.tree.AppendItem(gpu_cat, gpu_lbl)
+            self.tree.SetItemData(sub, {'type': 'category', 'id': 'gpu'})
+
+        # ---- AI Generation ----
+        ai_cat = self.tree.AppendItem(root, "AI Audio Generation")
+        self.tree.SetItemData(ai_cat, {'type': 'category', 'id': 'ai_generate'})
+        self.category_items['ai_generate'] = ai_cat
+        for ai_lbl in [
+            "Generate from Prompt: /gen",
+            "Generate Variations: /genv",
+            "Analyze Audio: /analyze",
+            "Describe Audio: /describe",
+            "Ask AI (Natural Language): /ask",
+        ]:
+            sub = self.tree.AppendItem(ai_cat, ai_lbl)
+            self.tree.SetItemData(sub, {'type': 'category', 'id': 'ai_generate'})
+
         # ---- Generative (Phase 4) ----
         gen_cat = self.tree.AppendItem(root, "Generative")
         self.tree.SetItemData(gen_cat, {'type': 'category', 'id': 'generative'})
@@ -2829,7 +3495,41 @@ class ObjectBrowser(wx.Panel):
             self.tree.SetItemData(sub, {'type': 'phase_t_cmd', 'command': cmd,
                                          'id': 'phase_t'})
 
-        self.tree.ExpandAll()
+        # ---- Restore expansion and selection state ----
+        if expanded_ids:
+            # Only expand categories that were previously expanded
+            for cat_key, cat_item in self.category_items.items():
+                if cat_item and cat_item.IsOk():
+                    if cat_key in expanded_ids:
+                        self.tree.Expand(cat_item)
+                    else:
+                        self.tree.Collapse(cat_item)
+        else:
+            # First load: expand everything
+            self.tree.ExpandAll()
+
+        # Restore selection by matching item data
+        if selected_id:
+            self._restore_selection(root, selected_id)
+
+    def _restore_selection(self, parent, target_id):
+        """Walk the tree to find and select an item matching target_id."""
+        child, cookie = self.tree.GetFirstChild(parent)
+        while child.IsOk():
+            data = self.tree.GetItemData(child)
+            if data:
+                item_id = (data.get('type', ''), data.get('id', ''),
+                           data.get('name', ''), data.get('index', ''))
+                if item_id == target_id:
+                    self.tree.SelectItem(child)
+                    self.tree.EnsureVisible(child)
+                    return True
+            # Recurse into children
+            if self.tree.ItemHasChildren(child):
+                if self._restore_selection(child, target_id):
+                    return True
+            child, cookie = self.tree.GetNextChild(parent, cookie)
+        return False
 
     # ------------------------------------------------------------------
     # Selection
@@ -3093,12 +3793,27 @@ class ObjectBrowser(wx.Panel):
             m_select = wx.NewIdRef()
             m_gen = wx.NewIdRef()
             m_wave = wx.NewIdRef()
+            m_freq = wx.NewIdRef()
+            m_amp = wx.NewIdRef()
             m_fm = wx.NewIdRef()
+            m_tfm = wx.NewIdRef()
+            m_am = wx.NewIdRef()
+            m_rm = wx.NewIdRef()
+            m_pm = wx.NewIdRef()
             menu.Append(m_select, f"Select Operator {idx}")
             menu.Append(m_gen, "Generate Tone (440Hz)")
             menu.AppendSeparator()
             menu.Append(m_wave, "Set Waveform...")
-            menu.Append(m_fm, "Add FM Routing...")
+            menu.Append(m_freq, "Set Frequency...")
+            menu.Append(m_amp, "Set Amplitude...")
+            menu.AppendSeparator()
+            mod_sub = wx.Menu()
+            mod_sub.Append(m_fm, "FM (Frequency Mod)...")
+            mod_sub.Append(m_tfm, "TFM (Through-Zero FM)...")
+            mod_sub.Append(m_am, "AM (Amplitude Mod)...")
+            mod_sub.Append(m_rm, "RM (Ring Mod)...")
+            mod_sub.Append(m_pm, "PM (Phase Mod)...")
+            menu.AppendSubMenu(mod_sub, f"Add Routing from Op {idx}")
 
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._exec(f'/op {i}'), id=m_select)
@@ -3108,7 +3823,23 @@ class ObjectBrowser(wx.Panel):
             self.Bind(wx.EVT_MENU,
                 lambda e, i=idx: self._show_waveform_picker(i), id=m_wave)
             self.Bind(wx.EVT_MENU,
-                lambda e, i=idx: self._show_routing_picker(i), id=m_fm)
+                lambda e, i=idx: self._show_value_editor(
+                    "Frequency", "Enter frequency (Hz):", "440",
+                    f'/op {i}\n/fr {{}}'), id=m_freq)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_value_editor(
+                    "Amplitude", "Enter amplitude (0-1):", "0.8",
+                    f'/op {i}\n/amp {{}}'), id=m_amp)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_routing_picker(i, 'fm'), id=m_fm)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_routing_picker(i, 'tfm'), id=m_tfm)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_routing_picker(i, 'am'), id=m_am)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_routing_picker(i, 'rm'), id=m_rm)
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=idx: self._show_routing_picker(i, 'pm'), id=m_pm)
 
         # ==============================================================
         # Filter Slot
@@ -3206,10 +3937,32 @@ class ObjectBrowser(wx.Panel):
         elif obj_type == 'sydef':
             name = data.get('name', '')
             m_use = wx.NewIdRef()
+            m_use_args = wx.NewIdRef()
+            m_show = wx.NewIdRef()
+            m_copy = wx.NewIdRef()
             m_del = wx.NewIdRef()
+
             menu.Append(m_use, f"Use Preset: {name}")
             self.Bind(wx.EVT_MENU,
                 lambda e, n=name: self._exec(f'/use {n}'), id=m_use)
+
+            menu.Append(m_use_args, "Use with Arguments...")
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._sydef_use_with_args(n), id=m_use_args)
+
+            menu.AppendSeparator()
+            menu.Append(m_show, "Show Contents")
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/sydef show {n}'), id=m_show)
+
+            menu.Append(m_copy, "Copy...")
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._sydef_copy_dialog(n), id=m_copy)
+
+            menu.AppendSeparator()
+            menu.Append(m_del, "Delete")
+            self.Bind(wx.EVT_MENU,
+                lambda e, n=name: self._exec(f'/sydef del {n}'), id=m_del)
 
         # ==============================================================
         # Chain
@@ -3781,18 +4534,37 @@ class ObjectBrowser(wx.Panel):
 
             elif cat_id == 'modulation':
                 m_add_fm = wx.NewIdRef()
+                m_add_tfm = wx.NewIdRef()
                 m_add_am = wx.NewIdRef()
+                m_add_rm = wx.NewIdRef()
+                m_add_pm = wx.NewIdRef()
+                m_show = wx.NewIdRef()
                 m_clear = wx.NewIdRef()
-                menu.Append(m_add_fm, "Add FM Routing...")
-                menu.Append(m_add_am, "Add AM Routing...")
+                menu.Append(m_add_fm, "Add FM Routing (Frequency Mod)...")
+                menu.Append(m_add_tfm, "Add TFM Routing (Through-Zero FM)...")
+                menu.Append(m_add_am, "Add AM Routing (Amplitude Mod)...")
+                menu.Append(m_add_rm, "Add RM Routing (Ring Mod)...")
+                menu.Append(m_add_pm, "Add PM Routing (Phase Mod)...")
                 menu.AppendSeparator()
+                menu.Append(m_show, "Show All Routings")
                 menu.Append(m_clear, "Clear All Routings")
                 self.Bind(wx.EVT_MENU,
                     lambda e: self._show_routing_picker(None, 'fm'),
                     id=m_add_fm)
                 self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_routing_picker(None, 'tfm'),
+                    id=m_add_tfm)
+                self.Bind(wx.EVT_MENU,
                     lambda e: self._show_routing_picker(None, 'am'),
                     id=m_add_am)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_routing_picker(None, 'rm'),
+                    id=m_add_rm)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_routing_picker(None, 'pm'),
+                    id=m_add_pm)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/rt'), id=m_show)
                 self.Bind(wx.EVT_MENU,
                     lambda e: self._exec('/rt clear'), id=m_clear)
 
@@ -3898,6 +4670,95 @@ class ObjectBrowser(wx.Panel):
                         '/irgranular morph {}'), id=m_morph)
                 self.Bind(wx.EVT_MENU,
                     lambda e: self._exec('/irgranular redesign'), id=m_redesign)
+
+            elif cat_id == 'granular_engine':
+                m_proc = wx.NewIdRef()
+                m_freeze = wx.NewIdRef()
+                m_stretch = wx.NewIdRef()
+                m_shift = wx.NewIdRef()
+                m_status = wx.NewIdRef()
+                menu.Append(m_proc, "Process Buffer (Granular)...")
+                menu.Append(m_freeze, "Freeze at Position...")
+                menu.Append(m_stretch, "Time-Stretch...")
+                menu.Append(m_shift, "Pitch Shift...")
+                menu.AppendSeparator()
+                menu.Append(m_status, "Show Granular Status")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Granular Process", "Duration (s):", "2.0",
+                        '/gr process {}'), id=m_proc)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Granular Freeze", "Position (0-1):", "0.5",
+                        '/gr freeze {} 4'), id=m_freeze)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Granular Stretch", "Factor:", "2.0",
+                        '/gr stretch {}'), id=m_stretch)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Granular Pitch Shift", "Semitones:", "0",
+                        '/gr shift {}'), id=m_shift)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/gr'), id=m_status)
+
+            elif cat_id == 'gpu':
+                m_status = wx.NewIdRef()
+                m_steps = wx.NewIdRef()
+                m_cfg = wx.NewIdRef()
+                m_device = wx.NewIdRef()
+                m_reset = wx.NewIdRef()
+                menu.Append(m_status, "Show GPU Settings")
+                menu.Append(m_steps, "Set Inference Steps...")
+                menu.Append(m_cfg, "Set CFG Scale...")
+                menu.Append(m_device, "Set Device...")
+                menu.AppendSeparator()
+                menu.Append(m_reset, "Reset GPU to Defaults")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/gpu'), id=m_status)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Steps", "Inference steps (1-500):", "150",
+                        '/gpu steps {}'), id=m_steps)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "CFG Scale", "CFG (1-30):", "10",
+                        '/gpu cfg {}'), id=m_cfg)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_device_picker(), id=m_device)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/gpu reset'), id=m_reset)
+
+            elif cat_id == 'ai_generate':
+                m_gen = wx.NewIdRef()
+                m_genv = wx.NewIdRef()
+                m_analyze = wx.NewIdRef()
+                m_describe = wx.NewIdRef()
+                m_ask = wx.NewIdRef()
+                menu.Append(m_gen, "Generate Audio from Prompt...")
+                menu.Append(m_genv, "Generate Variations...")
+                menu.AppendSeparator()
+                menu.Append(m_analyze, "Analyze Working Buffer")
+                menu.Append(m_describe, "Describe Working Buffer")
+                menu.AppendSeparator()
+                menu.Append(m_ask, "Ask AI (Natural Language)...")
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Generate Audio", "Text prompt:", "warm ambient pad",
+                        '/gen {}'), id=m_gen)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Generate Variations", "Text prompt:", "warm ambient pad",
+                        '/genv {} 3'), id=m_genv)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/analyze detailed'), id=m_analyze)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._exec('/describe'), id=m_describe)
+                self.Bind(wx.EVT_MENU,
+                    lambda e: self._show_value_editor(
+                        "Ask AI", "What would you like?:",
+                        "make a dark ambient pad in D minor",
+                        '/ask {}'), id=m_ask)
 
             elif cat_id == 'engine':
                 m_bpm = wx.NewIdRef()
@@ -4010,6 +4871,68 @@ class ObjectBrowser(wx.Panel):
         if self.console_cb:
             self.console_cb("\n", 'stdout')
         self.populate_tree()
+
+    def _sydef_use_with_args(self, name):
+        """Show a dialog to supply arguments when using a SyDef preset."""
+        s = self.executor.session
+        sydef = None
+        if s and hasattr(s, 'sydefs') and name in s.sydefs:
+            sydef = s.sydefs[name]
+
+        params = getattr(sydef, 'params', []) if sydef else []
+        if not params:
+            # No parameters — just use directly
+            self._exec(f'/use {name}')
+            return
+
+        dlg = wx.Dialog(self, title=f"Use SyDef: {name}", size=(400, 300))
+        panel = wx.Panel(dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+
+        sizer.Add(wx.StaticText(panel, label=f"Parameters for {name}:"),
+                   0, wx.ALL, 5)
+
+        entries = []
+        for p in params:
+            p_name = p.name if hasattr(p, 'name') else str(p)
+            p_default = str(p.default) if hasattr(p, 'default') else ''
+            row = wx.BoxSizer(wx.HORIZONTAL)
+            lbl = wx.StaticText(panel, label=f"${p_name}:")
+            txt = wx.TextCtrl(panel, value=p_default, name=f"Param {p_name}")
+            txt.SetName(f"Parameter {p_name}, default {p_default}")
+            row.Add(lbl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+            row.Add(txt, 1, wx.EXPAND)
+            sizer.Add(row, 0, wx.EXPAND | wx.ALL, 3)
+            entries.append((p_name, txt))
+
+        btn_sizer = dlg.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
+        sizer.Add(btn_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        panel.SetSizer(sizer)
+        dlg_sizer = wx.BoxSizer(wx.VERTICAL)
+        dlg_sizer.Add(panel, 1, wx.EXPAND)
+        dlg.SetSizer(dlg_sizer)
+        dlg.Fit()
+
+        if dlg.ShowModal() == wx.ID_OK:
+            arg_parts = []
+            for p_name, txt in entries:
+                val = txt.GetValue().strip()
+                if val:
+                    arg_parts.append(f'{p_name}={val}')
+            arg_str = ' '.join(arg_parts)
+            self._exec(f'/use {name} {arg_str}')
+        dlg.Destroy()
+
+    def _sydef_copy_dialog(self, name):
+        """Show a dialog to copy a SyDef preset under a new name."""
+        dlg = wx.TextEntryDialog(self, f"Copy '{name}' — enter new name:",
+                                  "Copy SyDef", f"{name}_copy")
+        if dlg.ShowModal() == wx.ID_OK:
+            new_name = dlg.GetValue().strip()
+            if new_name:
+                self._exec(f'/sydef copy {name} {new_name}')
+        dlg.Destroy()
 
     # ------------------------------------------------------------------
     # Categorised effect catalogue (aliases → canonical names)
@@ -4521,16 +5444,45 @@ class ObjectBrowser(wx.Panel):
         dlg.Destroy()
 
     def _show_routing_picker(self, op_index, route_type='fm'):
-        """Show a dialog to add a modulation routing."""
-        dlg = wx.TextEntryDialog(
-            self,
-            f"Enter {route_type.upper()} routing (source -> dest, e.g. 1 2):",
-            f"Add {route_type.upper()} Routing",
-            "1 2")
+        """Show a dialog to add a modulation routing.
+
+        If *op_index* is not None, it's pre-filled as the source operator
+        and the user only needs to enter the target (and optional amount).
+        """
+        if op_index is not None:
+            dlg = wx.TextEntryDialog(
+                self,
+                f"Enter target operator for {route_type.upper()} from Op {op_index}:\n"
+                f"(e.g. '0' or '0 2.5' for target with amount)",
+                f"Add {route_type.upper()} Routing from Op {op_index}",
+                "0")
+            if dlg.ShowModal() == wx.ID_OK:
+                val = dlg.GetValue().strip()
+                if val:
+                    self._exec(f'/{route_type} {op_index} {val}')
+            dlg.Destroy()
+        else:
+            dlg = wx.TextEntryDialog(
+                self,
+                f"Enter {route_type.upper()} routing  source target [amount]:\n"
+                f"e.g. '1 0' or '1 0 2.5'",
+                f"Add {route_type.upper()} Routing",
+                "1 0")
+            if dlg.ShowModal() == wx.ID_OK:
+                val = dlg.GetValue().strip()
+                if val:
+                    self._exec(f'/{route_type} {val}')
+            dlg.Destroy()
+
+    def _show_device_picker(self):
+        """Show picker for GPU compute device."""
+        devices = ['cuda (NVIDIA GPU)', 'cpu (CPU fallback)', 'mps (Apple Silicon)']
+        dev_cmds = ['cuda', 'cpu', 'mps']
+        dlg = wx.SingleChoiceDialog(self, "Select compute device:",
+                                     "GPU Device", devices)
         if dlg.ShowModal() == wx.ID_OK:
-            val = dlg.GetValue().strip()
-            if val:
-                self._exec(f'/{route_type} {val}')
+            device = dev_cmds[dlg.GetSelection()]
+            self._exec(f'/gpu device {device}')
         dlg.Destroy()
 
     def _show_voice_algo_picker(self):
@@ -5270,7 +6222,51 @@ class InspectorPanel(wx.Panel):
         self.subtitle.SetLabel("Synth Definition Preset")
 
         self._add_prop("Name:", name)
-        self._add_action_btn("Use", f"/use {name}")
+
+        # Look up full SyDef details from session
+        sydef = None
+        s = self.executor.session
+        if s and hasattr(s, 'sydefs') and name in s.sydefs:
+            sydef = s.sydefs[name]
+
+        if sydef:
+            # Description
+            desc = getattr(sydef, 'description', '') or ''
+            if desc:
+                self._add_prop("Description:", desc)
+
+            # Parameters
+            params = getattr(sydef, 'params', [])
+            if params:
+                self._add_separator("Parameters")
+                for p in params:
+                    p_name = p.name if hasattr(p, 'name') else str(p)
+                    p_default = p.default if hasattr(p, 'default') else '?'
+                    self._add_prop(f"  ${p_name}:", str(p_default))
+
+            # Commands
+            commands = getattr(sydef, 'commands', [])
+            if commands:
+                self._add_separator(f"Commands ({len(commands)})")
+                for i, cmd in enumerate(commands[:12]):
+                    self._add_prop(f"  {i+1}:", cmd)
+                if len(commands) > 12:
+                    self._add_prop("  ...:", f"+{len(commands) - 12} more")
+
+            # Factory preset indicator
+            factory_names = getattr(s, '_factory_sydef_names', set())
+            if name in factory_names:
+                self._add_prop("Origin:", "Factory Preset")
+            else:
+                self._add_prop("Origin:", "User-Defined")
+        else:
+            self._add_prop("Status:", "Definition not found in session")
+
+        self._add_separator("Actions")
+        self._add_action_btn("Use (defaults)", f"/use {name}")
+        self._add_action_btn("Show Contents", f"/sydef show {name}")
+        self._add_action_btn("Copy...", f"/sydef copy {name} {name}_copy")
+        self._add_action_btn("Delete", f"/sydef del {name}")
 
     def _inspect_chain(self, data):
         name = data.get('name', '')
@@ -5729,6 +6725,37 @@ class InspectorPanel(wx.Panel):
                     self._add_prop("Descriptors:", f"{len(descs)} available")
                 except Exception:
                     self._add_prop("Descriptors:", "Module not available")
+        elif cat_id == 'granular_engine':
+            self._add_prop("Engine:", "GranularEngine (DSP)")
+            self._add_prop("Envelopes:", "hann, triangle, gaussian, trapezoid, tukey, rect")
+            self._add_prop("Parameters:", "size, density, position, spread, pitch, reverse")
+            self._add_prop("Modulation:", "Audio-rate mod for position, pitch, density, size")
+            self._add_separator("Operations")
+            self._add_prop("Process:", "/gr process <dur> — full granular cloud")
+            self._add_prop("Freeze:", "/gr freeze <pos> <dur> — sustain texture")
+            self._add_prop("Stretch:", "/gr stretch <factor> — time-stretch")
+            self._add_prop("Shift:", "/gr shift <semi> — pitch shift")
+            self._add_separator("Quick Actions")
+            self._add_action_btn("Status", "/gr")
+            self._add_action_btn("Process 2s", "/gr process 2")
+            self._add_action_btn("Freeze Center", "/gr freeze 0.5 4")
+        elif cat_id == 'gpu':
+            self._add_prop("Engine:", "AudioLDM2 (AI Generation)")
+            self._add_prop("Models:", "audioldm2-large, audioldm2-music, audioldm2-full")
+            self._add_prop("Schedulers:", "DDPM, DDIM, PNDM, LMS, Euler, DPM++, UniPC")
+            self._add_prop("Devices:", "cuda (GPU), cpu, mps (Apple)")
+            self._add_separator("Quick Actions")
+            self._add_action_btn("Show Status", "/gpu")
+            self._add_action_btn("Reset Defaults", "/gpu reset")
+        elif cat_id == 'ai_generate':
+            self._add_prop("Text-to-Audio:", "/gen <prompt> [dur] — generate from description")
+            self._add_prop("Variations:", "/genv <prompt> <count> — multiple versions")
+            self._add_prop("Analysis:", "/analyze — attribute vector of audio")
+            self._add_prop("Describe:", "/describe — semantic descriptor profile")
+            self._add_prop("Ask AI:", "/ask <request> — natural language commands")
+            self._add_separator("Quick Actions")
+            self._add_action_btn("Analyze", "/analyze detailed")
+            self._add_action_btn("Describe", "/describe")
         elif cat_id == 'generative':
             try:
                 from mdma_rebuild.dsp import beat_gen
@@ -5828,7 +6855,7 @@ class StepGridPanel(wx.Panel):
 
         # Grid canvas
         self.canvas = wx.Panel(self, name="StepGridCanvas")
-        self.canvas.SetName("Step grid — use arrow keys to navigate, Shift+Arrow to select, Ctrl+A for all")
+        self.canvas.SetName("Step grid — arrows to navigate, Shift+Arrow select, Ctrl+A all, Ctrl+C copy, Ctrl+V paste, Delete clear")
         self.canvas.SetBackgroundColour(self.COL_GRID_BG)
         self.canvas.Bind(wx.EVT_PAINT, self.on_paint)
         self.canvas.Bind(wx.EVT_LEFT_DOWN, self.on_grid_mouse_down)
@@ -5860,34 +6887,40 @@ class StepGridPanel(wx.Panel):
         self.sizer.Add(legend_sizer, 0, wx.ALL, 5)
 
         # ------------------------------------------------------------------
-        # Accessible text field: step characters for screen readers
-        # Each step maps to a single character. Screen readers can read,
-        # arrow-navigate, and select ranges using standard text shortcuts
-        # (Shift+Arrow, Ctrl+Shift+Arrow, etc.).  Characters:
-        #   -  = empty step       #  = filled (has audio)
-        #   >  = playhead         W  = write position
-        #   *  = selected
+        # Accessible step list: rich ListCtrl for screen readers
+        # Each row = one step with columns: Step#, Position, Marker,
+        # Source, Content.  Screen readers can arrow through rows and
+        # hear detailed info per step.  Ctrl+C copies selection,
+        # Ctrl+V pastes at write position.
         # ------------------------------------------------------------------
-        acc_label = wx.StaticText(self, label="Steps (text, for screen reader selection):")
+        acc_label = wx.StaticText(self, label="Steps (detailed list for screen reader navigation):")
         acc_label.SetForegroundColour(Theme.FG_DIM)
         self.sizer.Add(acc_label, 0, wx.LEFT | wx.TOP, 5)
 
-        self.step_text = wx.TextCtrl(
+        self.step_list = wx.ListCtrl(
             self,
-            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2,
-            name="StepGridText")
-        self.step_text.SetBackgroundColour(Theme.BG_INPUT)
-        self.step_text.SetForegroundColour(Theme.FG_TEXT)
-        font = wx.Font(11, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL,
-                        wx.FONTWEIGHT_NORMAL)
-        self.step_text.SetFont(font)
-        self.step_text.SetToolTip(
-            "Step grid as text. Each character is one step: "
-            "- empty, # audio, > playhead, W write-pos, * selected. "
-            "Use arrow keys and Shift+Arrow to select ranges.")
-        # Accessible name/description
-        self.step_text.SetName("Step grid text view")
-        self.sizer.Add(self.step_text, 0, wx.EXPAND | wx.ALL, 5)
+            style=wx.LC_REPORT | wx.LC_SINGLE_SEL,
+            name="StepGridList")
+        self.step_list.SetName("Step grid — arrow keys to browse, Ctrl+C copy, Ctrl+V paste")
+        self.step_list.SetBackgroundColour(Theme.BG_INPUT)
+        self.step_list.SetForegroundColour(Theme.FG_TEXT)
+        self.step_list.InsertColumn(0, "Step", width=45)
+        self.step_list.InsertColumn(1, "Position", width=120)
+        self.step_list.InsertColumn(2, "Marker", width=55)
+        self.step_list.InsertColumn(3, "Source", width=100)
+        self.step_list.InsertColumn(4, "Content", width=200)
+        self.step_list.SetToolTip(
+            "Step grid list. Each row is one step with position, "
+            "marker (# audio, - empty, > playhead, W write-pos), "
+            "source track, and content description. "
+            "Ctrl+C to copy selected steps, Ctrl+V to paste at write position.")
+        self.step_list.Bind(wx.EVT_KEY_DOWN, self._on_step_list_key)
+        self.step_list.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_step_list_select)
+        self.sizer.Add(self.step_list, 1, wx.EXPAND | wx.ALL, 5)
+
+        # Clipboard for copy/paste of step audio
+        self._clipboard_audio = None
+        self._clipboard_steps = 0
 
         self.SetSizer(self.sizer)
 
@@ -5974,7 +7007,8 @@ class StepGridPanel(wx.Panel):
         Arrow Left/Right moves cursor. Shift+Arrow extends selection.
         Up/Down moves by row (16 steps). Home/End jumps to start/end.
         Ctrl+A selects all steps. Space toggles write-position at cursor.
-        Escape clears selection.
+        Ctrl+C copies selected steps. Ctrl+V pastes at write position.
+        Delete clears selected steps. Escape clears selection.
         """
         key = event.GetKeyCode()
         shift = event.ShiftDown()
@@ -5986,6 +7020,21 @@ class StepGridPanel(wx.Panel):
             self.selected_steps = set(range(self.total_steps))
             self.canvas.Refresh()
             self._update_step_text()
+            return
+
+        # Ctrl+C: copy selected steps
+        if ctrl and key == ord('C'):
+            self._copy_steps()
+            return
+
+        # Ctrl+V: paste at write position
+        if ctrl and key == ord('V'):
+            self._paste_steps()
+            return
+
+        # Delete: clear selected steps
+        if key == wx.WXK_DELETE:
+            self._clear_selected_steps()
             return
 
         if key == wx.WXK_RIGHT:
@@ -6130,44 +7179,291 @@ class StepGridPanel(wx.Panel):
                 dc.DrawText(f"{row+1}", 2, y + (cs // 2) - 5)
 
     # ------------------------------------------------------------------
-    # Accessible text field
+    # Accessible step list
     # ------------------------------------------------------------------
 
-    def _update_step_text(self):
-        """Rebuild the text representation of the step grid.
+    def _step_position_label(self, step):
+        """Return a human-readable beat/bar position for a step index.
 
-        Each step is one character.  Rows of STEPS_PER_ROW characters are
-        separated by newlines so the text wraps identically to the visual
-        grid.  Beat boundaries (every 4 steps) are separated by a space
-        for easier screen-reader word-navigation (Ctrl+Arrow).
+        Assumes 4/4 time with 4 steps per beat (sixteenth notes).
+        Step 0 → Bar 1, Beat 1.1
+        Step 4 → Bar 1, Beat 2.1
+        Step 16 → Bar 2, Beat 1.1
         """
-        cols = self.STEPS_PER_ROW
-        lines: List[str] = []
-        for row_start in range(0, self.total_steps, cols):
-            row_chars: List[str] = []
-            for step in range(row_start, min(row_start + cols, self.total_steps)):
-                if step in self.selected_steps:
-                    ch = self.CHAR_SELECTED
-                elif step == self.playhead_pos:
-                    ch = self.CHAR_PLAYHEAD
-                elif step == self.write_pos:
-                    ch = self.CHAR_WRITE
-                elif step in self.filled_steps:
-                    ch = self.CHAR_FILLED
-                else:
-                    ch = self.CHAR_EMPTY
-                row_chars.append(ch)
-                # Space after every 4 characters for word-navigation
-                if (step - row_start + 1) % 4 == 0 and step != row_start + cols - 1:
-                    row_chars.append(' ')
-            lines.append(''.join(row_chars))
+        steps_per_beat = 4
+        beats_per_bar = 4
+        steps_per_bar = steps_per_beat * beats_per_bar  # 16
 
-        text = '\n'.join(lines)
-        # Preserve insertion point across updates
-        pos = self.step_text.GetInsertionPoint()
-        self.step_text.SetValue(text)
-        if pos <= len(text):
-            self.step_text.SetInsertionPoint(pos)
+        bar = step // steps_per_bar + 1
+        beat_in_bar = (step % steps_per_bar) // steps_per_beat + 1
+        sub_step = step % steps_per_beat + 1
+        return f"Bar {bar}, Beat {beat_in_bar}.{sub_step}"
+
+    def _step_marker(self, step):
+        """Return a marker character and label for a step."""
+        if step in self.selected_steps:
+            return '*', 'Selected'
+        elif step == self.playhead_pos:
+            return '>', 'Playhead'
+        elif step == self.write_pos:
+            return 'W', 'Write Pos'
+        elif step in self.filled_steps:
+            return '#', 'Audio'
+        else:
+            return '-', 'Empty'
+
+    def _step_source_info(self, step):
+        """Return source info (which track wrote audio to this step)."""
+        s = self.executor.session
+        if not s:
+            return ''
+        tracks = getattr(s, 'tracks', [])
+        sr = getattr(s, 'sample_rate', 48000)
+        bpm = getattr(s, 'bpm', 128)
+        beat_samples = int(60.0 / bpm * sr)
+        if beat_samples <= 0:
+            return ''
+
+        sample_start = step * beat_samples
+        sample_end = sample_start + beat_samples
+
+        sources = []
+        for i, t in enumerate(tracks):
+            audio = t.get('audio')
+            if audio is not None and len(audio) > 0:
+                wp = t.get('write_pos', 0)
+                if wp > sample_start:
+                    name = t.get('name', f'Track {i + 1}')
+                    sources.append(name)
+        if sources:
+            return ', '.join(sources[:3])
+        return ''
+
+    def _step_content_info(self, step):
+        """Return content description for a step (peak level, operator info)."""
+        s = self.executor.session
+        if not s or step not in self.filled_steps:
+            return ''
+
+        sr = getattr(s, 'sample_rate', 48000)
+        bpm = getattr(s, 'bpm', 128)
+        beat_samples = int(60.0 / bpm * sr)
+        if beat_samples <= 0:
+            return ''
+
+        sample_start = step * beat_samples
+        sample_end = sample_start + beat_samples
+
+        # Try to get peak level from working buffer
+        wb = getattr(s, 'working_buffer', None)
+        if wb is not None and len(wb) > sample_start:
+            chunk = wb[sample_start:min(sample_end, len(wb))]
+            if len(chunk) > 0:
+                peak = float(np.max(np.abs(chunk)))
+                peak_db = max(-60, 20 * np.log10(peak + 1e-10))
+                desc_parts = [f"Peak: {peak_db:.1f}dB"]
+
+                # Add operator waveform info for context
+                ops = getattr(s, 'operators', [])
+                cur_op_idx = getattr(s, 'current_operator', 0)
+                if ops and cur_op_idx < len(ops):
+                    op = ops[cur_op_idx]
+                    wave = op.get('wave', 'unknown')
+                    freq = op.get('freq', 0)
+                    desc_parts.append(f"{wave} {freq:.0f}Hz")
+
+                return ' | '.join(desc_parts)
+
+        return 'Audio present'
+
+    def _update_step_text(self):
+        """Rebuild the accessible step list with rich per-step info.
+
+        Each row in the ListCtrl represents one step with columns:
+        Step#, Position (Bar/Beat), Marker (#/–/>), Source, Content.
+        """
+        # Preserve current selection
+        sel_idx = self.step_list.GetFirstSelected()
+
+        self.step_list.DeleteAllItems()
+
+        for step in range(self.total_steps):
+            idx = self.step_list.InsertItem(step, str(step + 1))
+
+            # Position column: Bar X, Beat Y.Z
+            pos_label = self._step_position_label(step)
+            self.step_list.SetItem(idx, 1, pos_label)
+
+            # Marker column: # filled, - empty, > playhead, W write, * selected
+            marker_char, marker_label = self._step_marker(step)
+            self.step_list.SetItem(idx, 2, f"{marker_char} {marker_label}")
+
+            # Source column: which track(s) contributed
+            source = self._step_source_info(step)
+            self.step_list.SetItem(idx, 3, source)
+
+            # Content column: peak level, waveform info
+            content = self._step_content_info(step)
+            self.step_list.SetItem(idx, 4, content)
+
+        # Restore selection
+        if sel_idx >= 0 and sel_idx < self.step_list.GetItemCount():
+            self.step_list.Select(sel_idx)
+            self.step_list.EnsureVisible(sel_idx)
+
+        # Update overall accessible name with summary
+        n_filled = len(self.filled_steps)
+        n_sel = len(self.selected_steps)
+        summary = f"Step grid: {self.total_steps} steps, {n_filled} with audio"
+        if n_sel > 0:
+            summary += f", {n_sel} selected"
+        if self.playhead_pos >= 0:
+            summary += f", playhead at step {self.playhead_pos + 1}"
+        summary += f", write at step {self.write_pos + 1}"
+        self.step_list.SetName(summary)
+
+    # ------------------------------------------------------------------
+    # Step list keyboard: copy, paste, navigation
+    # ------------------------------------------------------------------
+
+    def _on_step_list_key(self, event):
+        """Handle keyboard shortcuts on the step list.
+
+        Ctrl+C: copy audio from selected steps to clipboard.
+        Ctrl+V: paste clipboard audio at write position.
+        Delete: clear selected steps.
+        """
+        key = event.GetKeyCode()
+        ctrl = event.ControlDown()
+
+        if ctrl and key == ord('C'):
+            self._copy_steps()
+            return
+        elif ctrl and key == ord('V'):
+            self._paste_steps()
+            return
+        elif key == wx.WXK_DELETE:
+            self._clear_selected_steps()
+            return
+        event.Skip()
+
+    def _on_step_list_select(self, event):
+        """Sync list selection to grid selection for visual feedback."""
+        idx = event.GetIndex()
+        if 0 <= idx < self.total_steps:
+            self.selected_steps = {idx}
+            self._kb_cursor = idx
+            self.canvas.Refresh()
+
+    def _copy_steps(self):
+        """Copy audio from selected step range to internal clipboard."""
+        if not self.selected_steps:
+            return
+
+        s = self.executor.session
+        if not s:
+            return
+
+        sr = getattr(s, 'sample_rate', 48000)
+        bpm = getattr(s, 'bpm', 128)
+        beat_samples = int(60.0 / bpm * sr)
+        if beat_samples <= 0:
+            return
+
+        lo = min(self.selected_steps)
+        hi = max(self.selected_steps)
+        sample_start = lo * beat_samples
+        sample_end = (hi + 1) * beat_samples
+
+        wb = getattr(s, 'working_buffer', None)
+        if wb is not None and len(wb) > sample_start:
+            self._clipboard_audio = np.copy(
+                wb[sample_start:min(sample_end, len(wb))]
+            )
+            self._clipboard_steps = hi - lo + 1
+            # Announce via accessible name update
+            self.step_list.SetName(
+                f"Copied {self._clipboard_steps} steps "
+                f"(steps {lo+1} to {hi+1}) to clipboard"
+            )
+
+    def _paste_steps(self):
+        """Paste clipboard audio at write position using buffer overlay."""
+        if self._clipboard_audio is None or len(self._clipboard_audio) == 0:
+            return
+
+        s = self.executor.session
+        if not s:
+            return
+
+        sr = getattr(s, 'sample_rate', 48000)
+        bpm = getattr(s, 'bpm', 128)
+        beat_samples = int(60.0 / bpm * sr)
+        if beat_samples <= 0:
+            return
+
+        paste_sample = self.write_pos * beat_samples
+
+        wb = getattr(s, 'working_buffer', None)
+        if wb is not None:
+            end = paste_sample + len(self._clipboard_audio)
+            if end > len(wb):
+                # Extend buffer if needed
+                extra = end - len(wb)
+                if wb.ndim == 2:
+                    wb = np.concatenate([wb, np.zeros((extra, wb.shape[1]),
+                                                       dtype=wb.dtype)])
+                else:
+                    wb = np.concatenate([wb, np.zeros(extra, dtype=wb.dtype)])
+                s.working_buffer = wb
+
+            clip = self._clipboard_audio
+            dest = wb[paste_sample:paste_sample + len(clip)]
+            # Mix/overlay rather than overwrite
+            mix_len = min(len(clip), len(dest))
+            if clip.ndim != dest[:mix_len].ndim:
+                # Shape mismatch — just overwrite
+                wb[paste_sample:paste_sample + mix_len] = clip[:mix_len]
+            else:
+                wb[paste_sample:paste_sample + mix_len] = (
+                    dest[:mix_len] + clip[:mix_len]
+                )
+
+            self.update_from_session()
+            self.step_list.SetName(
+                f"Pasted {self._clipboard_steps} steps at "
+                f"step {self.write_pos + 1} "
+                f"({self._step_position_label(self.write_pos)})"
+            )
+
+    def _clear_selected_steps(self):
+        """Clear audio in selected step range."""
+        if not self.selected_steps:
+            return
+
+        s = self.executor.session
+        if not s:
+            return
+
+        sr = getattr(s, 'sample_rate', 48000)
+        bpm = getattr(s, 'bpm', 128)
+        beat_samples = int(60.0 / bpm * sr)
+        if beat_samples <= 0:
+            return
+
+        lo = min(self.selected_steps)
+        hi = max(self.selected_steps)
+        sample_start = lo * beat_samples
+        sample_end = (hi + 1) * beat_samples
+
+        wb = getattr(s, 'working_buffer', None)
+        if wb is not None and len(wb) > sample_start:
+            clear_end = min(sample_end, len(wb))
+            wb[sample_start:clear_end] = 0
+            self.update_from_session()
+            self.step_list.SetName(
+                f"Cleared steps {lo+1} to {hi+1}"
+            )
 
     # ------------------------------------------------------------------
     # Step count / playhead
@@ -6488,6 +7784,10 @@ class PatchBuilderPanel(wx.Panel):
         m_amp = wx.NewIdRef()
         m_gen = wx.NewIdRef()
         m_fm = wx.NewIdRef()
+        m_tfm = wx.NewIdRef()
+        m_am = wx.NewIdRef()
+        m_rm = wx.NewIdRef()
+        m_pm = wx.NewIdRef()
 
         menu.Append(m_select, f"Select Operator {op_idx}")
         menu.Append(m_gen, "Generate Tone (440Hz)")
@@ -6496,7 +7796,13 @@ class PatchBuilderPanel(wx.Panel):
         menu.Append(m_freq, "Set Frequency...")
         menu.Append(m_amp, "Set Amplitude...")
         menu.AppendSeparator()
-        menu.Append(m_fm, "Add FM Routing from This Op...")
+        mod_sub = wx.Menu()
+        mod_sub.Append(m_fm, "FM (Frequency Mod)...")
+        mod_sub.Append(m_tfm, "TFM (Through-Zero FM)...")
+        mod_sub.Append(m_am, "AM (Amplitude Mod)...")
+        mod_sub.Append(m_rm, "RM (Ring Mod)...")
+        mod_sub.Append(m_pm, "PM (Phase Mod)...")
+        menu.AppendSubMenu(mod_sub, f"Add Routing from Op {op_idx}")
 
         self.Bind(wx.EVT_MENU,
             lambda e, i=op_idx: self._exec(f'/op {i}'), id=m_select)
@@ -6509,7 +7815,15 @@ class PatchBuilderPanel(wx.Panel):
         self.Bind(wx.EVT_MENU,
             lambda e, i=op_idx: self._on_set_amp(i), id=m_amp)
         self.Bind(wx.EVT_MENU,
-            lambda e, i=op_idx: self._on_add_routing(None), id=m_fm)
+            lambda e, i=op_idx: self._on_add_routing_typed(i, 'fm'), id=m_fm)
+        self.Bind(wx.EVT_MENU,
+            lambda e, i=op_idx: self._on_add_routing_typed(i, 'tfm'), id=m_tfm)
+        self.Bind(wx.EVT_MENU,
+            lambda e, i=op_idx: self._on_add_routing_typed(i, 'am'), id=m_am)
+        self.Bind(wx.EVT_MENU,
+            lambda e, i=op_idx: self._on_add_routing_typed(i, 'rm'), id=m_rm)
+        self.Bind(wx.EVT_MENU,
+            lambda e, i=op_idx: self._on_add_routing_typed(i, 'pm'), id=m_pm)
 
         self.PopupMenu(menu)
         menu.Destroy()
@@ -6543,6 +7857,20 @@ class PatchBuilderPanel(wx.Panel):
 
         self.PopupMenu(menu)
         menu.Destroy()
+
+    def _on_add_routing_typed(self, source_op, route_type='fm'):
+        """Add a modulation routing with source pre-filled from operator."""
+        dlg = wx.TextEntryDialog(
+            self,
+            f"Enter target operator for {route_type.upper()} from Op {source_op}:\n"
+            f"(e.g. '0' or '0 2.5' for target with amount)",
+            f"Add {route_type.upper()} Routing from Op {source_op}",
+            "0")
+        if dlg.ShowModal() == wx.ID_OK:
+            val = dlg.GetValue().strip()
+            if val:
+                self._exec(f'/{route_type} {source_op} {val}')
+        dlg.Destroy()
 
     def _on_set_wave_for_op(self, op_idx):
         """Show waveform picker targeting a specific operator."""
@@ -7368,14 +8696,18 @@ class MDMAFrame(wx.Frame):
 
         # Update action panel category
         if obj_type == 'category':
-            # Map new category IDs to action panel categories
-            cat_map = {'tracks': 'engine', 'buffers': 'engine',
-                       'decks': 'engine'}
+            # Map tree category IDs to action panel categories
+            cat_map = {'tracks': 'engine', 'buffers': 'buffers',
+                       'decks': 'engine',
+                       'granular_engine': 'granular_engine',
+                       'gpu': 'gpu', 'ai_generate': 'ai_generate'}
             action_cat = cat_map.get(obj_id, obj_id)
             if action_cat in ACTIONS:
                 self.action_panel.set_category(action_cat)
-        elif obj_type in ('track', 'buffer', 'working_buffer', 'deck'):
+        elif obj_type in ('track', 'deck'):
             self.action_panel.set_category('engine')
+        elif obj_type in ('buffer', 'working_buffer'):
+            self.action_panel.set_category('buffers')
         elif obj_type in ('operator', 'envelope_param'):
             self.action_panel.set_category('synth')
         elif obj_type == 'filter_slot':
@@ -7405,8 +8737,21 @@ class MDMAFrame(wx.Frame):
         elif obj_type in ('preset_slot',):
             self.action_panel.set_category('preset')
         elif obj_type in ('gen_genre', 'gen_layer', 'gen_xform_preset',
-                          'gen_theory_item', 'gen_content_item', 'gen_section'):
-            pass  # Inspector handles display; no action panel category needed
+                          'gen_theory_item', 'gen_content_item'):
+            self.action_panel.set_category('text_to_audio')
+        elif obj_type == 'gen_tta_item':
+            self.action_panel.set_category('text_to_audio')
+        elif obj_type == 'gen_breed_item':
+            self.action_panel.set_category('breeding')
+        elif obj_type == 'gen_section':
+            section = data.get('section', '')
+            sec_map = {'beat': 'text_to_audio', 'loop': 'text_to_audio',
+                       'xform': 'text_to_audio', 'theory': 'text_to_audio',
+                       'gen2': 'text_to_audio', 'text_to_audio': 'text_to_audio',
+                       'breeding': 'breeding'}
+            cat = sec_map.get(section, 'text_to_audio')
+            if cat in ACTIONS:
+                self.action_panel.set_category(cat)
 
         # Update inspector with full object details
         self.inspector.inspect(data)
@@ -7482,10 +8827,11 @@ class MDMAFrame(wx.Frame):
             "Music Design Made Accessible\n\n"
             "Phase 1: Core Interface & Workflow\n"
             "Phase 2: Monolith Engine & Synthesis Expansion\n"
-            "Phase 3: Modulation, Impulse & Convolution\n\n"
-            "Advanced convolution reverb, impulse-to-LFO/envelope,\n"
-            "neural IR enhancement, AI descriptor transforms,\n"
-            "granular IR tools, 15 semantic descriptors.")
+            "Phase 3: Modulation, Impulse & Convolution\n"
+            "Phase A: Accessibility Audit & Engine Parity\n\n"
+            "Full 5-type modulation (FM/TFM/AM/RM/PM),\n"
+            "granular engine, GPU/AI generation,\n"
+            "command input, keyboard context menus.")
         info.SetCopyright("(C) 2026")
         wx.adv.AboutBox(info)
 
