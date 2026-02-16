@@ -324,42 +324,6 @@ ACTIONS: Dict[str, List[ActionDef]] = {
             description='Set full ADSR envelope in one action'
         ),
         ActionDef(
-            name='attack',
-            label='Attack',
-            command_template='/atk {time}',
-            params=[
-                ActionParam('time', 'Attack Time (s)', 'float', 0.01, min_val=0, max_val=10),
-            ],
-            description='Set envelope attack time'
-        ),
-        ActionDef(
-            name='decay',
-            label='Decay',
-            command_template='/dec {time}',
-            params=[
-                ActionParam('time', 'Decay Time (s)', 'float', 0.1, min_val=0, max_val=10),
-            ],
-            description='Set envelope decay time'
-        ),
-        ActionDef(
-            name='sustain',
-            label='Sustain',
-            command_template='/sus {level}',
-            params=[
-                ActionParam('level', 'Sustain Level (0-1)', 'float', 0.7, min_val=0, max_val=1),
-            ],
-            description='Set envelope sustain level'
-        ),
-        ActionDef(
-            name='release',
-            label='Release',
-            command_template='/rel {time}',
-            params=[
-                ActionParam('time', 'Release Time (s)', 'float', 0.3, min_val=0, max_val=10),
-            ],
-            description='Set envelope release time'
-        ),
-        ActionDef(
             name='phase',
             label='Phase',
             command_template='/ph {phase}',
@@ -3508,9 +3472,14 @@ class ObjectBrowser(wx.Panel):
             # First load: expand everything
             self.tree.ExpandAll()
 
-        # Restore selection by matching item data
+        # Restore selection by matching item data, fall back to first child
         if selected_id:
-            self._restore_selection(root, selected_id)
+            if not self._restore_selection(root, selected_id):
+                # Item was deleted — select the first child instead
+                first, _ = self.tree.GetFirstChild(root)
+                if first.IsOk():
+                    self.tree.SelectItem(first)
+                    self.tree.EnsureVisible(first)
 
     def _restore_selection(self, parent, target_id):
         """Walk the tree to find and select an item matching target_id."""
@@ -3974,6 +3943,10 @@ class ObjectBrowser(wx.Panel):
             menu.Append(m_apply, f"Apply Chain: {name}")
             self.Bind(wx.EVT_MENU,
                 lambda e, n=name: self._exec(f'/chain load {n}'), id=m_apply)
+            menu.AppendSeparator()
+            menu.Append(m_del, "Clear Current Chain")
+            self.Bind(wx.EVT_MENU,
+                lambda e: self._exec('/chain clear'), id=m_del)
 
         # ==============================================================
         # User Function
@@ -5848,9 +5821,9 @@ class ActionPanel(wx.Panel):
         values = self.get_param_values()
         try:
             return self.current_action.command_template.format(**values)
-        except KeyError as e:
+        except (KeyError, ValueError, IndexError, AttributeError) as e:
             self.console_callback(
-                f"Error: missing parameter {e} in command template\n",
+                f"Error in {self.current_action.name}: {e}\n",
                 'error')
             return ""
     
@@ -7264,9 +7237,11 @@ class StepGridPanel(wx.Panel):
                 desc_parts = [f"Peak: {peak_db:.1f}dB"]
 
                 # Add operator waveform info for context
-                ops = getattr(s, 'operators', [])
+                ops = {}
+                if hasattr(s, 'engine') and hasattr(s.engine, 'operators'):
+                    ops = s.engine.operators
                 cur_op_idx = getattr(s, 'current_operator', 0)
-                if ops and cur_op_idx < len(ops):
+                if ops and cur_op_idx in ops:
                     op = ops[cur_op_idx]
                     wave = op.get('wave', 'unknown')
                     freq = op.get('freq', 0)
@@ -7845,13 +7820,20 @@ class PatchBuilderPanel(wx.Panel):
         sel = self.route_list.GetFirstSelected()
         menu = wx.Menu()
         m_add = wx.NewIdRef()
-        m_clear = wx.NewIdRef()
         menu.Append(m_add, "Add New Routing...")
-        menu.AppendSeparator()
-        menu.Append(m_clear, "Clear All Routings")
-
         self.Bind(wx.EVT_MENU,
             lambda e: self._on_add_routing(None), id=m_add)
+
+        if sel >= 0:
+            route_text = self.route_list.GetItemText(sel, 0)
+            m_remove = wx.NewIdRef()
+            menu.Append(m_remove, f"Remove Routing: {route_text}")
+            self.Bind(wx.EVT_MENU,
+                lambda e, i=sel: self._exec(f'/route rm {i}'), id=m_remove)
+
+        menu.AppendSeparator()
+        m_clear = wx.NewIdRef()
+        menu.Append(m_clear, "Clear All Routings")
         self.Bind(wx.EVT_MENU,
             lambda e: self._exec('/clearalg'), id=m_clear)
 
