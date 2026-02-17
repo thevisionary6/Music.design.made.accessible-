@@ -430,6 +430,15 @@ def build_command_table():
         pass
 
     # ================================================================
+    # PHASE 8.85: Load object registry commands
+    # ================================================================
+    try:
+        from mdma_rebuild.commands.obj_cmds import get_obj_commands
+        register_from_dict(get_obj_commands(), 'obj_cmds')
+    except ImportError:
+        pass
+
+    # ================================================================
     # PHASE 8.9: Load Phase T commands (system audit / song-ready)
     # ================================================================
     try:

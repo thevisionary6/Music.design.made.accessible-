@@ -7,12 +7,17 @@ Commands:
   /adapt      — pattern adaptation (4.2)
   /theory     — music theory queries
   /gen2       — improved content generation (4.1)
+
+Object Model Integration:
+  All generation commands now produce first-class objects in the
+  ObjectRegistry alongside the audio output.  The --name parameter
+  can be used to assign a custom name.  See OBJECT_MODEL_SPEC.md.
 """
 
 from __future__ import annotations
 
 import random
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 
@@ -37,6 +42,37 @@ def _lg():
 def _tf():
     from ..dsp import transforms
     return transforms
+
+def _objects():
+    from ..core import objects
+    return objects
+
+
+def _parse_name_arg(args: list) -> Optional[str]:
+    """Extract --name <value> from args, return the name or None."""
+    for i, arg in enumerate(args):
+        if arg == '--name' and i + 1 < len(args):
+            return args[i + 1]
+        if isinstance(arg, str) and arg.startswith('--name='):
+            return arg.split('=', 1)[1]
+    return None
+
+
+def _register_audio_clip(session, audio, source_label: str,
+                          name: str = '', source_id: str = '',
+                          source_params: Optional[dict] = None) -> str:
+    """Create and register an AudioClip object. Returns the object ID."""
+    obj = _objects()
+    clip = obj.AudioClip(
+        name=name,
+        data=audio,
+        sample_rate=session.sample_rate,
+        duration_seconds=len(audio) / session.sample_rate,
+        bit_depth=24,
+        render_source_id=source_id,
+        source_params=source_params or {},
+    )
+    return session.object_registry.register(clip, auto_name=not name)
 
 
 def _apply_route(session: Session, audio, args: list, default_source: str = 'generated') -> str:
@@ -172,8 +208,39 @@ def cmd_beat(session: Session, args: List[str]) -> str:
     dur = len(audio) / session.sample_rate
     peak = np.max(np.abs(audio))
     route_info = _apply_route(session, audio, args, f'beat_{genre}')
+
+    # --- Register BeatPattern object ---
+    obj = _objects()
+    custom_name = _parse_name_arg(args)
+    hits = []
+    for step_idx, hit_list in template.grid.items():
+        for h in hit_list:
+            hits.append(obj.DrumHit(
+                instrument=h.instrument,
+                step=step_idx,
+                velocity=int(h.velocity),
+            ))
+    beat_obj = obj.BeatPattern(
+        name=custom_name or '',
+        hits=hits,
+        steps=template.steps,
+        genre=genre,
+        bars=bars,
+        bpm=template.bpm,
+        swing=template.swing,
+        source_params={'genre': genre, 'bars': bars, 'bpm': template.bpm},
+    )
+    beat_id = session.object_registry.register(beat_obj, auto_name=not custom_name)
+    clip_id = _register_audio_clip(
+        session, audio, f'beat_{genre}',
+        source_id=beat_id,
+        source_params={'genre': genre, 'bars': bars, 'bpm': template.bpm},
+    )
+    obj_name = session.object_registry.get(beat_id).name
+
     return (f"OK: {genre} beat — {bars} bar(s), {template.bpm:.0f} BPM, "
-            f"{dur:.2f}s, peak {peak:.3f}{route_info}")
+            f"{dur:.2f}s, peak {peak:.3f}\n"
+            f"  Registered: {obj_name} (BeatPattern){route_info}")
 
 
 # ======================================================================
@@ -248,7 +315,32 @@ def cmd_loop(session: Session, args: List[str]) -> str:
     peak = np.max(np.abs(audio))
     info = lg.format_loop_info(spec)
     route_info = _apply_route(session, audio, args, source)
-    return f"OK: {info}\n  Duration: {dur:.2f}s, peak: {peak:.3f}{route_info}"
+
+    # --- Register Loop object ---
+    obj = _objects()
+    custom_name = _parse_name_arg(args)
+    loop_obj = obj.Loop(
+        name=custom_name or '',
+        layers={layer: '' for layer in layers},  # Layer IDs filled when sub-objects tracked
+        bars=spec.bars,
+        bpm=spec.bpm if spec.bpm > 0 else session.bpm,
+        genre=genre,
+        source_params={
+            'genre': genre, 'layers': layers, 'bars': spec.bars,
+            'bpm': spec.bpm, 'root_note': spec.root_note,
+            'scale': spec.scale, 'mood': spec.mood,
+        },
+    )
+    loop_id = session.object_registry.register(loop_obj, auto_name=not custom_name)
+    _register_audio_clip(
+        session, audio, source,
+        source_id=loop_id,
+        source_params=loop_obj.source_params,
+    )
+    obj_name = session.object_registry.get(loop_id).name
+
+    return (f"OK: {info}\n  Duration: {dur:.2f}s, peak: {peak:.3f}\n"
+            f"  Registered: {obj_name} (Loop){route_info}")
 
 
 # ======================================================================
@@ -302,7 +394,19 @@ def cmd_xform(session: Session, args: List[str]) -> str:
                 buf, transforms, session.sample_rate, session.bpm)
             session.last_buffer = result
             session.set_working_buffer(result, f'xform_{preset_name}')
-            return f"OK: Applied preset '{preset_name}' — {len(result)/session.sample_rate:.2f}s"
+
+            # --- Register AudioClip object ---
+            custom_name = _parse_name_arg(args)
+            clip_id = _register_audio_clip(
+                session, result, f'xform_{preset_name}',
+                name=custom_name or '',
+                source_params={'preset': preset_name},
+            )
+            obj_name = session.object_registry.get(clip_id).name
+
+            return (f"OK: Applied preset '{preset_name}' — "
+                    f"{len(result)/session.sample_rate:.2f}s\n"
+                    f"  Registered: {obj_name} (AudioClip)")
         elif preset_name in tf.TRANSFORM_PRESETS:
             return (f"OK: Note preset '{preset_name}' loaded. "
                     f"Use /mel or /pat to render notes.")
@@ -364,7 +468,18 @@ def cmd_xform(session: Session, args: List[str]) -> str:
     session.last_buffer = result
     session.set_working_buffer(result, f'xform_{transform_name}')
     dur = len(result) / session.sample_rate
-    return f"OK: Applied '{transform_name}' — {dur:.2f}s"
+
+    # --- Register AudioClip object ---
+    custom_name = _parse_name_arg(args)
+    clip_id = _register_audio_clip(
+        session, result, f'xform_{transform_name}',
+        name=custom_name or '',
+        source_params={'transform': transform_name, **params},
+    )
+    obj_name = session.object_registry.get(clip_id).name
+
+    return (f"OK: Applied '{transform_name}' — {dur:.2f}s\n"
+            f"  Registered: {obj_name} (AudioClip)")
 
 
 # ======================================================================
@@ -433,8 +548,19 @@ def cmd_adapt(session: Session, args: List[str]) -> str:
             result = tf.audio_pitch_shift(buf, shift, session.sample_rate)
             session.last_buffer = result
             session.set_working_buffer(result, f'adapt_key_{args[1]}')
+
+            # --- Register AudioClip object ---
+            custom_name = _parse_name_arg(args)
+            clip_id = _register_audio_clip(
+                session, result, f'adapt_key_{args[1]}',
+                name=custom_name or '',
+                source_params={'key': args[1], 'scale': new_scale, 'shift': shift},
+            )
+            obj_name = session.object_registry.get(clip_id).name
+
             return (f"OK: Adapted to {mt.midi_to_note_name(new_root)} {new_scale} "
-                    f"(shifted {shift:+d} semitones)")
+                    f"(shifted {shift:+d} semitones)\n"
+                    f"  Registered: {obj_name} (AudioClip)")
         return "ERROR: could not detect pitch for adaptation."
 
     if sub == 'scale':
@@ -457,8 +583,19 @@ def cmd_adapt(session: Session, args: List[str]) -> str:
         session.bpm = new_bpm
         session.last_buffer = result
         session.set_working_buffer(result, f'adapt_tempo_{new_bpm:.0f}')
+
+        # --- Register AudioClip object ---
+        custom_name = _parse_name_arg(args)
+        clip_id = _register_audio_clip(
+            session, result, f'adapt_tempo_{new_bpm:.0f}',
+            name=custom_name or '',
+            source_params={'old_bpm': old_bpm, 'new_bpm': new_bpm, 'ratio': ratio},
+        )
+        obj_name = session.object_registry.get(clip_id).name
+
         return (f"OK: Tempo adapted {old_bpm:.0f} → {new_bpm:.0f} BPM "
-                f"(ratio {ratio:.3f}, {len(result)/session.sample_rate:.2f}s)")
+                f"(ratio {ratio:.3f}, {len(result)/session.sample_rate:.2f}s)\n"
+                f"  Registered: {obj_name} (AudioClip)")
 
     if sub == 'style':
         bg = _bg()
@@ -472,7 +609,18 @@ def cmd_adapt(session: Session, args: List[str]) -> str:
         session.last_buffer = audio
         session.set_working_buffer(audio, f'adapt_style_{genre}')
         dur = len(audio) / session.sample_rate
-        return f"OK: Re-rendered in {genre} style — {dur:.2f}s at {session.bpm:.0f} BPM"
+
+        # --- Register AudioClip object ---
+        custom_name = _parse_name_arg(args)
+        clip_id = _register_audio_clip(
+            session, audio, f'adapt_style_{genre}',
+            name=custom_name or '',
+            source_params={'genre': genre, 'bpm': session.bpm},
+        )
+        obj_name = session.object_registry.get(clip_id).name
+
+        return (f"OK: Re-rendered in {genre} style — {dur:.2f}s at {session.bpm:.0f} BPM\n"
+                f"  Registered: {obj_name} (AudioClip)")
 
     if sub == 'develop':
         techniques = args[1:] if len(args) > 1 else None
@@ -511,8 +659,19 @@ def cmd_adapt(session: Session, args: List[str]) -> str:
         session.last_buffer = result
         names = [t[0] for t in transforms_list]
         session.set_working_buffer(result, f'develop_{"_".join(names)}')
+
+        # --- Register AudioClip object ---
+        custom_name = _parse_name_arg(args)
+        clip_id = _register_audio_clip(
+            session, result, f'develop_{"_".join(names)}',
+            name=custom_name or '',
+            source_params={'techniques': names},
+        )
+        obj_name = session.object_registry.get(clip_id).name
+
         return (f"OK: Motivic development applied: {' → '.join(names)} — "
-                f"{len(result)/session.sample_rate:.2f}s")
+                f"{len(result)/session.sample_rate:.2f}s\n"
+                f"  Registered: {obj_name} (AudioClip)")
 
     return f"ERROR: unknown subcommand '{sub}'. Use /adapt for help."
 
@@ -725,9 +884,35 @@ def cmd_gen2(session: Session, args: List[str]) -> str:
         session.set_working_buffer(total, f'gen2_melody_{scale}')
         names = [mt.midi_to_note_name(n) for n in melody_notes]
         dur = len(total) / sr
+
+        # --- Register Pattern object ---
+        obj = _objects()
+        custom_name = _parse_name_arg(args)
+        events = []
+        for i, midi_note in enumerate(melody_notes):
+            events.append(obj.NoteEvent(
+                pitch=midi_note, velocity=100,
+                start=float(i), duration=1.0,
+            ))
+        pat = obj.Pattern(
+            name=custom_name or '',
+            events=events,
+            length_beats=float(length),
+            scale=scale, root=root_str,
+            bpm=session.bpm,
+            pattern_kind='melody',
+            source_params={'scale': scale, 'key': root_str,
+                           'length': length, 'contour': contour},
+        )
+        pat_id = session.object_registry.register(pat, auto_name=not custom_name)
+        _register_audio_clip(session, total, f'gen2_melody_{scale}',
+                              source_id=pat_id, source_params=pat.source_params)
+        obj_name = session.object_registry.get(pat_id).name
+
         return (f"OK: Generated {length}-note {scale} melody ({contour})\n"
                 f"  Notes: {' '.join(names)}\n"
-                f"  Duration: {dur:.2f}s")
+                f"  Duration: {dur:.2f}s\n"
+                f"  Registered: {obj_name} (Pattern)")
 
     if sub in ('chord_prog', 'chords', 'progression'):
         prog_name = kw.get('prog', positional[0] if positional else 'I_V_vi_IV')
@@ -767,9 +952,35 @@ def cmd_gen2(session: Session, args: List[str]) -> str:
         session.last_buffer = total
         session.set_working_buffer(total, f'gen2_chords_{prog_name}')
         dur = len(total) / sr
+
+        # --- Register Pattern object ---
+        obj = _objects()
+        custom_name = _parse_name_arg(args)
+        events = []
+        for bar_idx, chord_midi in enumerate(chords):
+            for midi_note in chord_midi:
+                events.append(obj.NoteEvent(
+                    pitch=midi_note, velocity=100,
+                    start=float(bar_idx * 4), duration=4.0,
+                ))
+        pat = obj.Pattern(
+            name=custom_name or '',
+            events=events,
+            length_beats=float(len(chords) * 4),
+            scale=scale, root=root_str,
+            bpm=session.bpm,
+            pattern_kind='chord',
+            source_params={'scale': scale, 'key': root_str, 'prog': prog_name},
+        )
+        pat_id = session.object_registry.register(pat, auto_name=not custom_name)
+        _register_audio_clip(session, total, f'gen2_chords_{prog_name}',
+                              source_id=pat_id, source_params=pat.source_params)
+        obj_name = session.object_registry.get(pat_id).name
+
         return (f"OK: Generated {prog_name} progression in "
                 f"{mt.midi_to_note_name(root_midi)} {scale}\n"
-                f"  {len(chords)} chords, {dur:.2f}s")
+                f"  {len(chords)} chords, {dur:.2f}s\n"
+                f"  Registered: {obj_name} (Pattern)")
 
     if sub == 'bassline':
         genre = kw.get('genre', 'house')
@@ -781,7 +992,26 @@ def cmd_gen2(session: Session, args: List[str]) -> str:
         session.last_buffer = audio
         session.set_working_buffer(audio, f'gen2_bass_{genre}')
         dur = len(audio) / session.sample_rate
-        return f"OK: Generated {genre} bassline — {dur:.2f}s"
+
+        # --- Register Pattern object ---
+        obj = _objects()
+        custom_name = _parse_name_arg(args)
+        pat = obj.Pattern(
+            name=custom_name or '',
+            length_beats=float(spec.bars * 4),
+            scale=scale, root=root_str,
+            bpm=session.bpm,
+            pattern_kind='bassline',
+            source_params={'scale': scale, 'key': root_str,
+                           'genre': genre, 'bars': spec.bars},
+        )
+        pat_id = session.object_registry.register(pat, auto_name=not custom_name)
+        _register_audio_clip(session, audio, f'gen2_bass_{genre}',
+                              source_id=pat_id, source_params=pat.source_params)
+        obj_name = session.object_registry.get(pat_id).name
+
+        return (f"OK: Generated {genre} bassline — {dur:.2f}s\n"
+                f"  Registered: {obj_name} (Pattern)")
 
     if sub == 'arp':
         chord_name = positional[0] if positional else 'min7'
@@ -807,8 +1037,37 @@ def cmd_gen2(session: Session, args: List[str]) -> str:
         session.set_working_buffer(total, f'gen2_arp_{chord_name}')
         dur = len(total) / sr
         names = [mt.midi_to_note_name(n) for n in chord_notes]
+
+        # --- Register Pattern object ---
+        obj = _objects()
+        custom_name = _parse_name_arg(args)
+        events = []
+        beat_pos = 0.0
+        for _ in range(repeats):
+            for midi_note in arp_seq:
+                events.append(obj.NoteEvent(
+                    pitch=midi_note, velocity=100,
+                    start=beat_pos, duration=0.5,
+                ))
+                beat_pos += 0.5
+        pat = obj.Pattern(
+            name=custom_name or '',
+            events=events,
+            length_beats=beat_pos,
+            scale=scale, root=root_str,
+            bpm=session.bpm,
+            pattern_kind='arpeggio',
+            source_params={'scale': scale, 'key': root_str,
+                           'chord': chord_name, 'repeats': repeats},
+        )
+        pat_id = session.object_registry.register(pat, auto_name=not custom_name)
+        _register_audio_clip(session, total, f'gen2_arp_{chord_name}',
+                              source_id=pat_id, source_params=pat.source_params)
+        obj_name = session.object_registry.get(pat_id).name
+
         return (f"OK: Arpeggiated {chord_name} ({' '.join(names)}) "
-                f"x{repeats} — {dur:.2f}s")
+                f"x{repeats} — {dur:.2f}s\n"
+                f"  Registered: {obj_name} (Pattern)")
 
     if sub == 'drone':
         dur_beats = float(kw.get('dur', '4'))
@@ -838,7 +1097,27 @@ def cmd_gen2(session: Session, args: List[str]) -> str:
             out *= 0.9 / peak
         session.last_buffer = out
         session.set_working_buffer(out, f'gen2_drone')
-        return f"OK: Generated drone in {mt.midi_to_note_name(root_midi)} — {dur_sec:.2f}s"
+
+        # --- Register Pattern object ---
+        obj = _objects()
+        custom_name = _parse_name_arg(args)
+        pat = obj.Pattern(
+            name=custom_name or '',
+            events=[obj.NoteEvent(pitch=root_midi - 12, velocity=100,
+                                   start=0.0, duration=dur_beats)],
+            length_beats=dur_beats,
+            scale=scale, root=root_str,
+            bpm=session.bpm,
+            pattern_kind='drone',
+            source_params={'scale': scale, 'key': root_str, 'dur': dur_beats},
+        )
+        pat_id = session.object_registry.register(pat, auto_name=not custom_name)
+        _register_audio_clip(session, out, 'gen2_drone',
+                              source_id=pat_id, source_params=pat.source_params)
+        obj_name = session.object_registry.get(pat_id).name
+
+        return (f"OK: Generated drone in {mt.midi_to_note_name(root_midi)} — {dur_sec:.2f}s\n"
+                f"  Registered: {obj_name} (Pattern)")
 
     return f"ERROR: unknown sub-command '{sub}'. Use /gen2 for help."
 

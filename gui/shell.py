@@ -329,10 +329,46 @@ if _WX_AVAILABLE:
 
         def _on_object_event(self, event: Any) -> None:
             """Handle object registry events — refresh Inspector tree."""
-            # Phase 1: Log and update status bar
             obj_type = getattr(event, "obj_type", "")
             name = getattr(event, "name", "")
             self._status_bar.SetStatusText(f"{obj_type}: {name}", 1)
+
+            # Live-update the Inspector object tree
+            self._refresh_inspector_tree()
+
+        def _refresh_inspector_tree(self) -> None:
+            """Rebuild the Inspector's object tree from the registry."""
+            inspector = self._windows.get("inspector")
+            if not inspector or not hasattr(inspector, "_tree_ctrl"):
+                return
+
+            tree = inspector._tree_ctrl
+            tree.DeleteAllItems()
+            root = tree.AddRoot("Registry")
+
+            from mdma_rebuild.core.objects import OBJECT_TYPE_MAP
+            registry = self._registry
+
+            for type_name in OBJECT_TYPE_MAP:
+                objects = registry.list_objects(type_name)
+                label = type_name.replace("_", " ").title()
+                if objects:
+                    label += f" ({len(objects)})"
+                type_node = tree.AppendItem(root, label)
+
+                for obj in objects:
+                    # Show name and key details
+                    detail = obj.name
+                    if hasattr(obj, "genre") and obj.genre:
+                        detail += f" — {obj.genre}"
+                    elif hasattr(obj, "pattern_kind") and obj.pattern_kind:
+                        detail += f" — {obj.pattern_kind}"
+                    elif hasattr(obj, "duration_seconds") and obj.duration_seconds > 0:
+                        detail += f" — {obj.duration_seconds:.2f}s"
+                    tree.AppendItem(type_node, detail)
+
+                if objects:
+                    tree.Expand(type_node)
 
         def _on_console_command(self, event: Any, inspector_win: wx.Frame) -> None:
             """Handle command input from the Inspector console."""

@@ -315,6 +315,14 @@ class Session:
         self.defining_function: Optional[str] = None  # name of function being defined, or None
         self.chains: dict[str, list[str]] = {}
 
+        # --- Object Registry (First-Class Object Model) ---
+        # Shared store for all named objects (patterns, beats, loops, clips,
+        # patches, effect chains, tracks, songs, templates).  Both CLI and
+        # GUI read from and write to this registry.
+        # See docs/specs/OBJECT_MODEL_SPEC.md
+        from .registry import ObjectRegistry
+        self.object_registry: ObjectRegistry = ObjectRegistry()
+
         # --- Phase T: Undo/Redo System (T.1) ---
         self._undo_stack: list[np.ndarray] = []  # Working buffer undo stack
         self._redo_stack: list[np.ndarray] = []  # Working buffer redo stack
