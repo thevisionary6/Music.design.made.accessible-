@@ -189,6 +189,8 @@ Music.design.made.accessible-/
 |   |
 |   |-- core/                   # State and session management
 |   |   |-- session.py          # Session object (holds all state)
+|   |   |-- objects.py          # First-class object model (Pattern, Patch, etc.)
+|   |   |-- registry.py         # Object registry (shared object store)
 |   |   |-- user_data.py        # User profile and preferences
 |   |   |-- banks.py            # Preset bank system
 |   |   |-- pack.py             # Project/pack management
@@ -240,12 +242,25 @@ Music.design.made.accessible-/
 |       |-- router.py           # AI command routing
 |       |-- descriptors.py      # AI descriptors
 |
+|-- gui/                         # Modular GUI package (new architecture)
+|   |-- shell.py                 # Top-level window manager
+|   |-- bridge.py                # Session/DSP adapter
+|   |-- events.py                # Custom wx event types
+|   |-- windows/                 # Sub-window modules
+|   |-- panels/                  # Panel modules (per window)
+|   |-- widgets/                 # Accessible reusable widgets
+|
+|-- docs/
+|   |-- specs/
+|       |-- GUI_WINDOW_ARCHITECTURE_SPEC.md  # Modular window architecture
+|       |-- OBJECT_MODEL_SPEC.md             # First-class object model
+|
 |-- COMMANDS.md                  # Full command reference (569+ commands)
 |-- VERSION.md                   # Version history
 |-- RELEASE_NOTES.md             # Release notes
 |-- CHANGELOG_v52.md             # v52 changelog
 |-- ROADMAP_FULL_RELEASE.md      # 10-phase roadmap to v1.0
-|-- GUI_SPEC_v0.2.md             # GUI specification
+|-- GUI_SPEC_v0.2.md             # GUI specification (superseded by window arch spec)
 |-- INTERFACE_TRANSITION_SPEC.md  # Architecture rationale
 ```
 
@@ -305,8 +320,10 @@ python test_mad_dsl.py
 | `RELEASE_NOTES.md` | Release notes for major versions |
 | `CHANGELOG_v52.md` | v52 changes (GUI MVP, interface transition) |
 | `ROADMAP_FULL_RELEASE.md` | 10-phase roadmap to v1.0 (Phases 1-4 complete) |
-| `GUI_SPEC_v0.2.md` | GUI design specification |
+| `GUI_SPEC_v0.2.md` | GUI design specification (MVP, superseded) |
 | `INTERFACE_TRANSITION_SPEC.md` | Architecture and design rationale |
+| `docs/specs/GUI_WINDOW_ARCHITECTURE_SPEC.md` | Modular sub-window GUI architecture |
+| `docs/specs/OBJECT_MODEL_SPEC.md` | First-class object model and registry |
 
 ---
 
