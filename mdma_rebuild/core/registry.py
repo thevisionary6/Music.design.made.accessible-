@@ -411,6 +411,111 @@ class ObjectRegistry:
         self._namer.sync_from_objects(list(self._objects.values()))
         logger.info("Restored %d objects from project data", len(self._objects))
 
+    # ---- Export / Import ----------------------------------------------------
+
+    def export(self, object_id: str, path: str) -> bool:
+        """Export a single object to a JSON file.
+
+        AudioClip ``data`` (numpy arrays) is exported as a WAV file at
+        ``{path}.wav`` alongside the JSON metadata.  Returns True on
+        success.
+        """
+        obj = self._objects.get(object_id)
+        if obj is None:
+            return False
+
+        obj_data: dict = {}
+        for key, value in obj.__dict__.items():
+            if key == "data":
+                continue
+            if isinstance(value, datetime):
+                obj_data[key] = value.isoformat()
+            else:
+                obj_data[key] = value
+
+        import os
+        # Write metadata JSON
+        json_path = path if path.endswith('.json') else f"{path}.json"
+        with open(json_path, 'w') as f:
+            json.dump(obj_data, f, indent=2, default=str)
+
+        # If AudioClip with data, write WAV alongside
+        if obj.obj_type == "audio_clip" and getattr(obj, "data", None) is not None:
+            try:
+                import numpy as np
+                import soundfile as sf
+                wav_path = json_path.replace('.json', '.wav')
+                data = obj.data
+                if data.ndim == 1:
+                    data = np.column_stack([data, data])
+                sf.write(wav_path, data, obj.sample_rate)
+                logger.info("Exported audio to %s", wav_path)
+            except ImportError:
+                logger.warning("soundfile not available — audio data not exported")
+
+        logger.info("Exported %s to %s", obj.name, json_path)
+        return True
+
+    def import_file(self, path: str) -> Optional[MDMAObject]:
+        """Import an object from a JSON file.
+
+        If a companion WAV file exists alongside the JSON, its audio
+        data is loaded into the AudioClip's ``data`` field.
+
+        Returns the imported object, or None on failure.
+        """
+        import os
+        json_path = path if path.endswith('.json') else f"{path}.json"
+
+        if not os.path.exists(json_path):
+            logger.error("Import file not found: %s", json_path)
+            return None
+
+        with open(json_path, 'r') as f:
+            obj_data = json.load(f)
+
+        obj_type = obj_data.get("obj_type", "base")
+        cls = OBJECT_TYPE_MAP.get(obj_type, MDMAObject)
+
+        # Reconstruct object
+        init_fields = {}
+        for key, value in obj_data.items():
+            if key in ("created_at", "modified_at") and isinstance(value, str):
+                try:
+                    value = datetime.fromisoformat(value)
+                except (ValueError, TypeError):
+                    pass
+            init_fields[key] = value
+
+        try:
+            obj = cls(**init_fields)
+        except TypeError:
+            obj = cls()
+            for k, v in init_fields.items():
+                setattr(obj, k, v)
+
+        # Assign new ID for imported object to avoid collisions
+        old_id = obj.id
+        obj.id = _new_id()
+
+        # Load companion WAV if AudioClip
+        if obj.obj_type == "audio_clip":
+            wav_path = json_path.replace('.json', '.wav')
+            if os.path.exists(wav_path):
+                try:
+                    import soundfile as sf
+                    data, sr = sf.read(wav_path)
+                    obj.data = data
+                    obj.sample_rate = sr
+                    logger.info("Loaded audio from %s", wav_path)
+                except ImportError:
+                    logger.warning("soundfile not available — audio data not loaded")
+
+        self.register(obj, auto_name=not obj.name)
+        logger.info("Imported %s from %s (old ID: %s → new ID: %s)",
+                     obj.name, json_path, old_id[:8], obj.id[:8])
+        return obj
+
     # ---- Stats / introspection ----------------------------------------------
 
     def count(self, obj_type: Optional[str] = None) -> int:

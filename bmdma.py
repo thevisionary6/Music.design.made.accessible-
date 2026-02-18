@@ -222,6 +222,11 @@ def build_command_table():
         'swap': 'phase_t_cmds',
         'filefx': 'phase_t_cmds',
 
+        # Object & template commands - obj_cmds owns
+        'obj': 'obj_cmds',
+        'object': 'obj_cmds',
+        'template': 'obj_cmds',
+
         # Phase 4: Generative commands - gen_cmds owns
         'beat': 'gen_cmds',
         'loop': 'gen_cmds',

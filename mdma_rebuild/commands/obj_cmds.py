@@ -252,7 +252,222 @@ def cmd_obj(session: Session, args: List[str]) -> str:
             lines.append(_format_object_summary(obj))
         return '\n'.join(lines)
 
+    # /obj export <name|id> <path>
+    if sub == 'export':
+        if len(args) < 3:
+            return "Usage: /obj export <name> <path>"
+        obj = _resolve_object(session, args[1])
+        if not obj:
+            return f"ERROR: object '{args[1]}' not found."
+        path = args[2]
+        ok = reg.export(obj.id, path)
+        if ok:
+            return f"OK: Exported '{obj.name}' to {path}"
+        return "ERROR: export failed."
+
+    # /obj import <path>
+    if sub == 'import':
+        if len(args) < 2:
+            return "Usage: /obj import <path>"
+        path = args[1]
+        imported = reg.import_file(path)
+        if imported:
+            return f"OK: Imported '{imported.name}' ({imported.obj_type}) from {path}"
+        return f"ERROR: could not import from '{path}'."
+
     return f"ERROR: unknown subcommand '{sub}'. Use /obj for help."
+
+
+def cmd_template(session: Session, args: List[str]) -> str:
+    """Manage templates.
+
+    /template list                    — list all saved templates
+    /template show <name>             — show template fields
+    /template fill <name> [k=v ...]   — fill template fields and generate
+    /template save <name> <target_type> [description]  — save a new template
+    """
+    reg = session.object_registry
+
+    if not args:
+        return ("TEMPLATE SYSTEM\n"
+                "  /template list              — list templates\n"
+                "  /template show <name>       — show template fields\n"
+                "  /template fill <name> k=v   — fill and generate\n"
+                "  /template save <name> <type> [desc] — save template")
+
+    sub = args[0].lower()
+
+    if sub == 'list':
+        templates = reg.list_objects('template')
+        if not templates:
+            return ("No templates registered.\n"
+                    "  Use /template save <name> <type> to create one.")
+        lines = [f"TEMPLATES — {len(templates)} item(s)\n"]
+        for t in templates:
+            desc = getattr(t, 'description', '') or ''
+            target = getattr(t, 'target_type', '') or ''
+            lines.append(f"  {t.name:20s}  -> {target:14s}  {desc[:40]}")
+        return '\n'.join(lines)
+
+    if sub == 'show':
+        if len(args) < 2:
+            return "Usage: /template show <name>"
+        obj = _resolve_object(session, args[1])
+        if not obj or obj.obj_type != 'template':
+            return f"ERROR: template '{args[1]}' not found."
+        lines = [f"TEMPLATE: {obj.name}",
+                 f"  Target type: {obj.target_type}",
+                 f"  Description: {obj.description}",
+                 f"  Fields:"]
+        for fld in obj.fields:
+            req = " [required]" if fld.required else ""
+            default = f" (default: {fld.default})" if fld.default is not None else ""
+            choices_str = ""
+            if fld.choices:
+                choices_str = f" choices: {', '.join(str(c) for c in fld.choices)}"
+            lines.append(f"    {fld.name:15s} ({fld.field_type}){req}{default}{choices_str}")
+            if fld.description:
+                lines.append(f"      {fld.description}")
+        return '\n'.join(lines)
+
+    if sub == 'fill':
+        if len(args) < 2:
+            return "Usage: /template fill <name> key=value ..."
+        obj = _resolve_object(session, args[1])
+        if not obj or obj.obj_type != 'template':
+            return f"ERROR: template '{args[1]}' not found."
+
+        # Parse key=value pairs from remaining args
+        params = {}
+        for a in args[2:]:
+            if '=' in a:
+                k, v = a.split('=', 1)
+                params[k] = v
+
+        # Validate required fields
+        missing = []
+        for fld in obj.fields:
+            if fld.required and fld.name not in params:
+                if fld.default is not None:
+                    params[fld.name] = fld.default
+                else:
+                    missing.append(fld.name)
+        if missing:
+            return f"ERROR: missing required fields: {', '.join(missing)}"
+
+        # Apply defaults for unfilled fields
+        for fld in obj.fields:
+            if fld.name not in params and fld.default is not None:
+                params[fld.name] = fld.default
+
+        # Build the generation command from template target type
+        target = obj.target_type
+        cmd_map = {
+            'beat_pattern': 'beat',
+            'pattern': 'gen2',
+            'loop': 'loop',
+        }
+        cmd_name = cmd_map.get(target)
+        if not cmd_name:
+            return f"ERROR: no generator mapped for target type '{target}'."
+
+        # Build args from params
+        if cmd_name == 'beat':
+            genre = params.get('genre', 'hiphop')
+            bars = params.get('bars', '4')
+            cmd_args = [genre, str(bars)]
+            if 'name' in params:
+                cmd_args.extend(['--name', params['name']])
+        elif cmd_name == 'gen2':
+            kind = params.get('kind', 'melody')
+            scale = params.get('scale', 'minor')
+            bars = params.get('bars', '4')
+            cmd_args = [kind, scale, str(bars)]
+            if 'name' in params:
+                cmd_args.extend(['--name', params['name']])
+        elif cmd_name == 'loop':
+            genre = params.get('genre', 'hiphop')
+            bars = params.get('bars', '4')
+            cmd_args = [genre, str(bars)]
+            if 'name' in params:
+                cmd_args.extend(['--name', params['name']])
+        else:
+            cmd_args = []
+
+        # Execute through session command table
+        try:
+            import bmdma
+            cmds = bmdma.build_command_table()
+            if cmd_name in cmds:
+                result = cmds[cmd_name](session, cmd_args)
+                return f"OK: Template '{obj.name}' filled.\n{result}"
+            return f"ERROR: command '{cmd_name}' not found in command table."
+        except ImportError:
+            return "ERROR: bmdma not available."
+
+    if sub == 'save':
+        if len(args) < 3:
+            return "Usage: /template save <name> <target_type> [description]"
+        name = args[1]
+        target_type = args[2]
+        desc = ' '.join(args[3:]) if len(args) > 3 else ''
+
+        try:
+            from ..core.objects import Template, TemplateField
+        except ImportError:
+            from mdma_rebuild.core.objects import Template, TemplateField
+
+        # Create default fields based on target type
+        field_presets = {
+            'beat_pattern': [
+                TemplateField(name='genre', field_type='choice', label='Genre',
+                              description='Beat genre', default='hiphop',
+                              choices=['hiphop', 'house', 'dnb', 'techno',
+                                       'lofi', 'trap', 'afrobeat', 'reggaeton'],
+                              required=True),
+                TemplateField(name='bars', field_type='int', label='Bars',
+                              description='Number of bars', default=4,
+                              min_value=1, max_value=32, required=True),
+                TemplateField(name='name', field_type='string', label='Name',
+                              description='Object name (optional)'),
+            ],
+            'pattern': [
+                TemplateField(name='kind', field_type='choice', label='Kind',
+                              description='Pattern kind', default='melody',
+                              choices=['melody', 'chords', 'bassline', 'arp', 'drone'],
+                              required=True),
+                TemplateField(name='scale', field_type='string', label='Scale',
+                              description='Musical scale', default='minor'),
+                TemplateField(name='bars', field_type='int', label='Bars',
+                              description='Number of bars', default=4,
+                              min_value=1, max_value=32, required=True),
+                TemplateField(name='name', field_type='string', label='Name',
+                              description='Object name (optional)'),
+            ],
+            'loop': [
+                TemplateField(name='genre', field_type='choice', label='Genre',
+                              description='Loop genre', default='hiphop',
+                              choices=['hiphop', 'house', 'dnb', 'techno', 'lofi'],
+                              required=True),
+                TemplateField(name='bars', field_type='int', label='Bars',
+                              description='Number of bars', default=4,
+                              min_value=1, max_value=32, required=True),
+                TemplateField(name='name', field_type='string', label='Name',
+                              description='Object name (optional)'),
+            ],
+        }
+
+        fields = field_presets.get(target_type, [])
+        template = Template(
+            name=name,
+            target_type=target_type,
+            fields=fields,
+            description=desc,
+        )
+        reg.register(template, auto_name=False)
+        return f"OK: Template '{name}' saved (target: {target_type}, {len(fields)} fields)"
+
+    return f"ERROR: unknown subcommand '{sub}'. Use /template for help."
 
 
 def get_obj_commands() -> dict:
@@ -260,4 +475,5 @@ def get_obj_commands() -> dict:
     return {
         'obj': cmd_obj,
         'object': cmd_obj,
+        'template': cmd_template,
     }

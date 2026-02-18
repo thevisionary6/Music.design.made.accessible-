@@ -14,12 +14,14 @@ Design rules:
 
 See: docs/specs/GUI_WINDOW_ARCHITECTURE_SPEC.md — Window Communication Model
 
-BUILD ID: gui_bridge_v1.0_phase1
+BUILD ID: gui_bridge_v2.0_phase1_complete
 """
 
 from __future__ import annotations
 
+import io
 import logging
+from contextlib import redirect_stdout, redirect_stderr
 from typing import Any, Callable, Optional
 
 from mdma_rebuild.core.registry import (
@@ -84,9 +86,13 @@ class Bridge:
         self.session = session
         self.registry = registry or ObjectRegistry()
         self._event_target = event_target
+        self._commands: Optional[dict] = None
 
         # Subscribe to registry events so we can relay them as wx events
         self.registry.subscribe(self._on_registry_event)
+
+        # Build command table from bmdma — same dispatch the CLI uses
+        self._init_commands()
 
     # ---- Registry passthrough -----------------------------------------------
 
@@ -118,6 +124,27 @@ class Bridge:
         """Duplicate an object."""
         return self.registry.duplicate(object_id, new_name)
 
+    # ---- Command table initialisation --------------------------------------
+
+    def _init_commands(self) -> None:
+        """Build the command table from bmdma.build_command_table().
+
+        Uses the same dispatch mechanism as the CLI and the monolith GUI
+        CommandExecutor.  If bmdma is unavailable the bridge falls back
+        to an empty table and logs a warning.
+        """
+        try:
+            import bmdma
+            self._commands = bmdma.build_command_table()
+            logger.info("Bridge command table loaded: %d commands",
+                        len(self._commands))
+        except ImportError:
+            logger.warning("Could not import bmdma — command dispatch disabled")
+            self._commands = {}
+        except Exception:
+            logger.exception("Error building command table")
+            self._commands = {}
+
     # ---- Command execution --------------------------------------------------
 
     def execute_command(self, command: str, args: Optional[list[str]] = None) -> str:
@@ -127,16 +154,67 @@ class Bridge:
         or parameter change translates into a command string that the
         Bridge dispatches to the session's command table.
 
-        Returns the command output string.
-        """
-        args = args or []
-        full_cmd = command if not args else f"{command} {' '.join(args)}"
-        logger.info("Bridge executing: %s", full_cmd)
+        Mirrors the dispatch pattern in ``mdma_gui.CommandExecutor.execute``
+        and ``bmdma`` REPL: parse into (cmd, args), look up the function,
+        call it with ``(session, args)``, and capture stdout/stderr.
 
-        # TODO: Phase 3+ — dispatch through the session's command table
-        # and capture output.  For now, return a placeholder.
-        output = f"[bridge] Command queued: {full_cmd}"
-        self._post_status(output)
+        Returns the command output string (stdout + any errors).
+        """
+        # Normalise command string
+        if args:
+            full_cmd = f"{command} {' '.join(args)}"
+        else:
+            full_cmd = command
+
+        # Strip leading '/' if present
+        raw = full_cmd.lstrip('/')
+        if not raw:
+            return ""
+
+        parts = raw.split()
+        cmd_name = parts[0].lower()
+        cmd_args = parts[1:]
+
+        logger.info("Bridge executing: /%s %s", cmd_name, ' '.join(cmd_args))
+
+        if not self._commands or cmd_name not in self._commands:
+            msg = f"Unknown command: {cmd_name}"
+            self._post_status(msg, "error")
+            return msg
+
+        func = self._commands[cmd_name]
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+
+        try:
+            with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+                result = func(self.session, cmd_args)
+            if result:
+                stdout_buf.write(str(result) + "\n")
+        except Exception as exc:
+            stderr_buf.write(f"Error: {exc}\n")
+            logger.exception("Command /%s raised", cmd_name)
+
+        output = stdout_buf.getvalue()
+        errors = stderr_buf.getvalue()
+
+        if errors:
+            output = (output + errors).rstrip()
+            self._post_status(output, "error")
+        else:
+            output = output.rstrip()
+            self._post_status(output)
+
+        # Post a CommandExecutedEvent for console mirrors
+        if _WX_AVAILABLE and self._event_target is not None:
+            status = "error" if errors else "ok"
+            evt = CommandExecutedEvent(
+                command=f"/{cmd_name} {' '.join(cmd_args)}".strip(),
+                output=output,
+                status=status,
+            )
+            wx.PostEvent(self._event_target, evt)
+
         return output
 
     # ---- Status / feedback --------------------------------------------------

@@ -103,8 +103,11 @@ if _WX_AVAILABLE:
             self.SetBackgroundColour(wx.Colour(*THEME["BG_DARK"]))
 
             # Bridge — the single adapter for all engine operations
-            from mdma_rebuild.core.registry import ObjectRegistry
-            self._registry = ObjectRegistry()
+            # Use the session's ObjectRegistry so CLI and GUI share state
+            self._registry = getattr(session, 'object_registry', None)
+            if self._registry is None:
+                from mdma_rebuild.core.registry import ObjectRegistry
+                self._registry = ObjectRegistry()
             self.bridge = Bridge(
                 session=session,
                 registry=self._registry,
@@ -176,12 +179,27 @@ if _WX_AVAILABLE:
                 else:
                     del self._windows[window_type]
 
-            # Phase 1: Only Inspector is implemented.
-            # Other windows will be added in subsequent phases.
             if window_type == "inspector":
                 win = self._create_inspector_window()
+            elif window_type == "generation":
+                from gui.windows.generation_window import GenerationWindow
+                win = GenerationWindow(self, self.bridge, theme=THEME)
+            elif window_type == "mutation":
+                from gui.windows.mutation_window import MutationWindow
+                win = MutationWindow(self, self.bridge, theme=THEME)
+            elif window_type == "effects":
+                from gui.windows.effects_window import EffectsWindow
+                win = EffectsWindow(self, self.bridge, theme=THEME)
+            elif window_type == "synthesis":
+                from gui.windows.synthesis_window import SynthesisWindow
+                win = SynthesisWindow(self, self.bridge, theme=THEME)
+            elif window_type == "arrangement":
+                from gui.windows.arrangement_window import ArrangementWindow
+                win = ArrangementWindow(self, self.bridge, theme=THEME)
+            elif window_type == "mixing":
+                from gui.windows.mixing_window import MixingWindow
+                win = MixingWindow(self, self.bridge, theme=THEME)
             else:
-                # Placeholder for future phases
                 label = window_type.replace("_", " ").title()
                 win = wx.Frame(
                     self,
