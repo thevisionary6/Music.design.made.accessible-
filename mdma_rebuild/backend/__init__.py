@@ -21,6 +21,7 @@ from .automation import (
     LFO,
     Ramp,
 )
+from .render import render_pattern, render_schedule
 
 __all__ = [
     "Pattern",
@@ -34,4 +35,6 @@ __all__ = [
     "LFO",
     "Ramp",
     "Envelope",
+    "render_pattern",
+    "render_schedule",
 ]

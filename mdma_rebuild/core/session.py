@@ -1464,9 +1464,11 @@ class Session:
 # ``session.set_cutoff(...)``, etc. continue to resolve as before.
 # ---------------------------------------------------------------------------
 from . import audio_io as _audio_io  # noqa: E402
+from . import backend_bridge as _backend_bridge  # noqa: E402
 from . import buffer_store as _buffer_store  # noqa: E402
 from . import session_params as _session_params  # noqa: E402
 
 _audio_io.bind_to(Session)
 _buffer_store.bind_to(Session)
 _session_params.bind_to(Session)
+_backend_bridge.bind_to(Session)
