@@ -24,16 +24,25 @@ from mdma_rebuild.backend.effects import (
     autopan,
     balance,
     bitcrush,
+    capture_and_granulate,
     chorus,
     comb_filter,
     compressor,
     db_to_amplitude,
     delay,
     detune_unison,
+    dual_overdrive,
     expander,
     flanger,
     foldback,
     fuzz,
+    granular_cloud,
+    granular_freeze,
+    granular_reverse,
+    granular_scatter,
+    granular_shimmer,
+    granular_stretch,
+    granular_stutter,
     haas,
     hard_clip,
     high_shelf,
@@ -41,20 +50,43 @@ from mdma_rebuild.backend.effects import (
     low_shelf,
     mono,
     moog,
+    multiband_compressor,
     multitap,
     noise_gate,
+    ott,
+    ott_glue,
+    ott_loud,
+    ott_punch,
+    ott_soft,
+    overdrive,
+    overdrive_classic,
+    overdrive_crunch,
+    overdrive_soft,
     peak,
+    phase_vocoder_freeze,
     phaser,
     ping_pong,
     reverb,
     ring_mod,
     slapback,
     soft_clip,
+    spectral_blur,
+    spectral_contrast,
+    spectral_freeze,
+    spectral_gate,
+    spectral_lpf,
+    spectral_shift,
     stereo_widen,
     tape,
     tape_echo,
+    time_stretch,
     tremolo,
     tube,
+    vamp,
+    vamp_fuzz,
+    vamp_heavy,
+    vamp_light,
+    vamp_medium,
 )
 from mdma_rebuild.backend.pattern import Pattern
 
@@ -195,6 +227,77 @@ def _build_stub_signalflow_module():
         def __init__(self, frequency=440, phase_offset=None, reset=None):
             super().__init__(f"SineOsc({_tag(frequency)})")
 
+    # Spectral / FFT family
+    class _FFT(_StubNode):
+        def __init__(self, input, fft_size=1024, hop_size=128,
+                     window_size=0, do_window=True):
+            super().__init__(
+                f"FFT({_tag(input)},n={fft_size},hop={hop_size})"
+            )
+
+    class _IFFT(_StubNode):
+        def __init__(self, input, do_window=False):
+            super().__init__(f"IFFT({_tag(input)})")
+
+    class _FFTContinuousPV(_StubNode):
+        def __init__(self, input, rate=1.0):
+            super().__init__(f"ContPV({_tag(input)},rate={rate})")
+
+    class _FFTPhaseVocoder(_StubNode):
+        def __init__(self, input):
+            super().__init__(f"PhaseVoc({_tag(input)})")
+
+    class _FFTRandomPhase(_StubNode):
+        def __init__(self, input, level=1.0):
+            super().__init__(f"RandPhase({_tag(input)},lvl={level})")
+
+    class _FFTContrast(_StubNode):
+        def __init__(self, input, contrast=1):
+            super().__init__(f"Contrast({_tag(input)},c={contrast})")
+
+    class _FFTLPF(_StubNode):
+        def __init__(self, input, frequency=2000):
+            super().__init__(f"FFTLPF({_tag(input)},f={frequency})")
+
+    class _FFTNoiseGate(_StubNode):
+        def __init__(self, input, threshold=0.5, invert=0.0):
+            super().__init__(
+                f"FFTGate({_tag(input)},th={threshold},inv={invert})"
+            )
+
+    # Granular + clock family
+    class _Impulse(_StubNode):
+        def __init__(self, frequency=1.0):
+            super().__init__(f"Imp(f={frequency})")
+
+    class _SawLFO(_StubNode):
+        def __init__(self, frequency=1.0, min=0.0, max=1.0, phase=0.0):
+            super().__init__(f"SawLFO(f={frequency},min={min},max={max})")
+
+    class _SampleAndHold(_StubNode):
+        def __init__(self, input, clock):
+            super().__init__(f"S&H({_tag(input)},clk={_tag(clock)})")
+
+    class _Buffer:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+    class _BufferRecorder(_StubNode):
+        def __init__(self, buffer=None, input=None, feedback=0.0, loop=False):
+            super().__init__(
+                f"Recorder(in={_tag(input)},fb={feedback},loop={loop})"
+            )
+
+    class _Granulator(_StubNode):
+        def __init__(self, buffer=None, clock=None, pos=0, duration=0.1,
+                     amplitude=1.0, pan=0.0, rate=1.0, max_grains=2048,
+                     wrap=False):
+            super().__init__(
+                f"Gran(clk={_tag(clock)},pos={_tag(pos)},"
+                f"dur={_tag(duration)},rate={_tag(rate)})"
+            )
+
     mod.Tanh = _Tanh
     mod.OneTapDelay = _OneTapDelay
     mod.CombDelay = _CombDelay
@@ -211,6 +314,31 @@ def _build_stub_signalflow_module():
     mod.StereoBalance = _StereoBalance
     mod.SVFilter = _SVFilter
     mod.SineOscillator = _SineOscillator
+    # Spectral
+    mod.FFT = _FFT
+    mod.IFFT = _IFFT
+    mod.FFTContinuousPhaseVocoder = _FFTContinuousPV
+    mod.FFTPhaseVocoder = _FFTPhaseVocoder
+    mod.FFTRandomPhase = _FFTRandomPhase
+    mod.FFTContrast = _FFTContrast
+    mod.FFTLPF = _FFTLPF
+    mod.FFTNoiseGate = _FFTNoiseGate
+    # Granular + clocks
+    mod.Impulse = _Impulse
+    mod.SawLFO = _SawLFO
+    mod.SampleAndHold = _SampleAndHold
+    mod.Buffer = _Buffer
+    mod.BufferRecorder = _BufferRecorder
+    mod.Granulator = _Granulator
+
+    # AudioGraph stub for helpers (utils.current_sample_rate etc.).
+    class _AudioGraph:
+        @classmethod
+        def get_shared_graph(cls):
+            return None
+
+    mod.AudioGraph = _AudioGraph
+    mod.SIGNALFLOW_DEFAULT_SAMPLE_RATE = 44100
     return mod
 
 
@@ -437,12 +565,20 @@ class TestReverb(unittest.TestCase):
 _ALL_EFFECTS = (
     soft_clip, hard_clip, foldback, bitcrush,
     tube, tape, fuzz,
+    vamp, vamp_light, vamp_medium, vamp_heavy, vamp_fuzz,
+    overdrive, overdrive_soft, overdrive_classic, overdrive_crunch,
+    dual_overdrive,
     delay, reverb, slapback, ping_pong, multitap, tape_echo,
     peak, low_shelf, high_shelf, moog, allpass_filter, comb_filter,
     chorus, flanger, phaser, tremolo, autopan,
     ring_mod, amplitude_mod, detune_unison,
     haas, stereo_widen, mono, balance,
+    spectral_blur, spectral_contrast, spectral_freeze, spectral_gate,
+    spectral_lpf, spectral_shift,
+    time_stretch, phase_vocoder_freeze,
+    capture_and_granulate,
     compressor, limiter, noise_gate, expander,
+    multiband_compressor, ott, ott_punch, ott_glue, ott_loud, ott_soft,
 )
 
 
@@ -457,6 +593,10 @@ class TestPortingConvention(unittest.TestCase):
             # distortion + saturation
             "soft_clip", "hard_clip", "foldback", "bitcrush",
             "tube", "tape", "fuzz",
+            # VAMP + overdrive
+            "vamp", "vamp_light", "vamp_medium", "vamp_heavy", "vamp_fuzz",
+            "overdrive", "overdrive_soft", "overdrive_classic",
+            "overdrive_crunch", "dual_overdrive",
             # delay / ambient
             "delay", "reverb", "slapback", "ping_pong", "multitap",
             "tape_echo",
@@ -469,9 +609,20 @@ class TestPortingConvention(unittest.TestCase):
             "ring_mod", "amplitude_mod", "detune_unison",
             # spatial
             "haas", "stereo_widen", "mono", "balance",
+            # spectral
+            "spectral_blur", "spectral_contrast", "spectral_freeze",
+            "spectral_gate", "spectral_lpf", "spectral_shift",
+            # vocoder
+            "time_stretch", "phase_vocoder_freeze",
+            # granular
+            "capture_and_granulate", "granular_cloud", "granular_freeze",
+            "granular_reverse", "granular_scatter", "granular_shimmer",
+            "granular_stretch", "granular_stutter",
             # dynamics
             "compressor", "db_to_amplitude",
             "limiter", "noise_gate", "expander",
+            "multiband_compressor",
+            "ott", "ott_glue", "ott_loud", "ott_punch", "ott_soft",
         ):
             self.assertTrue(
                 callable(getattr(fx, name)),
@@ -851,6 +1002,287 @@ class TestPitchFreq(unittest.TestCase):
                 amplitude_mod(_StubNode("v"), depth=-1)
             with self.assertRaises(ValueError):
                 detune_unison(_StubNode("v"), voices=0)
+
+
+# ---------------------------------------------------------------------------
+# Spectral (FFT)
+# ---------------------------------------------------------------------------
+
+
+class TestSpectral(unittest.TestCase):
+    def test_freeze_uses_continuous_phase_vocoder(self):
+        with _SignalFlowStubbed():
+            out = spectral_freeze(_StubNode("v"))
+            self.assertIn("FFT", out.name)
+            self.assertIn("ContPV", out.name)
+            self.assertIn("rate=0", out.name)
+
+    def test_shift_uses_rate(self):
+        with _SignalFlowStubbed():
+            out = spectral_shift(_StubNode("v"), rate=0.5)
+            self.assertIn("ContPV", out.name)
+            self.assertIn("rate=0.5", out.name)
+
+    def test_shift_rejects_negative_rate(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                spectral_shift(_StubNode("v"), rate=-0.1)
+
+    def test_blur_uses_random_phase(self):
+        with _SignalFlowStubbed():
+            out = spectral_blur(_StubNode("v"), level=0.8)
+            self.assertIn("RandPhase", out.name)
+            self.assertIn("lvl=0.8", out.name)
+
+    def test_contrast_uses_fft_contrast(self):
+        with _SignalFlowStubbed():
+            out = spectral_contrast(_StubNode("v"), contrast=3.0)
+            self.assertIn("Contrast", out.name)
+
+    def test_lpf_uses_fftlpf(self):
+        with _SignalFlowStubbed():
+            out = spectral_lpf(_StubNode("v"), cutoff=2000)
+            self.assertIn("FFTLPF", out.name)
+            self.assertIn("2000", out.name)
+
+    def test_gate_uses_fft_noise_gate(self):
+        with _SignalFlowStubbed():
+            out = spectral_gate(_StubNode("v"), threshold=0.1)
+            self.assertIn("FFTGate", out.name)
+
+    def test_spectral_validate_fft_size_power_of_two(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                spectral_freeze(_StubNode("v"), fft_size=1000)
+            with self.assertRaises(ValueError):
+                spectral_blur(_StubNode("v"), fft_size=0)
+
+    def test_spectral_validate_hop_size(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                spectral_freeze(_StubNode("v"), fft_size=1024, hop_size=0)
+            with self.assertRaises(ValueError):
+                spectral_freeze(_StubNode("v"), fft_size=1024, hop_size=2048)
+
+
+# ---------------------------------------------------------------------------
+# Vocoder / time-stretch
+# ---------------------------------------------------------------------------
+
+
+class TestVocoder(unittest.TestCase):
+    def test_time_stretch_wraps_continuous_phase_vocoder(self):
+        with _SignalFlowStubbed():
+            out = time_stretch(_StubNode("v"), rate=0.5)
+            self.assertIn("ContPV", out.name)
+            self.assertIn("rate=0.5", out.name)
+
+    def test_time_stretch_rejects_negative_rate(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                time_stretch(_StubNode("v"), rate=-1.0)
+
+    def test_phase_vocoder_freeze_uses_phase_vocoder(self):
+        with _SignalFlowStubbed():
+            out = phase_vocoder_freeze(_StubNode("v"))
+            self.assertIn("PhaseVoc", out.name)
+
+
+# ---------------------------------------------------------------------------
+# Granular
+# ---------------------------------------------------------------------------
+
+
+class TestGranular(unittest.TestCase):
+    def _buffer(self):
+        # Stand-in buffer: any hashable object works in the stub's
+        # granulator kwargs. Real SignalFlow needs an sf.Buffer.
+        return object()
+
+    def test_stretch_builds_granulator_with_sawlfo_position(self):
+        with _SignalFlowStubbed():
+            out = granular_stretch(self._buffer(), speed=0.5, duration=0.1)
+            self.assertIn("Gran", out.name)
+            self.assertIn("SawLFO", out.name)
+
+    def test_freeze_uses_fixed_position(self):
+        with _SignalFlowStubbed():
+            out = granular_freeze(self._buffer(), position=0.25)
+            self.assertIn("Gran", out.name)
+            self.assertIn("pos=0.25", out.name)
+
+    def test_freeze_rejects_out_of_range_position(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                granular_freeze(self._buffer(), position=1.5)
+            with self.assertRaises(ValueError):
+                granular_freeze(self._buffer(), position=-0.1)
+
+    def test_scatter_uses_sample_and_hold(self):
+        with _SignalFlowStubbed():
+            out = granular_scatter(self._buffer(), spread=0.2)
+            self.assertIn("S&H", out.name)
+
+    def test_shimmer_has_positive_pitch_rate(self):
+        with _SignalFlowStubbed():
+            out = granular_shimmer(self._buffer(), semitones=12)
+            self.assertIn("rate=2.0", out.name)
+
+    def test_reverse_uses_negative_rate(self):
+        with _SignalFlowStubbed():
+            out = granular_reverse(self._buffer())
+            self.assertIn("rate=-1.0", out.name)
+
+    def test_reverse_rejects_non_positive_speed(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                granular_reverse(self._buffer(), speed=0)
+
+    def test_stutter_uses_external_clock(self):
+        with _SignalFlowStubbed():
+            from signalflow import Impulse  # type: ignore
+            clock = Impulse(frequency=8.0)
+            out = granular_stutter(self._buffer(), clock, position=0.3)
+            self.assertIn("Imp", out.name)
+
+    def test_cloud_rejects_non_positive_density(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                granular_cloud(self._buffer(), density=0)
+
+    def test_capture_and_granulate_wraps_recorder(self):
+        with _SignalFlowStubbed():
+            out = capture_and_granulate(
+                _StubNode("v"),
+                capture_seconds=0.5,
+                mode="stretch",
+                speed=0.5,
+            )
+            # Not easy to see Recorder in the final node name since
+            # the granulator constructs its own tree; but the
+            # Granulator should be the top-level node.
+            self.assertIn("Gran", out.name)
+
+    def test_capture_and_granulate_rejects_bad_mode(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                capture_and_granulate(_StubNode("v"), mode="nope")
+
+
+# ---------------------------------------------------------------------------
+# VAMP + overdrive
+# ---------------------------------------------------------------------------
+
+
+class TestVamp(unittest.TestCase):
+    def test_tube_waveshape(self):
+        with _SignalFlowStubbed():
+            out = vamp(_StubNode("v"), drive=3.0, waveshape="tube")
+            self.assertIn("Tanh", out.name)
+
+    def test_hard_waveshape_uses_clip(self):
+        with _SignalFlowStubbed():
+            out = vamp(_StubNode("v"), waveshape="hard")
+            self.assertIn("Clip", out.name)
+
+    def test_fold_waveshape_uses_fold(self):
+        with _SignalFlowStubbed():
+            out = vamp(_StubNode("v"), waveshape="fold")
+            self.assertIn("Fold", out.name)
+
+    def test_vamp_rejects_bad_waveshape(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                vamp(_StubNode("v"), waveshape="wub")
+
+    def test_vamp_rejects_bad_bias_gain_drive(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                vamp(_StubNode("v"), bias=1.1)
+            with self.assertRaises(ValueError):
+                vamp(_StubNode("v"), drive=0)
+            with self.assertRaises(ValueError):
+                vamp(_StubNode("v"), gain=-1)
+
+    def test_vamp_presets_all_build(self):
+        with _SignalFlowStubbed():
+            for preset in (vamp_light, vamp_medium, vamp_heavy, vamp_fuzz):
+                node = preset(_StubNode("v"))
+                self.assertIsNotNone(node)
+
+    def test_pre_and_post_filter_optional(self):
+        with _SignalFlowStubbed():
+            out = vamp(
+                _StubNode("v"),
+                pre_filter=400, pre_filter_type="hp",
+                post_filter=5000, post_filter_type="lp",
+            )
+            # Both SVFilters appear in the graph.
+            self.assertEqual(out.name.count("SVF"), 2)
+
+    def test_pre_filter_type_validated(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                vamp(_StubNode("v"), pre_filter=400, pre_filter_type="bp")
+
+
+class TestOverdrive(unittest.TestCase):
+    def test_overdrive_uses_tanh_and_svf(self):
+        with _SignalFlowStubbed():
+            out = overdrive(_StubNode("v"), drive=3.0, tone=2500)
+            self.assertIn("Tanh", out.name)
+            self.assertIn("SVF", out.name)
+
+    def test_overdrive_presets_build(self):
+        with _SignalFlowStubbed():
+            for preset in (overdrive_soft, overdrive_classic, overdrive_crunch):
+                self.assertIsNotNone(preset(_StubNode("v")))
+
+    def test_dual_overdrive_stacks_stages(self):
+        with _SignalFlowStubbed():
+            out = dual_overdrive(_StubNode("v"))
+            # Two Tanh stages in series.
+            self.assertGreaterEqual(out.name.count("Tanh"), 2)
+
+
+# ---------------------------------------------------------------------------
+# Multiband OTT
+# ---------------------------------------------------------------------------
+
+
+class TestMultibandOTT(unittest.TestCase):
+    def test_splits_into_three_bands(self):
+        with _SignalFlowStubbed():
+            out = multiband_compressor(_StubNode("v"))
+            # low = lp, high = hp, mid = hp->lp (series).
+            # Total: 4 SVFilter constructions + 3 Compressor + optional
+            # upward compressors.
+            self.assertGreaterEqual(out.name.count("SVF"), 4)
+            self.assertGreaterEqual(out.name.count("Comp"), 3)
+
+    def test_validates_crossover_ordering(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                multiband_compressor(
+                    _StubNode("v"),
+                    low_xover=3000, high_xover=500,
+                )
+
+    def test_validates_amount_ranges(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                multiband_compressor(_StubNode("v"), low_amount=1.5)
+            with self.assertRaises(ValueError):
+                multiband_compressor(_StubNode("v"), upward=-0.1)
+            with self.assertRaises(ValueError):
+                multiband_compressor(_StubNode("v"), depth=-1)
+            with self.assertRaises(ValueError):
+                multiband_compressor(_StubNode("v"), output=0)
+
+    def test_presets_all_build(self):
+        with _SignalFlowStubbed():
+            for preset in (ott, ott_punch, ott_glue, ott_loud, ott_soft):
+                self.assertIsNotNone(preset(_StubNode("v")))
 
 
 if __name__ == "__main__":  # pragma: no cover

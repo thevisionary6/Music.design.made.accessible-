@@ -53,21 +53,12 @@ _BF_SIGNALFLOW_NAMES: dict[str, str] = {
 
 
 def _current_sample_rate() -> float:
-    """Best-effort sample-rate lookup for :meth:`Pattern._apply_gate`.
-
-    Prefers the active :class:`signalflow.AudioGraph`, falls back to
-    SignalFlow's compile-time default, and finally to 44100.0 so the
-    helper stays importable even when SignalFlow is missing (important
-    during Phase-0 / Phase-1 -only test runs).
+    """Back-compat shim. The real implementation now lives in
+    :func:`.utils.current_sample_rate` so every effect module can
+    share it without creating circular imports.
     """
-    try:
-        import signalflow as sf  # lazy — SignalFlow is a heavy optional dep
-    except ImportError:
-        return 44100.0
-    graph = sf.AudioGraph.get_shared_graph()
-    if graph is not None:
-        return float(graph.sample_rate)
-    return float(sf.SIGNALFLOW_DEFAULT_SAMPLE_RATE)
+    from .utils import current_sample_rate
+    return current_sample_rate()
 
 
 class Pattern:

@@ -47,6 +47,31 @@ def freq_to_note(freq: float, a4_hz: float = 440.0) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Sample rate lookup
+# ---------------------------------------------------------------------------
+
+
+def current_sample_rate() -> float:
+    """Best-effort sample-rate lookup.
+
+    Prefers the active :class:`signalflow.AudioGraph`, falls back to
+    SignalFlow's compile-time default, and finally to 44100.0 so the
+    helper stays importable even when SignalFlow is missing
+    (important during Phase-0 / Phase-1 -only test runs and for the
+    effects modules that want a sensible default without forcing a
+    SignalFlow dependency at import time).
+    """
+    try:
+        import signalflow as sf
+    except ImportError:
+        return 44100.0
+    graph = sf.AudioGraph.get_shared_graph()
+    if graph is not None:
+        return float(graph.sample_rate)
+    return float(sf.SIGNALFLOW_DEFAULT_SAMPLE_RATE)
+
+
+# ---------------------------------------------------------------------------
 # Default shape factories
 # ---------------------------------------------------------------------------
 

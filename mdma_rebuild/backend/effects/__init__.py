@@ -42,6 +42,16 @@ distortion.
 - :func:`.saturation.tube`, :func:`.saturation.tape`,
   :func:`.saturation.fuzz`.
 
+**VAMP + overdrive** (``Pattern.dist``)
+- :func:`.vamp_overdrive.vamp` — programmable amp / waveshaper
+  with pre/post filter, bias, gain, mix. Presets:
+  :func:`.vamp_overdrive.vamp_light`, ``vamp_medium``,
+  ``vamp_heavy``, ``vamp_fuzz``.
+- :func:`.vamp_overdrive.overdrive` — classic tanh + tone. Presets:
+  ``overdrive_soft``, ``overdrive_classic``, ``overdrive_crunch``.
+- :func:`.vamp_overdrive.dual_overdrive` — two overdrive stages
+  in series with different voicings.
+
 **Delay family** (``Pattern.fx`` / ``Pattern.ir``)
 - :mod:`.delay` — single-tap feedback delay.
 - :mod:`.reverb` — Schroeder-style algorithmic reverb.
@@ -75,15 +85,38 @@ is spec-locked to lpf/hpf/bpf/notch)
 - :func:`.spatial.haas`, :func:`.spatial.stereo_widen`,
   :func:`.spatial.mono`, :func:`.spatial.balance`.
 
+**Spectral / FFT** (``Pattern.spec``)
+- :func:`.spectral.spectral_freeze`, :func:`.spectral.spectral_shift`,
+  :func:`.spectral.spectral_blur`, :func:`.spectral.spectral_contrast`,
+  :func:`.spectral.spectral_lpf`, :func:`.spectral.spectral_gate`.
+
+**Vocoder / time-stretch** (``Pattern.spec``)
+- :func:`.vocoder.time_stretch`, :func:`.vocoder.phase_vocoder_freeze`.
+  Traditional carrier/modulator vocoder is still a Phase 9 open
+  question.
+
+**Granular** (``Pattern.ir``)
+- :func:`.granular.granular_stretch`, :func:`.granular.granular_freeze`,
+  :func:`.granular.granular_scatter`, :func:`.granular.granular_shimmer`,
+  :func:`.granular.granular_reverse`, :func:`.granular.granular_stutter`,
+  :func:`.granular.granular_cloud`.
+- :func:`.granular.capture_and_granulate` — input-stream helper
+  (matches the ``fn(input_node, **params)`` convention for
+  ``Pattern.fx`` / ``Pattern.ir``).
+
 **Dynamics** (``Pattern.fx``)
 - :func:`.dynamics.compressor` — feed-forward compressor.
 - :func:`.dynamics_extra.limiter` — brick-wall-ish 20:1.
 - :func:`.dynamics_extra.noise_gate` — downward gate.
 - :func:`.dynamics_extra.expander` — upward expander.
+- :func:`.multiband.multiband_compressor` — 3-band OTT-style
+  upward + downward compressor. Presets:
+  :func:`.multiband.ott`, ``ott_punch``, ``ott_glue``, ``ott_loud``,
+  ``ott_soft``.
 
-Custom effects load via :mod:`..fx_loader` / ``/loadfx``. See the
-Phase 9+ note in ``SKILL.md`` for the roadmap on spectral,
-granular, and vocoder effects (still deferred).
+Custom effects load via :mod:`..fx_loader` / ``/loadfx``. Advanced
+monolith waves (supersaw, wavetable, formant, waveguide, compound)
+and the traditional filterbank vocoder stay on the Phase 9+ board.
 """
 
 from .bitcrush import bitcrush
@@ -100,6 +133,16 @@ from .filters import (
     peak,
 )
 from .foldback import foldback
+from .granular import (
+    capture_and_granulate,
+    granular_cloud,
+    granular_freeze,
+    granular_reverse,
+    granular_scatter,
+    granular_shimmer,
+    granular_stretch,
+    granular_stutter,
+)
 from .hard_clip import hard_clip
 from .modulation import (
     autopan,
@@ -108,11 +151,40 @@ from .modulation import (
     phaser,
     tremolo,
 )
+from .multiband import (
+    multiband_compressor,
+    ott,
+    ott_glue,
+    ott_loud,
+    ott_punch,
+    ott_soft,
+)
 from .pitch_freq import amplitude_mod, detune_unison, ring_mod
 from .reverb import reverb
 from .saturation import fuzz, tape, tube
 from .soft_clip import soft_clip
 from .spatial import balance, haas, mono, stereo_widen
+from .spectral import (
+    spectral_blur,
+    spectral_contrast,
+    spectral_freeze,
+    spectral_gate,
+    spectral_lpf,
+    spectral_shift,
+)
+from .vamp_overdrive import (
+    dual_overdrive,
+    overdrive,
+    overdrive_classic,
+    overdrive_crunch,
+    overdrive_soft,
+    vamp,
+    vamp_fuzz,
+    vamp_heavy,
+    vamp_light,
+    vamp_medium,
+)
+from .vocoder import phase_vocoder_freeze, time_stretch
 
 __all__ = [
     # distortion
@@ -124,6 +196,17 @@ __all__ = [
     "fuzz",
     "tape",
     "tube",
+    # VAMP + overdrive
+    "dual_overdrive",
+    "overdrive",
+    "overdrive_classic",
+    "overdrive_crunch",
+    "overdrive_soft",
+    "vamp",
+    "vamp_fuzz",
+    "vamp_heavy",
+    "vamp_light",
+    "vamp_medium",
     # delay / ambient
     "delay",
     "multitap",
@@ -153,10 +236,35 @@ __all__ = [
     "haas",
     "mono",
     "stereo_widen",
+    # spectral (FFT)
+    "spectral_blur",
+    "spectral_contrast",
+    "spectral_freeze",
+    "spectral_gate",
+    "spectral_lpf",
+    "spectral_shift",
+    # vocoder / time-stretch
+    "phase_vocoder_freeze",
+    "time_stretch",
+    # granular
+    "capture_and_granulate",
+    "granular_cloud",
+    "granular_freeze",
+    "granular_reverse",
+    "granular_scatter",
+    "granular_shimmer",
+    "granular_stretch",
+    "granular_stutter",
     # dynamics
     "compressor",
     "db_to_amplitude",
     "expander",
     "limiter",
+    "multiband_compressor",
     "noise_gate",
+    "ott",
+    "ott_glue",
+    "ott_loud",
+    "ott_punch",
+    "ott_soft",
 ]
