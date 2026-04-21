@@ -73,16 +73,17 @@ def _parse_events(args: List[str]) -> Tuple[List[Tuple[float, float]], str]:
     return events, ""
 
 
-def _default_shape(note: float):
-    """Build a default SawOscillator voice at ``note``.
+def _default_shape(session):
+    """Pick the right default voice factory.
 
-    Imported lazily so the command module stays importable when
-    SignalFlow is missing. The import error surfaces at call time,
-    not at module load.
+    When the session has monolith operators configured, the user
+    probably wants the V2 graph to reflect their REPL settings —
+    ``/wm saw``, ``/fr 440``, ``/fm 1 0 0.5``, etc. When not, a
+    plain SawOscillator is a sensible least-surprise default.
+    See :func:`mdma_rebuild.backend.utils.build_default_shape`.
     """
-    import signalflow as sf
-    freq = 440.0 * (2.0 ** ((note - 69.0) / 12.0))
-    return sf.SawOscillator(freq)
+    from ..backend.utils import build_default_shape
+    return build_default_shape(session)
 
 
 def cmd_patn(session, args: List[str]) -> str:
@@ -109,8 +110,9 @@ def cmd_patn(session, args: List[str]) -> str:
     except Exception as exc:
         return f"ERROR: backend graph unavailable: {exc}"
 
+    shape = _default_shape(session)
     try:
-        session.play_pattern(pattern, _default_shape)
+        session.play_pattern(pattern, shape)
     except Exception as exc:
         return f"ERROR: /patn playback failed: {exc}"
 

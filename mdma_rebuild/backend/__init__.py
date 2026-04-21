@@ -32,6 +32,15 @@ from .input_controller import (
     InputEvent,
 )
 from . import effects
+from .monolith import build_voice
+from .utils import (
+    audiograph,
+    build_default_shape,
+    build_saw_shape,
+    build_sine_shape,
+    freq_to_note,
+    note_to_freq,
+)
 
 __all__ = [
     "Pattern",
@@ -57,4 +66,12 @@ __all__ = [
     "HandlerHandle",
     "InputChannel",
     "InputEvent",
+    # monolith + utils
+    "build_voice",
+    "build_default_shape",
+    "build_saw_shape",
+    "build_sine_shape",
+    "note_to_freq",
+    "freq_to_note",
+    "audiograph",
 ]

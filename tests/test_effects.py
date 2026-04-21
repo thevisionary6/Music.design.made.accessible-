@@ -20,24 +20,41 @@ from unittest.mock import patch
 
 from mdma_rebuild.backend.effects import (
     allpass_filter,
+    amplitude_mod,
     autopan,
+    balance,
     bitcrush,
     chorus,
     comb_filter,
     compressor,
     db_to_amplitude,
     delay,
+    detune_unison,
+    expander,
     flanger,
     foldback,
+    fuzz,
+    haas,
     hard_clip,
     high_shelf,
+    limiter,
     low_shelf,
+    mono,
     moog,
+    multitap,
+    noise_gate,
     peak,
     phaser,
+    ping_pong,
     reverb,
+    ring_mod,
+    slapback,
     soft_clip,
+    stereo_widen,
+    tape,
+    tape_echo,
     tremolo,
+    tube,
 )
 from mdma_rebuild.backend.pattern import Pattern
 
@@ -64,6 +81,12 @@ class _StubNode:
 
     def __radd__(self, other):
         return _StubNode(f"({_tag(other)}+{self.name})")
+
+    def __sub__(self, other):
+        return _StubNode(f"({self.name}-{_tag(other)})")
+
+    def __rsub__(self, other):
+        return _StubNode(f"({_tag(other)}-{self.name})")
 
     def play(self): pass
     def stop(self): pass
@@ -154,6 +177,24 @@ def _build_stub_signalflow_module():
         def __init__(self, input, pan=0.0):
             super().__init__(f"Pan({_tag(input)},{_tag(pan)})")
 
+    class _StereoWidth(_StubNode):
+        def __init__(self, input, width=1):
+            super().__init__(f"Width({_tag(input)},{_tag(width)})")
+
+    class _StereoBalance(_StubNode):
+        def __init__(self, input, balance=0):
+            super().__init__(f"Balance({_tag(input)},{_tag(balance)})")
+
+    class _SVFilter(_StubNode):
+        def __init__(self, input, filter_type, cutoff=440, resonance=0.0):
+            super().__init__(
+                f"SVF({_tag(input)},{filter_type},cut={cutoff},q={resonance})"
+            )
+
+    class _SineOscillator(_StubNode):
+        def __init__(self, frequency=440, phase_offset=None, reset=None):
+            super().__init__(f"SineOsc({_tag(frequency)})")
+
     mod.Tanh = _Tanh
     mod.OneTapDelay = _OneTapDelay
     mod.CombDelay = _CombDelay
@@ -166,6 +207,10 @@ def _build_stub_signalflow_module():
     mod.SineLFO = _SineLFO
     mod.Compressor = _Compressor
     mod.StereoPanner = _StereoPanner
+    mod.StereoWidth = _StereoWidth
+    mod.StereoBalance = _StereoBalance
+    mod.SVFilter = _SVFilter
+    mod.SineOscillator = _SineOscillator
     return mod
 
 
@@ -391,10 +436,13 @@ class TestReverb(unittest.TestCase):
 
 _ALL_EFFECTS = (
     soft_clip, hard_clip, foldback, bitcrush,
-    delay, reverb,
+    tube, tape, fuzz,
+    delay, reverb, slapback, ping_pong, multitap, tape_echo,
     peak, low_shelf, high_shelf, moog, allpass_filter, comb_filter,
     chorus, flanger, phaser, tremolo, autopan,
-    compressor,
+    ring_mod, amplitude_mod, detune_unison,
+    haas, stereo_widen, mono, balance,
+    compressor, limiter, noise_gate, expander,
 )
 
 
@@ -406,11 +454,24 @@ class TestPortingConvention(unittest.TestCase):
         from mdma_rebuild.backend import effects as fx
 
         for name in (
-            "soft_clip", "hard_clip", "foldback", "bitcrush", "delay",
-            "reverb", "peak", "low_shelf", "high_shelf", "moog",
+            # distortion + saturation
+            "soft_clip", "hard_clip", "foldback", "bitcrush",
+            "tube", "tape", "fuzz",
+            # delay / ambient
+            "delay", "reverb", "slapback", "ping_pong", "multitap",
+            "tape_echo",
+            # filters
+            "peak", "low_shelf", "high_shelf", "moog",
             "allpass_filter", "comb_filter",
+            # modulation
             "chorus", "flanger", "phaser", "tremolo", "autopan",
+            # pitch / freq
+            "ring_mod", "amplitude_mod", "detune_unison",
+            # spatial
+            "haas", "stereo_widen", "mono", "balance",
+            # dynamics
             "compressor", "db_to_amplitude",
+            "limiter", "noise_gate", "expander",
         ):
             self.assertTrue(
                 callable(getattr(fx, name)),
@@ -592,6 +653,204 @@ class TestCompressor(unittest.TestCase):
         self.assertAlmostEqual(db_to_amplitude(0.0), 1.0)
         self.assertAlmostEqual(db_to_amplitude(-20.0), 0.1)
         self.assertAlmostEqual(db_to_amplitude(-6.0), 0.5011872336272722)
+
+
+# ---------------------------------------------------------------------------
+# Delay family (slapback / ping_pong / multitap / tape_echo)
+# ---------------------------------------------------------------------------
+
+
+class TestDelayFamily(unittest.TestCase):
+    def test_slapback_has_single_tap(self):
+        with _SignalFlowStubbed():
+            out = slapback(_StubNode("v"), time=0.08, mix=0.3)
+            self.assertEqual(out.name.count("OneTapDelay"), 1)
+
+    def test_ping_pong_builds_stereo_taps(self):
+        with _SignalFlowStubbed():
+            out = ping_pong(_StubNode("v"), time=0.25, feedback=0.5)
+            # Two OneTapDelay constructions plus a StereoPanner each;
+            # the stub's string concat duplicates tap_l's name inside
+            # tap_r's input, so the substring count is >= 2 rather
+            # than exactly 2.
+            self.assertGreaterEqual(out.name.count("OneTapDelay"), 2)
+            self.assertGreaterEqual(out.name.count("Pan"), 2)
+
+    def test_multitap_default_gains_and_custom(self):
+        with _SignalFlowStubbed():
+            out = multitap(_StubNode("v"), times=(0.1, 0.2, 0.3))
+            self.assertEqual(out.name.count("OneTapDelay"), 3)
+
+    def test_multitap_gains_length_must_match(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                multitap(_StubNode("v"), times=(0.1, 0.2), gains=(0.5,))
+
+    def test_multitap_rejects_empty_times(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                multitap(_StubNode("v"), times=())
+            with self.assertRaises(ValueError):
+                multitap(_StubNode("v"), times=(0.1, -0.2))
+
+    def test_tape_echo_runs_feedback_through_tanh_and_svf(self):
+        with _SignalFlowStubbed():
+            out = tape_echo(_StubNode("v"), time=0.3, saturation=1.5)
+            self.assertIn("Tanh", out.name)
+            self.assertIn("SVF", out.name)
+            self.assertIn("low_pass", out.name)
+
+    def test_delay_family_rejects_bad_times(self):
+        with _SignalFlowStubbed():
+            for fn in (slapback, ping_pong, tape_echo):
+                with self.assertRaises(ValueError):
+                    fn(_StubNode("v"), time=0)
+
+
+# ---------------------------------------------------------------------------
+# Saturation variants
+# ---------------------------------------------------------------------------
+
+
+class TestSaturation(unittest.TestCase):
+    def test_tube_uses_bias(self):
+        with _SignalFlowStubbed():
+            out = tube(_StubNode("v"), drive=2.0, bias=0.1)
+            # bias shifts input before tanh, subtracts after.
+            self.assertIn("Tanh", out.name)
+
+    def test_tube_rejects_bad_bias(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                tube(_StubNode("v"), bias=1.5)
+            with self.assertRaises(ValueError):
+                tube(_StubNode("v"), drive=0)
+
+    def test_tape_combines_tanh_and_lowpass(self):
+        with _SignalFlowStubbed():
+            out = tape(_StubNode("v"), drive=1.5, hi_cut_hz=8000)
+            self.assertIn("Tanh", out.name)
+            self.assertIn("SVF", out.name)
+            self.assertIn("low_pass", out.name)
+
+    def test_fuzz_combines_tanh_and_tone(self):
+        with _SignalFlowStubbed():
+            out = fuzz(_StubNode("v"), drive=5.0, tone=2500)
+            self.assertIn("Tanh", out.name)
+            self.assertIn("SVF", out.name)
+
+
+# ---------------------------------------------------------------------------
+# Additional dynamics
+# ---------------------------------------------------------------------------
+
+
+class TestDynamicsExtra(unittest.TestCase):
+    def test_limiter_uses_high_ratio(self):
+        with _SignalFlowStubbed():
+            out = limiter(_StubNode("v"), threshold=0.9)
+            self.assertIn("Comp", out.name)
+            self.assertIn("r=20.0", out.name)
+
+    def test_noise_gate_builds_compressor(self):
+        with _SignalFlowStubbed():
+            out = noise_gate(_StubNode("v"), threshold=0.02)
+            self.assertIn("Comp", out.name)
+
+    def test_expander_pre_boosts_input(self):
+        with _SignalFlowStubbed():
+            out = expander(_StubNode("v"), ratio=3.0)
+            self.assertIn("Comp", out.name)
+            # ratio appears as a multiplier in the pre-boost path.
+            self.assertIn("*3.0", out.name)
+
+    def test_dynamics_reject_bad_threshold(self):
+        with _SignalFlowStubbed():
+            for fn in (limiter, noise_gate, expander):
+                with self.assertRaises(ValueError):
+                    fn(_StubNode("v"), threshold=0)
+
+
+# ---------------------------------------------------------------------------
+# Spatial / stereo
+# ---------------------------------------------------------------------------
+
+
+class TestSpatial(unittest.TestCase):
+    def test_haas_adds_delay_on_one_side(self):
+        with _SignalFlowStubbed():
+            out_r = haas(_StubNode("v"), delay_ms=15, side="right")
+            self.assertIn("OneTapDelay", out_r.name)
+            self.assertIn("Pan", out_r.name)
+
+            out_l = haas(_StubNode("v"), delay_ms=15, side="left")
+            self.assertIn("OneTapDelay", out_l.name)
+
+    def test_haas_rejects_out_of_range(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                haas(_StubNode("v"), delay_ms=0)
+            with self.assertRaises(ValueError):
+                haas(_StubNode("v"), delay_ms=100)  # over 40 ms
+            with self.assertRaises(ValueError):
+                haas(_StubNode("v"), side="up")
+
+    def test_stereo_widen_clamps(self):
+        with _SignalFlowStubbed():
+            out = stereo_widen(_StubNode("v"), width=10.0)
+            # Clamped to 4 max.
+            self.assertIn("Width", out.name)
+            self.assertIn("4", out.name)
+
+    def test_mono_sets_width_zero(self):
+        with _SignalFlowStubbed():
+            out = mono(_StubNode("v"))
+            self.assertIn("Width", out.name)
+            self.assertIn("0.0", out.name)
+
+    def test_balance_clamps(self):
+        with _SignalFlowStubbed():
+            out = balance(_StubNode("v"), bias=5.0)
+            self.assertIn("Balance", out.name)
+            self.assertIn("1.0", out.name)
+
+
+# ---------------------------------------------------------------------------
+# Pitch / frequency
+# ---------------------------------------------------------------------------
+
+
+class TestPitchFreq(unittest.TestCase):
+    def test_ring_mod_multiplies_by_sine(self):
+        with _SignalFlowStubbed():
+            out = ring_mod(_StubNode("v"), rate=440.0)
+            self.assertIn("SineOsc", out.name)
+
+    def test_amplitude_mod_shape(self):
+        with _SignalFlowStubbed():
+            out = amplitude_mod(_StubNode("v"), rate=5.0, depth=1.0)
+            self.assertIn("SineOsc", out.name)
+
+    def test_detune_unison_stacks_voices(self):
+        with _SignalFlowStubbed():
+            out = detune_unison(_StubNode("v"), voices=4, spread=0.02)
+            # Three extra voices, each adds a OneTapDelay.
+            self.assertEqual(out.name.count("OneTapDelay"), 3)
+
+    def test_detune_unison_single_voice_passthrough(self):
+        with _SignalFlowStubbed():
+            out = detune_unison(_StubNode("v"), voices=1)
+            # voices=1 adds zero extra delays, then normalises.
+            self.assertEqual(out.name.count("OneTapDelay"), 0)
+
+    def test_pitch_freq_reject_bad_args(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                ring_mod(_StubNode("v"), rate=0)
+            with self.assertRaises(ValueError):
+                amplitude_mod(_StubNode("v"), depth=-1)
+            with self.assertRaises(ValueError):
+                detune_unison(_StubNode("v"), voices=0)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -37,9 +37,19 @@ Current inventory:
 - :mod:`.foldback` — reflective folding.
 - :mod:`.bitcrush` — bit-depth + sample-rate reduction.
 
-**Delay / ambient** (``Pattern.fx`` / ``Pattern.ir``)
+**Saturation** (``Pattern.dist``) — the softer / warmer side of
+distortion.
+- :func:`.saturation.tube`, :func:`.saturation.tape`,
+  :func:`.saturation.fuzz`.
+
+**Delay family** (``Pattern.fx`` / ``Pattern.ir``)
 - :mod:`.delay` — single-tap feedback delay.
 - :mod:`.reverb` — Schroeder-style algorithmic reverb.
+- :func:`.delay_family.slapback` — single short repeat.
+- :func:`.delay_family.ping_pong` — stereo-bouncing delay.
+- :func:`.delay_family.multitap` — parallel taps at different times.
+- :func:`.delay_family.tape_echo` — delay with tanh + high-cut on
+  the feedback path.
 
 **Extended filters** (``Pattern.fx`` / ``Pattern.spec``; ``Pattern.bf``
 is spec-locked to lpf/hpf/bpf/notch)
@@ -55,16 +65,32 @@ is spec-locked to lpf/hpf/bpf/notch)
 - :func:`.modulation.tremolo`, :func:`.modulation.autopan` —
   amplitude / stereo LFO effects.
 
+**Pitch / frequency** (``Pattern.fx``)
+- :func:`.pitch_freq.ring_mod` — ring modulation.
+- :func:`.pitch_freq.amplitude_mod` — amplitude modulation.
+- :func:`.pitch_freq.detune_unison` — stacked detuned voices via
+  short LFO-driven delays.
+
+**Spatial / stereo** (``Pattern.fx``)
+- :func:`.spatial.haas`, :func:`.spatial.stereo_widen`,
+  :func:`.spatial.mono`, :func:`.spatial.balance`.
+
 **Dynamics** (``Pattern.fx``)
 - :func:`.dynamics.compressor` — feed-forward compressor.
+- :func:`.dynamics_extra.limiter` — brick-wall-ish 20:1.
+- :func:`.dynamics_extra.noise_gate` — downward gate.
+- :func:`.dynamics_extra.expander` — upward expander.
 
-More effects get ported on demand — see the ``Phase 8+`` note in
-the SKILL.md roadmap.
+Custom effects load via :mod:`..fx_loader` / ``/loadfx``. See the
+Phase 9+ note in ``SKILL.md`` for the roadmap on spectral,
+granular, and vocoder effects (still deferred).
 """
 
 from .bitcrush import bitcrush
 from .delay import delay
+from .delay_family import multitap, ping_pong, slapback, tape_echo
 from .dynamics import compressor, db_to_amplitude
+from .dynamics_extra import expander, limiter, noise_gate
 from .filters import (
     allpass_filter,
     comb_filter,
@@ -82,8 +108,11 @@ from .modulation import (
     phaser,
     tremolo,
 )
+from .pitch_freq import amplitude_mod, detune_unison, ring_mod
 from .reverb import reverb
+from .saturation import fuzz, tape, tube
 from .soft_clip import soft_clip
+from .spatial import balance, haas, mono, stereo_widen
 
 __all__ = [
     # distortion
@@ -91,9 +120,17 @@ __all__ = [
     "foldback",
     "hard_clip",
     "soft_clip",
+    # saturation (softer / warmer)
+    "fuzz",
+    "tape",
+    "tube",
     # delay / ambient
     "delay",
+    "multitap",
+    "ping_pong",
     "reverb",
+    "slapback",
+    "tape_echo",
     # filters
     "allpass_filter",
     "comb_filter",
@@ -107,7 +144,19 @@ __all__ = [
     "flanger",
     "phaser",
     "tremolo",
+    # pitch / freq
+    "amplitude_mod",
+    "detune_unison",
+    "ring_mod",
+    # spatial
+    "balance",
+    "haas",
+    "mono",
+    "stereo_widen",
     # dynamics
     "compressor",
     "db_to_amplitude",
+    "expander",
+    "limiter",
+    "noise_gate",
 ]
