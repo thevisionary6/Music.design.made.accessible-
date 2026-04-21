@@ -22,6 +22,7 @@ from .automation import (
     Ramp,
 )
 from .render import render_pattern, render_schedule
+from .par import PAR, PARLoopHandle, PARScheduleHandle, PARScheduler
 
 __all__ = [
     "Pattern",
@@ -37,4 +38,8 @@ __all__ = [
     "Envelope",
     "render_pattern",
     "render_schedule",
+    "PAR",
+    "PARScheduler",
+    "PARScheduleHandle",
+    "PARLoopHandle",
 ]
