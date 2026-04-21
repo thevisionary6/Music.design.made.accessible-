@@ -29,7 +29,6 @@ __all__ = [
     "math_cmds",
     "pack_cmds",
     "perf_cmds",
-    "stub_cmds",
     "sydef_cmds",
     "working_cmds",
     "gen_cmds",

@@ -71,14 +71,17 @@ obscure commands.
 
 ---
 
-## Decisions requiring user approval before any deletion
+## Resolved decisions
 
-1. **`dsp/visualization.py`** — zero importers. Proposed remove. Approve?
-2. **`dsp/stems.py`** — external ML dependency (Demucs). Is shipping that dependency in scope, or should this be removed / gated behind an optional install? Approve.
-3. **`dsp/enhancement.py`** — default-off AI stage. Keep as-is, pare, or remove?
-4. **`commands/stub_cmds.py`** — confirm we can walk the 51 stubs and delete those with real owners in the router? Or do you want those as a safety net?
+1. **`dsp/visualization.py`** — **Removed.** Zero importers; terminal visualization stub that was never wired in.
+2. **`dsp/stems.py`** — **Keep.** External ML dependency (Demucs) stays; no code changes.
+3. **`dsp/enhancement.py`** — **Keep.** Default-off AI stage; no code changes.
+4. **`commands/stub_cmds.py`** — **Removed.** The `STUB_COMMANDS` dict delegated only 10 commands (`vamp`, `fc`, `gg`, `voc`, `spc`, `lfo`, `ump`, `audiorate`, `bbe`, `pack`), every one of which is owned by a real module in `router.COMMAND_OWNERS`. After removal, `build_command_table()` still registers every previously-owned command — only the stub placeholders go. `bmdma.py`'s `GENERATOR_ALGORITHMS` import fell back cleanly to the "26 known count" path that already existed.
 
-No other modules are being flagged for removal. Everything else lands in
+After these cuts, `build_command_table()` goes from 620 → 616 commands.
+Spot-check: `vamp`, `fc`, `gg`, `ump`, `audiorate` all still resolve.
+
+No other modules were flagged for removal. Everything else lands in
 either "Keep" or "Keep with cleanup deferred to Phase 8+ porting work."
 
 ---
