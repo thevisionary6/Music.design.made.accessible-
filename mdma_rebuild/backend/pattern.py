@@ -388,7 +388,20 @@ class Pattern:
         :meth:`_apply_builtin_filter`, and ``gate`` delegates to
         :meth:`_apply_gate`.
         """
+        final, _stages = self._apply_chain_with_nodes(voice)
+        return final
+
+    def _apply_chain_with_nodes(self, voice):
+        """Apply the chain and return both the final node and a list of
+        per-stage output nodes.
+
+        ``stages[i]`` is the node produced by chain entry ``i``. The
+        scheduler uses this trace to route chain-parameter automation
+        to the live node that owns the target parameter — see
+        :meth:`Scheduler.bind_chain_param`.
+        """
         current = voice
+        stages: list = []
         for entry in self.chain:
             kind = entry[0]
             if kind in ("mod", "dist", "spec", "ir", "fx"):
@@ -402,7 +415,8 @@ class Pattern:
                 current = self._apply_gate(current, rhythm)
             else:
                 raise ValueError(f"unknown chain entry kind: {kind!r}")
-        return current
+            stages.append(current)
+        return current, stages
 
     def _apply_builtin_filter(self, voice, ftype: str, cutoff: float, res: float):
         """Wrap ``voice`` in a SignalFlow :class:`SVFilter`.

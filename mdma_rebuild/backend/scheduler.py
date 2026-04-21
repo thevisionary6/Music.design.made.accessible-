@@ -32,8 +32,10 @@ from __future__ import annotations
 
 import threading
 import time
+from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
+from .automation import AutomationSource, BindingHandle
 from .clock import Clock
 from .pattern import Pattern
 
@@ -81,6 +83,11 @@ class ScheduleHandle:
         self._next_event_time: float = float(start_time)
         self._current_voice: Optional[object] = None
         self._current_stop_time: Optional[float] = None
+        # Per-chain-stage node list for the currently-playing voice, or
+        # ``None`` if nothing is playing. The scheduler's chain-param
+        # automation walks this list to find the live node for a given
+        # chain index.
+        self._current_stages: Optional[list] = None
         self._cancelled: bool = False
 
     # -- Public control ------------------------------------------------
@@ -143,51 +150,61 @@ class ScheduleHandle:
             if not self.active:
                 return
 
-            # 1. Stop the currently-playing voice if its time is up.
-            if (
-                self._current_voice is not None
-                and self._current_stop_time is not None
-                and now >= self._current_stop_time
-            ):
-                _safe_stop(self._current_voice)
-                self._current_voice = None
-                self._current_stop_time = None
+            self._maybe_stop_trailing_voice(now)
+            self._dispatch_due_events(now)
 
-            # 2. Dispatch as many events as are due at ``now``. Loop so
-            #    a late tick (after a GC pause, for example) catches up
-            #    instead of slipping further.
-            while (
-                self._event_index < len(self.pattern.events)
-                and now >= self._next_event_time
-                and not self._cancelled
-            ):
-                # The previous voice's natural stop time is the current
-                # event's start time. Stop it now if the earlier branch
-                # didn't catch it (e.g. two events colocated).
-                if self._current_voice is not None:
-                    _safe_stop(self._current_voice)
-                    self._current_voice = None
-                    self._current_stop_time = None
-
-                note, dur = self.pattern.events[self._event_index]
-                voice = self.shape(note)
-                output = self.pattern._apply_chain(voice)
-                _safe_play(output)
-
-                self._current_voice = output
-                self._current_stop_time = self._next_event_time + dur
-                self._event_index += 1
-                self._next_event_time += dur
-
-            # 3. Inactivity check. Both conditions must hold:
+            # Inactivity check. Both conditions must hold:
             #    - no more events to dispatch, AND
-            #    - no voice is currently playing (or it was cancelled and
-            #      we're letting it finish naturally).
+            #    - no voice is currently playing (cancelled voices are
+            #      allowed to finish naturally).
             if (
                 self._event_index >= len(self.pattern.events)
                 and self._current_voice is None
             ):
                 self.active = False
+
+    # -- Shared tick helpers (used by ScheduleHandle and LoopHandle) ---
+
+    def _maybe_stop_trailing_voice(self, now: float) -> None:
+        """Stop the currently-playing voice if its natural end has arrived."""
+        if (
+            self._current_voice is not None
+            and self._current_stop_time is not None
+            and now >= self._current_stop_time
+        ):
+            _safe_stop(self._current_voice)
+            self._current_voice = None
+            self._current_stop_time = None
+            self._current_stages = None
+
+    def _dispatch_due_events(self, now: float) -> None:
+        """Fire every event whose start time has arrived.
+
+        Loops so a late tick catches up instead of slipping further.
+        """
+        while (
+            self._event_index < len(self.pattern.events)
+            and now >= self._next_event_time
+            and not self._cancelled
+        ):
+            # If the previous voice's stop time coincides with the next
+            # event's start, the earlier branch may not have caught it.
+            if self._current_voice is not None:
+                _safe_stop(self._current_voice)
+                self._current_voice = None
+                self._current_stop_time = None
+                self._current_stages = None
+
+            note, dur = self.pattern.events[self._event_index]
+            voice = self.shape(note)
+            output, stages = self.pattern._apply_chain_with_nodes(voice)
+            _safe_play(output)
+
+            self._current_voice = output
+            self._current_stages = stages
+            self._current_stop_time = self._next_event_time + dur
+            self._event_index += 1
+            self._next_event_time += dur
 
 
 class LoopHandle(ScheduleHandle):
@@ -236,34 +253,8 @@ class LoopHandle(ScheduleHandle):
             if not self.active:
                 return
 
-            if (
-                self._current_voice is not None
-                and self._current_stop_time is not None
-                and now >= self._current_stop_time
-            ):
-                _safe_stop(self._current_voice)
-                self._current_voice = None
-                self._current_stop_time = None
-
-            while (
-                self._event_index < len(self.pattern.events)
-                and now >= self._next_event_time
-                and not self._cancelled
-            ):
-                if self._current_voice is not None:
-                    _safe_stop(self._current_voice)
-                    self._current_voice = None
-                    self._current_stop_time = None
-
-                note, dur = self.pattern.events[self._event_index]
-                voice = self.shape(note)
-                output = self.pattern._apply_chain(voice)
-                _safe_play(output)
-
-                self._current_voice = output
-                self._current_stop_time = self._next_event_time + dur
-                self._event_index += 1
-                self._next_event_time += dur
+            self._maybe_stop_trailing_voice(now)
+            self._dispatch_due_events(now)
 
             # Loop or retire based on exhaustion + stop request.
             if self._event_index >= len(self.pattern.events):
@@ -274,7 +265,7 @@ class LoopHandle(ScheduleHandle):
                     # future tick, then flip inactive.
                 else:
                     # Restart at event 0 for the next iteration. The
-                    # currently-playing voice (last event of previous
+                    # currently-playing voice (last event of the previous
                     # iteration) will be stopped by its own stop_time
                     # branch next tick.
                     self.iterations += 1
@@ -308,6 +299,7 @@ class Scheduler:
 
         self._lock = threading.RLock()
         self._handles: List[ScheduleHandle] = []
+        self._bindings: List["_Binding"] = []
         self._running: bool = False
         self._thread: Optional[threading.Thread] = None
         self._tick_interval: float = 0.001  # 1 ms — plenty of headroom
@@ -376,7 +368,7 @@ class Scheduler:
         self._thread.start()
 
     def stop(self) -> None:
-        """Stop the dispatch thread and cancel all pending events.
+        """Stop the dispatch thread, cancel pending events, and tear down bindings.
 
         Currently-playing voices are stopped so the graph returns to
         silence. Safe to call repeatedly.
@@ -384,6 +376,8 @@ class Scheduler:
         with self._lock:
             self._running = False
             handles = list(self._handles)
+            bindings = list(self._bindings)
+            self._bindings.clear()
         self._wake.set()
         thread = self._thread
         if thread is not None:
@@ -397,21 +391,73 @@ class Scheduler:
                     _safe_stop(h._current_voice)
                     h._current_voice = None
                     h._current_stop_time = None
+                    h._current_stages = None
                 h.active = False
+        # Tear down automation bindings.
+        for b in bindings:
+            try:
+                b.source.stop()
+            except Exception:
+                pass
 
     # -- Tick ----------------------------------------------------------
 
     def _tick(self, now: float) -> None:
-        """Advance every active handle by one tick.
+        """Advance every active handle and every active binding by one tick.
 
         Public-but-underscored: tests call this directly with a
         synthetic ``now`` so they don't need real threads. Production
         callers go through :meth:`start` instead.
+
+        Handles are ticked first so chain-param bindings see fresh stage
+        nodes if a new event just fired. Binding errors are swallowed
+        so one misbehaving source can't take down the dispatch loop.
         """
         with self._lock:
             handles = list(self._handles)
+            bindings = list(self._bindings)
         for h in handles:
             h._tick(now)
+        for b in bindings:
+            try:
+                self._dispatch_binding(b, now)
+            except Exception:
+                pass
+
+    def _dispatch_binding(self, binding: "_Binding", now: float) -> None:
+        """Apply one binding's automation output to its target."""
+        value = float(binding.source.value_at(now))
+        if binding.kind == "chain_param":
+            handle = binding.handle
+            if handle is None:
+                return
+            with handle._lock:
+                stages = handle._current_stages
+                if stages is None:
+                    # Nothing playing on this handle right now — nothing
+                    # to route the value to. Will resume on the next
+                    # event.
+                    return
+                if binding.chain_index >= len(stages):
+                    # Pattern swapped to something shorter; silently
+                    # skip rather than blowing up the loop.
+                    return
+                node = stages[binding.chain_index]
+            _safe_set_input(node, binding.param_name, value)
+        elif binding.kind == "tempo":
+            if value > 0:
+                self._clock.set_tempo(value)
+        elif binding.kind == "master_volume":
+            setter = getattr(self._graph, "set_output_level", None)
+            if setter is not None:
+                setter(value)
+            else:
+                # Fall back to attribute assignment so graphs without a
+                # setter still surface the value for inspection.
+                try:
+                    self._graph.output_level = value  # type: ignore[attr-defined]
+                except AttributeError:
+                    pass
 
     def _run_loop(self) -> None:
         while True:
@@ -424,6 +470,84 @@ class Scheduler:
             # thread without waiting for the next tick interval.
             self._wake.wait(timeout=self._tick_interval)
             self._wake.clear()
+
+    # -- Automation bindings ------------------------------------------
+
+    def bind_chain_param(
+        self,
+        handle: ScheduleHandle,
+        chain_index: int,
+        param_name: str,
+        source: AutomationSource,
+    ) -> BindingHandle:
+        """Bind an :class:`AutomationSource` to one chain entry's parameter.
+
+        ``chain_index`` must be a valid index into ``handle.pattern.chain``
+        at bind time (later swaps that shorten the pattern will make
+        out-of-range indices silently skip). ``param_name`` is the
+        SignalFlow node's input name — typical values are ``"cutoff"``,
+        ``"resonance"``, or whatever a custom DSP callable exposes via
+        ``set_input``.
+
+        Raises :class:`IndexError` for out-of-range indices, matching
+        the scheduler-spec error table.
+        """
+        chain_len = len(handle.pattern.chain)
+        if chain_index < 0 or chain_index >= chain_len:
+            raise IndexError(
+                f"chain_index {chain_index} out of range for "
+                f"pattern with {chain_len} chain entries"
+            )
+        binding = _Binding(
+            kind="chain_param",
+            source=source,
+            handle=handle,
+            chain_index=chain_index,
+            param_name=param_name,
+        )
+        self._register_binding(binding)
+        return BindingHandle(self, binding)
+
+    def bind_tempo(self, source: AutomationSource) -> BindingHandle:
+        """Bind an :class:`AutomationSource` to the clock's tempo.
+
+        The source's output is pushed to :meth:`Clock.set_tempo` every
+        tick. Non-positive values are skipped (Clock.set_tempo would
+        raise, which would then surface as the binding being silently
+        dropped for that tick).
+        """
+        binding = _Binding(kind="tempo", source=source)
+        self._register_binding(binding)
+        return BindingHandle(self, binding)
+
+    def bind_master_volume(self, source: AutomationSource) -> BindingHandle:
+        """Bind an :class:`AutomationSource` to the graph's master output.
+
+        Calls ``graph.set_output_level(value)`` if available, else falls
+        back to assigning ``graph.output_level``. Users with a graph
+        type that exposes neither can wire their own hook.
+        """
+        binding = _Binding(kind="master_volume", source=source)
+        self._register_binding(binding)
+        return BindingHandle(self, binding)
+
+    def _register_binding(self, binding: "_Binding") -> None:
+        binding.source.start(self._clock.now())
+        with self._lock:
+            self._bindings.append(binding)
+        self._wake.set()
+
+    def _unbind_binding(self, binding: "_Binding") -> None:
+        """Remove ``binding`` if still registered; called by BindingHandle."""
+        with self._lock:
+            try:
+                self._bindings.remove(binding)
+            except ValueError:
+                return
+        try:
+            binding.source.stop()
+        except Exception:
+            pass
 
     # -- Helpers -------------------------------------------------------
 
@@ -468,6 +592,46 @@ def _safe_stop(node: object) -> None:
         node.stop()  # type: ignore[attr-defined]
     except Exception:
         pass
+
+
+def _safe_set_input(node: object, param_name: str, value: float) -> None:
+    """Push an automation value into a node.
+
+    Prefers SignalFlow's ``set_input(name, value)`` so live parameters
+    update cleanly. Falls back to attribute assignment for test doubles
+    or custom nodes that don't mimic the SignalFlow Node API. Exceptions
+    are swallowed so a dead node can't kill the dispatch loop.
+    """
+    setter = getattr(node, "set_input", None)
+    try:
+        if callable(setter):
+            setter(param_name, value)
+            return
+        setattr(node, param_name, value)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Binding record
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _Binding:
+    """Private record for one automation binding.
+
+    Kept as a plain dataclass rather than a class hierarchy so the
+    scheduler's dispatch code can pattern-match on ``kind`` without
+    virtual dispatch through source-owned objects. The :class:`BindingHandle`
+    returned to the caller is the public face.
+    """
+
+    kind: str  # "chain_param" | "tempo" | "master_volume" | "mod_speed"
+    source: AutomationSource
+    handle: Optional[ScheduleHandle] = None
+    chain_index: int = -1
+    param_name: str = ""
 
 
 __all__ = ["Scheduler", "ScheduleHandle", "LoopHandle"]

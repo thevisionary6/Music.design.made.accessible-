@@ -13,6 +13,14 @@ helpers, and the input controller arrive in Phase 4+.
 from .pattern import Pattern
 from .clock import Clock
 from .scheduler import LoopHandle, ScheduleHandle, Scheduler
+from .automation import (
+    AutomationSource,
+    BindingHandle,
+    Constant,
+    Envelope,
+    LFO,
+    Ramp,
+)
 
 __all__ = [
     "Pattern",
@@ -20,4 +28,10 @@ __all__ = [
     "Scheduler",
     "ScheduleHandle",
     "LoopHandle",
+    "AutomationSource",
+    "BindingHandle",
+    "Constant",
+    "LFO",
+    "Ramp",
+    "Envelope",
 ]
