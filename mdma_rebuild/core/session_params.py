@@ -398,6 +398,26 @@ def set_mod(self: "Session", val: float) -> None:
     self.v_mod = clamped
 
 
+# Tempo setter wired during the V2 backend merge (Phase 3). When the
+# Session has a backend.Clock bound to it (via ``Clock(session=self)``),
+# this forwards to :meth:`Clock.set_tempo` so tempo lives in one place.
+# When no clock is bound (legacy command-only flows), it sets
+# ``self.bpm`` directly. Either way, downstream readers of
+# ``self.bpm`` see the new value.
+def set_bpm(self: "Session", bpm: float) -> None:
+    """Set the session's BPM, keeping any bound Clock in sync.
+
+    Raises :class:`ValueError` for non-positive values.
+    """
+    if bpm <= 0:
+        raise ValueError(f"bpm must be positive, got {bpm}")
+    clock = getattr(self, "_clock", None)
+    if clock is not None:
+        clock.set_tempo(float(bpm))
+    else:
+        self.bpm = float(bpm)
+
+
 def bind_to(session_cls) -> None:
     """Attach every parameter function above to ``session_cls``."""
     # Filter
@@ -445,3 +465,5 @@ def bind_to(session_cls) -> None:
     session_cls.set_dt = set_dt
     session_cls.set_rand = set_rand
     session_cls.set_mod = set_mod
+    # Tempo (bridges to backend.Clock when bound)
+    session_cls.set_bpm = set_bpm
