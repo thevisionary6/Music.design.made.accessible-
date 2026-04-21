@@ -233,6 +233,9 @@ COMMAND_OWNERS: dict[str, str] = {
     "theory": "gen_cmds",
     "gen2": "gen_cmds",
     "generate": "gen_cmds",
+
+    # V2 backend commands - backend_cmds owns
+    "patn": "backend_cmds",
 }
 
 
@@ -428,6 +431,14 @@ def build_command_table() -> dict[str, Callable[..., object]]:
     try:
         from mdma_rebuild.commands.phase_t_cmds import get_phase_t_commands
         register_from_dict(get_phase_t_commands(), "phase_t_cmds")
+    except ImportError:
+        pass
+
+    # PHASE 8.95: V2 backend commands (/patn, ...). Kept ahead of
+    # ai_cmds so the backend surface stays visible when AI is on.
+    try:
+        from mdma_rebuild.commands.backend_cmds import get_backend_commands
+        register_from_dict(get_backend_commands(), "backend_cmds")
     except ImportError:
         pass
 

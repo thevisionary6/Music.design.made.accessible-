@@ -50,12 +50,21 @@ stems = [
     "spleeter>=2.3.0",
 ]
 streaming = ["yt-dlp>=2023.0.0"]
+# V2 SignalFlow-native backend (Pattern / Scheduler / PAR / InputController).
+# Keep these optional so legacy-only installs stay slim.
+v2 = [
+    "signalflow>=0.5.0",
+    "mido>=1.3.0",
+    "python-rtmidi>=1.5.0",
+    "python-osc>=1.8.0",
+]
 all = [
     "mdma[gui]",
     "mdma[tui]",
     "mdma[ai]",
     "mdma[stems]",
     "mdma[streaming]",
+    "mdma[v2]",
 ]
 
 [project.scripts]

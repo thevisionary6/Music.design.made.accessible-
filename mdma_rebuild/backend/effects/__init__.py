@@ -29,12 +29,32 @@ Porting convention (for future additions):
    mock. Audio-rate correctness tests live under ``tests/audio/``
    and are opt-in.
 
-Phase 8 ships with :mod:`.soft_clip` and :mod:`.delay` as reference
-implementations. More effects get ported on demand — see the
-``Phase 8+`` note in the SKILL.md roadmap.
+Phase 8 currently ships:
+
+- :mod:`.soft_clip` — tanh saturation (``Pattern.dist``).
+- :mod:`.hard_clip` — symmetric brick-wall clipping (``Pattern.dist``).
+- :mod:`.foldback` — reflective folding (``Pattern.dist``).
+- :mod:`.bitcrush` — bit-depth + sample-rate reduction (``Pattern.dist``).
+- :mod:`.delay` — single-tap feedback delay (``Pattern.fx``).
+- :mod:`.reverb` — Schroeder-style algorithmic reverb (``Pattern.ir``
+  or ``Pattern.fx``).
+
+More effects get ported on demand — see the ``Phase 8+`` note in
+the SKILL.md roadmap.
 """
 
-from .soft_clip import soft_clip
+from .bitcrush import bitcrush
 from .delay import delay
+from .foldback import foldback
+from .hard_clip import hard_clip
+from .reverb import reverb
+from .soft_clip import soft_clip
 
-__all__ = ["soft_clip", "delay"]
+__all__ = [
+    "bitcrush",
+    "delay",
+    "foldback",
+    "hard_clip",
+    "reverb",
+    "soft_clip",
+]

@@ -129,9 +129,18 @@ def set_cutoff(self: "Session", freq: float) -> None:
     Parameters
     ----------
     freq : float
-        Cutoff frequency in Hz (real units, 20-20000)
+        Cutoff frequency in Hz (real units, 20-20000). Values outside
+        that range are clamped and a warning is printed so the user
+        knows the requested value wasn't used verbatim.
     """
-    self.filter_cutoffs[self.selected_filter] = max(20.0, min(20000.0, float(freq)))
+    requested = float(freq)
+    clamped = max(20.0, min(20000.0, requested))
+    if clamped != requested:
+        print(
+            f"[session] cutoff {requested:.2f} Hz clamped to "
+            f"{clamped:.2f} Hz (valid range 20-20000)"
+        )
+    self.filter_cutoffs[self.selected_filter] = clamped
 
 
 def set_resonance(self: "Session", value: float) -> None:

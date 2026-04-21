@@ -1960,9 +1960,11 @@ def _render_live_commands(session: Session, commands: List[str]):
     else:
         result = np.zeros(0, dtype=np.float64)
     
-    # Restore previous working buffer
+    # Restore previous working buffer. Use an explicit `is not None`
+    # check on saved_src so an intentional empty-string source (if any
+    # downstream code sets one) isn't silently coerced back to 'init'.
     session.working_buffer = saved_wb if saved_wb is not None else np.zeros(session.sample_rate, dtype=np.float64)
-    session.working_buffer_source = saved_src if saved_src else 'init'
+    session.working_buffer_source = saved_src if saved_src is not None else 'init'
     
     # Restore DSL block state
     state.out_block = saved_out
