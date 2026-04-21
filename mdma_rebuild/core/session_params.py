@@ -129,9 +129,18 @@ def set_cutoff(self: "Session", freq: float) -> None:
     Parameters
     ----------
     freq : float
-        Cutoff frequency in Hz (real units, 20-20000)
+        Cutoff frequency in Hz (real units, 20-20000). Values outside
+        that range are clamped and a warning is printed so the user
+        knows the requested value wasn't used verbatim.
     """
-    self.filter_cutoffs[self.selected_filter] = max(20.0, min(20000.0, float(freq)))
+    requested = float(freq)
+    clamped = max(20.0, min(20000.0, requested))
+    if clamped != requested:
+        print(
+            f"[session] cutoff {requested:.2f} Hz clamped to "
+            f"{clamped:.2f} Hz (valid range 20-20000)"
+        )
+    self.filter_cutoffs[self.selected_filter] = clamped
 
 
 def set_resonance(self: "Session", value: float) -> None:
@@ -398,6 +407,26 @@ def set_mod(self: "Session", val: float) -> None:
     self.v_mod = clamped
 
 
+# Tempo setter wired during the V2 backend merge (Phase 3). When the
+# Session has a backend.Clock bound to it (via ``Clock(session=self)``),
+# this forwards to :meth:`Clock.set_tempo` so tempo lives in one place.
+# When no clock is bound (legacy command-only flows), it sets
+# ``self.bpm`` directly. Either way, downstream readers of
+# ``self.bpm`` see the new value.
+def set_bpm(self: "Session", bpm: float) -> None:
+    """Set the session's BPM, keeping any bound Clock in sync.
+
+    Raises :class:`ValueError` for non-positive values.
+    """
+    if bpm <= 0:
+        raise ValueError(f"bpm must be positive, got {bpm}")
+    clock = getattr(self, "_clock", None)
+    if clock is not None:
+        clock.set_tempo(float(bpm))
+    else:
+        self.bpm = float(bpm)
+
+
 def bind_to(session_cls) -> None:
     """Attach every parameter function above to ``session_cls``."""
     # Filter
@@ -445,3 +474,5 @@ def bind_to(session_cls) -> None:
     session_cls.set_dt = set_dt
     session_cls.set_rand = set_rand
     session_cls.set_mod = set_mod
+    # Tempo (bridges to backend.Clock when bound)
+    session_cls.set_bpm = set_bpm

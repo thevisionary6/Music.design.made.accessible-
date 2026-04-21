@@ -568,8 +568,19 @@ class Session:
             # performed separately via filter slots if needed.
             processed = apply_effects_with_params(buf, names, params)
             return processed
-        except Exception:
-            # If DSP module unavailable or effect fails, fall back to input
+        except ImportError as exc:
+            # DSP module missing entirely — fall back to dry input but
+            # tell the user, otherwise "nothing happened" is indistinguishable
+            # from "the effect had no audible impact".
+            print(f"[session] fx chain skipped: dsp.effects unavailable ({exc})")
+            return buf
+        except Exception as exc:
+            # An individual effect blew up. Surface it so the user knows
+            # their chain didn't apply cleanly instead of silently eating
+            # the error.
+            print(
+                f"[session] fx chain failed ({', '.join(names) or 'empty'}): {exc}"
+            )
             return buf
 
     def render_buffer(self, buf: np.ndarray) -> np.ndarray:
@@ -1464,9 +1475,11 @@ class Session:
 # ``session.set_cutoff(...)``, etc. continue to resolve as before.
 # ---------------------------------------------------------------------------
 from . import audio_io as _audio_io  # noqa: E402
+from . import backend_bridge as _backend_bridge  # noqa: E402
 from . import buffer_store as _buffer_store  # noqa: E402
 from . import session_params as _session_params  # noqa: E402
 
 _audio_io.bind_to(Session)
 _buffer_store.bind_to(Session)
 _session_params.bind_to(Session)
+_backend_bridge.bind_to(Session)

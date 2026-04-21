@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """MDMA - Music Design Made Accessible
-Unified launcher with automatic interface detection.
+Unified launcher.
 
 Usage:
-    python run_mdma.py              Auto-detect best available interface
-    python run_mdma.py --repl       Force REPL mode (always available)
-    python run_mdma.py --gui        Force wxPython GUI
-    python run_mdma.py --tui        Force Textual TUI
+    python run_mdma.py              Launch the REPL (default)
+    python run_mdma.py --repl       Same as no-args
+    python run_mdma.py --gui        DEPRECATED wxPython GUI
+    python run_mdma.py --tui        DEPRECATED Textual TUI
     python run_mdma.py --help       Show this help
 
-BUILD ID: launcher_v1.0
+The REPL is the supported entry point. ``--gui`` and ``--tui``
+remain so existing workflows don't break, but they print a
+DeprecationWarning and are not accepting new features. New V2
+backend commands (``/patn``, ``/loadfx``, ``/listfx``) are only
+wired into the REPL.
+
+BUILD ID: launcher_v2.0
 """
 
 import sys
@@ -82,15 +88,28 @@ def launch_repl():
         bmdma.repl(session, cmd_table)
 
 
+def _warn_deprecated_interface(name: str) -> None:
+    """Print + warn when a deprecated interface is requested."""
+    import warnings
+    msg = (
+        f"MDMA: the {name} interface is deprecated. "
+        "The REPL is the supported entry point; V2 backend commands "
+        "(/patn, /loadfx, /listfx) are only wired there."
+    )
+    print(f"[MDMA] DEPRECATION: {msg}")
+    warnings.warn(msg, DeprecationWarning, stacklevel=2)
+
+
 def launch_gui():
-    """Launch the wxPython GUI (mdma_gui.py)."""
+    """Launch the wxPython GUI (DEPRECATED)."""
+    _warn_deprecated_interface("GUI")
     if not _has_wx():
         print("MDMA: wxPython is not installed.")
         print("Install with:  pip install wxPython")
         print("\nFalling back to REPL...")
         launch_repl()
         return
-    print("MDMA: Starting GUI...")
+    print("MDMA: Starting GUI (deprecated)...")
     import mdma_gui
     if hasattr(mdma_gui, 'main'):
         mdma_gui.main()
@@ -102,35 +121,17 @@ def launch_gui():
 
 
 def launch_tui():
-    """Launch the Textual TUI (mad_tui.py)."""
+    """Launch the Textual TUI (DEPRECATED)."""
+    _warn_deprecated_interface("TUI")
     if not _has_textual():
         print("MDMA: Textual is not installed.")
         print("Install with:  pip install textual")
         print("\nFalling back to REPL...")
         launch_repl()
         return
-    print("MDMA: Starting TUI...")
+    print("MDMA: Starting TUI (deprecated)...")
     import mad_tui
     mad_tui.main()
-
-
-def auto_detect():
-    """Pick the best available interface automatically.
-
-    Priority: GUI > TUI > REPL
-    GUI requires wxPython + a display server.
-    TUI requires Textual.
-    REPL always works.
-    """
-    # Check for a display (X11/Wayland) — GUI needs one
-    has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
-
-    if has_display and _has_wx():
-        launch_gui()
-    elif _has_textual():
-        launch_tui()
-    else:
-        launch_repl()
 
 
 # ── CLI ────────────────────────────────────────────────────────────────
@@ -141,16 +142,25 @@ def main():
         description="MDMA - Music Design Made Accessible",
         epilog=(
             "Interfaces:\n"
-            "  REPL  Terminal command line (always available)\n"
-            "  GUI   wxPython visual interface (pip install wxPython)\n"
-            "  TUI   Textual terminal UI (pip install textual)\n"
+            "  REPL  Terminal command line (default, supported)\n"
+            "  GUI   DEPRECATED wxPython visual interface\n"
+            "  TUI   DEPRECATED Textual terminal UI\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--repl", action="store_true", help="Launch REPL (terminal)")
-    group.add_argument("--gui", action="store_true", help="Launch wxPython GUI")
-    group.add_argument("--tui", action="store_true", help="Launch Textual TUI")
+    group.add_argument(
+        "--repl", action="store_true",
+        help="Launch REPL (default; flag kept for explicitness)",
+    )
+    group.add_argument(
+        "--gui", action="store_true",
+        help="DEPRECATED: launch wxPython GUI",
+    )
+    group.add_argument(
+        "--tui", action="store_true",
+        help="DEPRECATED: launch Textual TUI",
+    )
     parser.add_argument(
         "--check", action="store_true",
         help="Check dependencies and available interfaces, then exit",
@@ -164,14 +174,15 @@ def main():
         _print_status()
         return
 
-    if args.repl:
-        launch_repl()
-    elif args.gui:
+    if args.gui:
         launch_gui()
     elif args.tui:
         launch_tui()
     else:
-        auto_detect()
+        # Default and --repl both go straight to the REPL now; the
+        # previous auto-detect preferred GUI > TUI > REPL, which
+        # routed around the supported interface.
+        launch_repl()
 
 
 def _print_status():
@@ -198,29 +209,20 @@ def _print_status():
 
     print()
     print("Interfaces:")
+    print(f"  {'REPL':20s} supported; default entry point")
 
-    # REPL
-    print(f"  {'REPL':20s} always available")
-
-    # GUI
     if _has_wx():
         import wx
-        print(f"  {'GUI (wxPython)':20s} {wx.__version__}")
+        print(f"  {'GUI (wxPython)':20s} DEPRECATED; {wx.__version__} installed")
     else:
-        print(f"  {'GUI (wxPython)':20s} NOT INSTALLED  (pip install wxPython)")
+        print(f"  {'GUI (wxPython)':20s} DEPRECATED; not installed")
 
-    # TUI
     if _has_textual():
         import textual
         ver = getattr(textual, "__version__", "installed")
-        print(f"  {'TUI (Textual)':20s} {ver}")
+        print(f"  {'TUI (Textual)':20s} DEPRECATED; {ver} installed")
     else:
-        print(f"  {'TUI (Textual)':20s} NOT INSTALLED  (pip install textual)")
-
-    # Display
-    has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
-    print()
-    print(f"Display server: {'detected' if has_display else 'not detected (GUI unavailable)'}")
+        print(f"  {'TUI (Textual)':20s} DEPRECATED; not installed")
 
     # Optional extras
     print()

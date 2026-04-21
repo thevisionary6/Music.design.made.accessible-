@@ -218,9 +218,11 @@ def get_any_audio(self: "Session") -> tuple[Optional[np.ndarray], str]:
     tuple[np.ndarray, str]
         (audio_data, source_description) or (None, 'none')
     """
-    # Try working buffer first (but only if it has real content, not just init silence)
-    if (self.working_buffer is not None and len(self.working_buffer) > 0
-        and self.working_buffer_source != 'init'):
+    # Try working buffer first (but only if it has real content, not
+    # just init silence). ``has_real_working_audio`` does a content
+    # check now so direct ``session.working_buffer = ...`` assignments
+    # that forget to update ``working_buffer_source`` still surface.
+    if self.has_real_working_audio():
         return self.working_buffer, 'working'
 
     # Try last_buffer
@@ -264,9 +266,9 @@ def get_playable_buffer(self: "Session", idx: Optional[int] = None) -> tuple[Opt
     # Collect all sources with audio
     sources = []
 
-    # Working buffer only if it has real content (not init silence)
-    if (self.working_buffer is not None and len(self.working_buffer) > 0
-        and self.working_buffer_source != 'init'):
+    # Working buffer only if it has real content (see note on
+    # has_real_working_audio's content check).
+    if self.has_real_working_audio():
         sources.append((self.working_buffer, 'working'))
 
     if self.last_buffer is not None and len(self.last_buffer) > 0:
@@ -308,10 +310,28 @@ def get_lowest_empty_buffer(self: "Session") -> int:
 
 
 def has_real_working_audio(self: "Session") -> bool:
-    """Check if working buffer has real audio (not just init silence)."""
-    return (self.working_buffer is not None
-            and len(self.working_buffer) > 0
-            and self.working_buffer_source != 'init')
+    """Check if the working buffer has real (non-silent) audio.
+
+    The source-label check (``working_buffer_source != 'init'``) is
+    the primary signal. It catches the common case where
+    ``ensure_working_buffer`` created silence and nothing has replaced
+    it. A peak-amplitude fallback follows: any buffer with
+    max(|x|) > 1e-7 is treated as real even if some caller bypassed
+    ``set_working_buffer`` and assigned ``session.working_buffer = ...``
+    directly (which happens in several legacy commands). Without the
+    fallback, the directly-assigned audio becomes invisible to the
+    buffer-priority resolvers below.
+    """
+    if self.working_buffer is None or len(self.working_buffer) == 0:
+        return False
+    if self.working_buffer_source != 'init':
+        return True
+    # Label says 'init' — double-check with a content probe.
+    try:
+        peak = float(np.max(np.abs(self.working_buffer)))
+    except Exception:
+        return False
+    return peak > 1e-7
 
 
 # ------------ Undo/Redo helpers (Phase T.1) ------------

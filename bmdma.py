@@ -46,7 +46,6 @@ synth_cmds = _CMD_MODULES.get('synth_cmds')
 fx_cmds = _CMD_MODULES.get('fx_cmds')
 render_cmds = _CMD_MODULES.get('render_cmds')
 advanced_cmds = _CMD_MODULES.get('advanced_cmds')
-stub_cmds = _CMD_MODULES.get('stub_cmds')
 pattern_cmds = _CMD_MODULES.get('pattern_cmds')
 playback_cmds = _CMD_MODULES.get('playback_cmds')
 buffer_cmds = _CMD_MODULES.get('buffer_cmds')
@@ -535,7 +534,7 @@ def show_preloader():
         'dsp.monolith', 'dsp.effects', 'dsp.granular', 'dsp.buffer_rearranger',
         'commands.buffer_cmds', 'commands.synth_cmds', 'commands.fx_cmds',
         'commands.pattern_cmds', 'commands.playback_cmds', 'commands.render_cmds',
-        'commands.general_cmds', 'commands.advanced_cmds', 'commands.stub_cmds',
+        'commands.general_cmds', 'commands.advanced_cmds',
     ]
     stats['modules'] = len(module_names)
     
@@ -599,9 +598,9 @@ def show_preloader():
     except Exception:
         pass
     
-    # Count generators
+    # Count generators (stub_cmds was removed in Phase 0 triage)
     try:
-        from mdma_rebuild.commands.stub_cmds import GENERATOR_ALGORITHMS
+        from mdma_rebuild.dsp.generators import GENERATOR_ALGORITHMS
         stats['generators'] = len(GENERATOR_ALGORITHMS)
         print(f"  Generators: {stats['generators']} algorithms")
     except Exception:

@@ -1,7 +1,18 @@
 #!/usr/bin/env python3
 """
-MDMA GUI - Phase T: Song-Ready System Audit
-==============================================
+MDMA GUI - DEPRECATED
+======================
+
+**This wxPython interface is deprecated as of the V2 backend
+merge.** The command-line REPL (``bmdma.py`` / ``run_mdma.py
+--repl``) is the supported entry point going forward — it works
+cleanly with NVDA and exercises every V2 backend path.
+
+The GUI code is kept here for reference and is not being
+extended; launching it prints a DeprecationWarning. New features
+land in the CLI and the ``mdma_rebuild/backend/`` stack only.
+
+Historical description (retained for archaeology):
 
 Full-featured wxPython interface for the MDMA audio engine.
 
@@ -8850,9 +8861,28 @@ class MDMAApp(wx.App):
 
 
 def main():
-    """Entry point."""
+    """Entry point. Prints a deprecation notice before launching."""
+    _warn_deprecated()
     app = MDMAApp()
     app.MainLoop()
+
+
+def _warn_deprecated() -> None:
+    """Surface the GUI deprecation loudly.
+
+    Uses ``warnings.warn(DeprecationWarning)`` so tooling can catch
+    it, and ``print`` so users see it in the terminal regardless of
+    the warning filter.
+    """
+    import warnings
+    msg = (
+        "mdma_gui is deprecated. The supported entry point is the "
+        "REPL: `python run_mdma.py --repl` (or `python bmdma.py`). "
+        "The wxPython GUI is kept for reference but no longer "
+        "receives new features."
+    )
+    warnings.warn(msg, DeprecationWarning, stacklevel=2)
+    print(f"[MDMA] DEPRECATION: {msg}")
 
 
 if __name__ == '__main__':

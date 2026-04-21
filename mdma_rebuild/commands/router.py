@@ -45,7 +45,6 @@ _EAGER_MODULES: tuple[str, ...] = (
     "fx_cmds",
     "render_cmds",
     "advanced_cmds",
-    "stub_cmds",
     "pattern_cmds",
     "playback_cmds",
     "buffer_cmds",
@@ -234,6 +233,11 @@ COMMAND_OWNERS: dict[str, str] = {
     "theory": "gen_cmds",
     "gen2": "gen_cmds",
     "generate": "gen_cmds",
+
+    # V2 backend commands - backend_cmds owns
+    "patn": "backend_cmds",
+    "loadfx": "backend_cmds",
+    "listfx": "backend_cmds",
 }
 
 
@@ -270,17 +274,16 @@ def build_command_table() -> dict[str, Callable[..., object]]:
 
     Priority order for non-owned commands (lowest to highest):
 
-    1. ``stub_cmds`` (always overridden)
-    2. ``general_cmds``, ``synth_cmds``, ``fx_cmds``, ``render_cmds``
-    3. ``advanced_cmds`` / ``adv_cmds``
-    4. ``buffer_cmds``, ``pattern_cmds``, ``working_cmds``
-    5. ``math_cmds``
-    6. ``playback_cmds``
-    7. ``generator_cmds``
-    8. ``dj_cmds``, ``perf_cmds``
-    9. ``pack_cmds``, ``audiorate_cmds``, ``convolution_cmds``, ``param_cmds``,
+    1. ``general_cmds``, ``synth_cmds``, ``fx_cmds``, ``render_cmds``
+    2. ``advanced_cmds`` / ``adv_cmds``
+    3. ``buffer_cmds``, ``pattern_cmds``, ``working_cmds``
+    4. ``math_cmds``
+    5. ``playback_cmds``
+    6. ``generator_cmds``
+    7. ``dj_cmds``, ``perf_cmds``
+    8. ``pack_cmds``, ``audiorate_cmds``, ``convolution_cmds``, ``param_cmds``,
        ``hq_cmds``, ``gen_cmds``, ``phase_t_cmds``
-    10. ``ai_cmds`` (highest)
+    9. ``ai_cmds`` (highest)
     """
     if not _CMD_MODULES:
         load_command_modules()
@@ -315,13 +318,7 @@ def build_command_table() -> dict[str, Callable[..., object]]:
             else:
                 commands[cmd_name] = func
 
-    # PHASE 1: stubs first (lowest priority).
-    stub_mod = _CMD_MODULES.get("stub_cmds")
-    if stub_mod is not None and hasattr(stub_mod, "STUB_COMMANDS"):
-        for cmd_name, func in stub_mod.STUB_COMMANDS.items():
-            commands[cmd_name] = func
-
-    # PHASE 2: base modules.
+    # PHASE 1: base modules (stub_cmds was removed during Phase 0 triage).
     for mod_name in ("general_cmds", "synth_cmds", "fx_cmds", "render_cmds"):
         register_from_module(_CMD_MODULES.get(mod_name), mod_name)
 
@@ -436,6 +433,14 @@ def build_command_table() -> dict[str, Callable[..., object]]:
     try:
         from mdma_rebuild.commands.phase_t_cmds import get_phase_t_commands
         register_from_dict(get_phase_t_commands(), "phase_t_cmds")
+    except ImportError:
+        pass
+
+    # PHASE 8.95: V2 backend commands (/patn, ...). Kept ahead of
+    # ai_cmds so the backend surface stays visible when AI is on.
+    try:
+        from mdma_rebuild.commands.backend_cmds import get_backend_commands
+        register_from_dict(get_backend_commands(), "backend_cmds")
     except ImportError:
         pass
 

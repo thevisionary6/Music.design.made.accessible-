@@ -3877,6 +3877,10 @@ def apply_effects_with_params(
     for i, name in enumerate(effect_names):
         func = _effect_funcs.get(name)
         if func is None:
+            # Unknown effect — surface it so the user sees the chain
+            # didn't apply as-written. Previously silent, which made
+            # typos hard to spot.
+            print(f"[effects] unknown effect {name!r} — skipped")
             continue
 
         params = effect_params[i] if i < len(effect_params) else {'amount': 50.0}
@@ -3922,8 +3926,10 @@ def apply_effects_with_params(
             else:
                 out = dry * dry_signal + wet * wet_signal
 
-        except Exception:
-            # Skip effect if it fails
+        except Exception as exc:
+            # Surface per-effect failures the same way unknown names get
+            # surfaced. Users can't debug a quiet chain.
+            print(f"[effects] effect {name!r} failed: {exc}")
             continue
 
         # Apply filter after each effect if parameters provided
@@ -4093,15 +4099,18 @@ def remove_dc_offset(audio: np.ndarray) -> np.ndarray:
         return audio
     
     audio = np.asarray(audio, dtype=np.float64)
-    
+
+    if audio.ndim == 2 and audio.shape[1] >= 2:
+        # Stereo (or more) — process each channel independently.
+        return np.column_stack([
+            audio[:, ch] - np.mean(audio[:, ch])
+            for ch in range(audio.shape[1])
+        ])
     if audio.ndim == 2:
-        # Stereo
-        left = audio[:, 0] - np.mean(audio[:, 0])
-        right = audio[:, 1] - np.mean(audio[:, 1])
-        return np.column_stack([left, right])
-    else:
-        # Mono
-        return audio - np.mean(audio)
+        # Degenerate (N, 1) — treat as mono so we don't IndexError.
+        audio = audio[:, 0]
+    # Mono
+    return audio - np.mean(audio)
 
 
 def hq_highpass(audio: np.ndarray, cutoff: float = 20.0, sr: int = SAMPLE_RATE, 
@@ -4141,16 +4150,18 @@ def hq_highpass(audio: np.ndarray, cutoff: float = 20.0, sr: int = SAMPLE_RATE,
             return audio
         
         sos = butter(order, normalized_cutoff, btype='highpass', output='sos')
-        
+
         audio = np.asarray(audio, dtype=np.float64)
-        
+
+        if audio.ndim == 2 and audio.shape[1] >= 2:
+            return np.column_stack([
+                sosfilt(sos, audio[:, ch])
+                for ch in range(audio.shape[1])
+            ])
         if audio.ndim == 2:
-            left = sosfilt(sos, audio[:, 0])
-            right = sosfilt(sos, audio[:, 1])
-            return np.column_stack([left, right])
-        else:
-            return sosfilt(sos, audio)
-            
+            audio = audio[:, 0]
+        return sosfilt(sos, audio)
+
     except ImportError:
         # Fallback: simple DC removal
         return remove_dc_offset(audio)
@@ -4202,17 +4213,16 @@ def gentle_highshelf(audio: np.ndarray, freq: float = 16000.0,
         reduction = 10 ** (gain_db / 20)  # Convert dB to linear
         blend = 1.0 - reduction  # How much of the lowpassed signal to mix
         
+        if audio.ndim == 2 and audio.shape[1] >= 2:
+            cols = []
+            for ch in range(audio.shape[1]):
+                lp = sosfilt(sos, audio[:, ch])
+                cols.append(audio[:, ch] * reduction + lp * blend)
+            return np.column_stack(cols)
         if audio.ndim == 2:
-            lp_left = sosfilt(sos, audio[:, 0])
-            lp_right = sosfilt(sos, audio[:, 1])
-            
-            # Blend original with lowpassed
-            left = audio[:, 0] * reduction + lp_left * blend
-            right = audio[:, 1] * reduction + lp_right * blend
-            return np.column_stack([left, right])
-        else:
-            lp = sosfilt(sos, audio)
-            return audio * reduction + lp * blend
+            audio = audio[:, 0]
+        lp = sosfilt(sos, audio)
+        return audio * reduction + lp * blend
             
     except ImportError:
         return audio
