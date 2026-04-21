@@ -9,3 +9,5 @@ temp/
 *.wav
 *.flac
 *.zip
+# Unzipped spec bundle (source is the tracked zip)
+backend_docs_v2/

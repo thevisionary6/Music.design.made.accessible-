@@ -10,7 +10,7 @@ Modules:
 - monolith: Operator-based offline synth engine
 - envelopes: ADSR envelope implementation
 - effects: Audio effects and filters
-- pattern: Audio-rate pattern modulation system
+- buffer_rearranger: Audio-rate buffer-rearrangement engine (was dsp/pattern.py; renamed for the V2 backend merge because the old "Pattern" was actually a buffer slicer, not a sequencer Pattern)
 - playback: In-house audio playback (no external media player calls)
 
 BUILD ID: dsp_v14.2
@@ -21,7 +21,7 @@ __all__ = [
     "monolith",
     "envelopes",
     "effects",
-    "pattern",
+    "buffer_rearranger",
     "playback",
     "advanced_ops",
     "dj_mode",
