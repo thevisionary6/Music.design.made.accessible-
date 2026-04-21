@@ -23,6 +23,14 @@ from .automation import (
 )
 from .render import render_pattern, render_schedule
 from .par import PAR, PARLoopHandle, PARScheduleHandle, PARScheduler
+from .input_controller import (
+    Controller,
+    ControllerSource,
+    HandlerHandle,
+    InputChannel,
+    InputController,
+    InputEvent,
+)
 
 __all__ = [
     "Pattern",
@@ -42,4 +50,10 @@ __all__ = [
     "PARScheduler",
     "PARScheduleHandle",
     "PARLoopHandle",
+    "InputController",
+    "Controller",
+    "ControllerSource",
+    "HandlerHandle",
+    "InputChannel",
+    "InputEvent",
 ]
