@@ -1,6 +1,6 @@
 """Pattern class for the MDMA backend V2.
 
-Implements ``references/pattern_spec.md`` (Phase 1). A Pattern holds:
+Implements ``references/pattern_spec.md``. A Pattern holds:
 
 - ``events`` — a list of ``(note, duration)`` float-tuples.
 - ``chain`` — an ordered list of DSP transform specs that get applied at
@@ -9,17 +9,26 @@ Implements ``references/pattern_spec.md`` (Phase 1). A Pattern holds:
 All transforms return a **new Pattern**. Self is never mutated. Long
 chains stay safe because every step copies.
 
-Phase 1 scope (per SKILL.md):
+Scope after Phase 2:
 
 - Compositional transforms (``.fast``, ``.slow``, ``.t_p``, ``.l``,
   ``.gs``, ``.ex``, ``.cat``, ``.pre``) — fully implemented.
 - Synthesis transforms (``.mod``, ``.dist``, ``.bf``, ``.spec``, ``.ir``,
-  ``.gate``, ``.fx``) — fully implemented at the chain-registration level.
-- ``.play()`` works for empty patterns and for patterns with an empty
-  chain; DSP chain application is deferred to Phase 2 and currently
-  raises :class:`NotImplementedError` if any chain entry is present.
-- Empty-chain ``.play()`` mirrors the existing ``play.py`` behaviour:
-  sequential dispatch, ``graph.wait(dur)`` between events.
+  ``.gate``, ``.fx``) — fully implemented at the chain-registration
+  level; chain entries are the exact tuple shapes the spec specifies.
+- ``.play()`` walks the events, applies the chain via
+  :meth:`Pattern._apply_chain`, and dispatches sequentially via
+  ``graph.wait(dur)``.
+- :meth:`Pattern._apply_builtin_filter` wraps the voice in a SignalFlow
+  :class:`SVFilter`.
+- :meth:`Pattern._apply_gate` turns the rhythm pattern into a
+  single-cycle sample buffer and plays it through a looping
+  :class:`BufferPlayer`, so rhythm patterns shorter than the host event
+  simply repeat until the voice stops.
+
+SignalFlow imports are deferred to the helpers so environments that only
+want the compositional transforms (tests, offline analysis) don't pay
+the SignalFlow import cost.
 """
 
 from __future__ import annotations
@@ -31,6 +40,34 @@ from typing import Callable
 # validation can be read by callers and covered by tests without poking
 # Pattern internals.
 _BF_TYPES: frozenset[str] = frozenset({"lpf", "hpf", "bpf", "notch"})
+
+# Mapping from the spec's short filter names to SignalFlow's ``SVFilter``
+# ``filter_type`` strings. The SignalFlow API accepts these strings directly
+# (see ``help(signalflow.SVFilter)``).
+_BF_SIGNALFLOW_NAMES: dict[str, str] = {
+    "lpf": "low_pass",
+    "hpf": "high_pass",
+    "bpf": "band_pass",
+    "notch": "notch",
+}
+
+
+def _current_sample_rate() -> float:
+    """Best-effort sample-rate lookup for :meth:`Pattern._apply_gate`.
+
+    Prefers the active :class:`signalflow.AudioGraph`, falls back to
+    SignalFlow's compile-time default, and finally to 44100.0 so the
+    helper stays importable even when SignalFlow is missing (important
+    during Phase-0 / Phase-1 -only test runs).
+    """
+    try:
+        import signalflow as sf  # lazy — SignalFlow is a heavy optional dep
+    except ImportError:
+        return 44100.0
+    graph = sf.AudioGraph.get_shared_graph()
+    if graph is not None:
+        return float(graph.sample_rate)
+    return float(sf.SIGNALFLOW_DEFAULT_SAMPLE_RATE)
 
 
 class Pattern:
@@ -326,15 +363,10 @@ class Pattern:
         """Play the pattern sequentially on ``graph`` using ``shape``.
 
         ``shape(note) -> Node`` builds a voice for one event. For each
-        ``(note, dur)`` the voice is built, the chain is applied, the
-        result is played, ``graph.wait(dur)`` stalls until the event is
-        done, and the voice is stopped. Empty patterns return
-        immediately.
-
-        Phase 1 limitation: chain application is deferred to Phase 2.
-        Calling ``.play()`` on a pattern whose ``chain`` is non-empty
-        raises :class:`NotImplementedError` from :meth:`_apply_chain`.
-        Empty-chain patterns play cleanly.
+        ``(note, dur)`` the voice is built, :meth:`_apply_chain` wraps it
+        with the chain stages, the result is played, ``graph.wait(dur)``
+        stalls until the event is done, and the voice is stopped.
+        Empty patterns return immediately.
         """
         if not self.events:
             return
@@ -348,40 +380,90 @@ class Pattern:
     def _apply_chain(self, voice):
         """Walk ``self.chain`` and wrap ``voice`` with each stage.
 
-        Phase 2 will implement this in full. For now an empty chain is
-        a pass-through; any non-empty chain raises
-        :class:`NotImplementedError`.
+        Chain entries are applied left-to-right: index 0 is innermost /
+        first applied, the last entry is outermost. ``mod``, ``dist``,
+        ``spec``, ``ir``, and ``fx`` all dispatch to the registered
+        DSP callable using the fixed signature
+        ``fn(input_node, **params) -> Node``. ``bf`` delegates to
+        :meth:`_apply_builtin_filter`, and ``gate`` delegates to
+        :meth:`_apply_gate`.
         """
-        if not self.chain:
-            return voice
-        raise NotImplementedError(
-            "Pattern chain application lands in Phase 2 of the V2 backend "
-            "merge. For Phase 1, build patterns and play them with an empty "
-            "chain, or inspect the chain via ``pattern.chain``."
-        )
+        current = voice
+        for entry in self.chain:
+            kind = entry[0]
+            if kind in ("mod", "dist", "spec", "ir", "fx"):
+                _, fn, params = entry
+                current = fn(current, **params)
+            elif kind == "bf":
+                _, ftype, cutoff, res = entry
+                current = self._apply_builtin_filter(current, ftype, cutoff, res)
+            elif kind == "gate":
+                _, rhythm = entry
+                current = self._apply_gate(current, rhythm)
+            else:
+                raise ValueError(f"unknown chain entry kind: {kind!r}")
+        return current
 
     def _apply_builtin_filter(self, voice, ftype: str, cutoff: float, res: float):
-        """Apply a built-in filter (``("bf", ...)`` chain entries).
+        """Wrap ``voice`` in a SignalFlow :class:`SVFilter`.
 
-        Phase 2 will map each ``ftype`` to a SignalFlow filter node. For
-        Phase 1 this is a stub.
+        The spec's short filter names map to SignalFlow's ``filter_type``
+        strings via :data:`_BF_SIGNALFLOW_NAMES`. ``cutoff`` is in Hz and
+        ``res`` is passed through as-is — SignalFlow expects resonance in
+        ``[0, 1]`` but larger values are allowed by :meth:`Pattern.bf`,
+        which is consistent with the spec's "wacky territory" convention.
+
+        SignalFlow import is lazy so environments without it can still
+        import this module.
         """
-        raise NotImplementedError(
-            "Built-in filter application lands in Phase 2 (SignalFlow "
-            "filter nodes)."
-        )
+        import signalflow as sf
+
+        sf_type = _BF_SIGNALFLOW_NAMES.get(ftype)
+        if sf_type is None:
+            # Should never happen — ``.bf`` validates on the way in. Guard
+            # anyway so a corrupted chain surfaces loudly.
+            raise ValueError(f"unknown filter type in chain: {ftype!r}")
+        return sf.SVFilter(voice, sf_type, cutoff, res)
 
     def _apply_gate(self, voice, rhythm: "Pattern"):
-        """Apply a rhythmic gate (``("gate", rhythm_pattern)`` chain entries).
+        """Apply a rhythmic gate as an amplitude envelope.
 
-        Phase 2 will turn the rhythm into an amplitude envelope that
-        loops for the host pattern's duration. For Phase 1 this is a
-        stub.
+        ``rhythm.events`` is a list of ``(gate_state, segment_duration)``
+        tuples. ``gate_state`` is treated as binary: any value >= 0.5
+        opens the gate (amplitude 1.0), anything else closes it (0.0).
+        Durations are in seconds.
+
+        The gate loops for the full length of the host event. It does not
+        have to be the same length as the host pattern — we build a
+        single-cycle sample buffer and hand it to a
+        :class:`signalflow.BufferPlayer` with ``loop=True``, so the gate
+        repeats forever until the voice is stopped by :meth:`play`.
+
+        An empty rhythm is treated as a no-op (voice passes through
+        unchanged). SignalFlow import is lazy.
         """
-        raise NotImplementedError(
-            "Gate application lands in Phase 2 (amplitude-envelope "
-            "generation)."
-        )
+        if not rhythm.events:
+            return voice
+
+        import signalflow as sf
+
+        sample_rate = _current_sample_rate()
+        samples: list[float] = []
+        for gate_state, dur in rhythm.events:
+            if dur <= 0:
+                # Zero-length segments contribute no samples; skip them so
+                # the buffer never becomes degenerate.
+                continue
+            n = max(1, int(round(sample_rate * dur)))
+            value = 1.0 if float(gate_state) >= 0.5 else 0.0
+            samples.extend([value] * n)
+
+        if not samples:
+            return voice
+
+        gate_buffer = sf.Buffer(samples)
+        gate_player = sf.BufferPlayer(gate_buffer, loop=True)
+        return voice * gate_player
 
     # -- Misc ----------------------------------------------------------
 

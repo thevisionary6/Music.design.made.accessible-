@@ -360,15 +360,139 @@ class TestPlay(unittest.TestCase):
         for v in voices:
             self.assertEqual(v.events, ["play", "stop"])
 
-    def test_nonempty_chain_raises_until_phase_2(self):
+    def test_chain_applied_per_event(self):
+        """Custom DSP callables are invoked once per event during .play()."""
         graph = _RecordingGraph()
+        calls: list[tuple[float, dict]] = []
+
+        def dummy_mod(node, **params):
+            calls.append((node.note, dict(params)))
+            return node
 
         def shape(note):
             return _RecordingVoice(note)
 
-        p = Pattern([(60, 0.25)]).bf("lpf", 800)
-        with self.assertRaises(NotImplementedError):
-            p.play(shape, graph)
+        p = Pattern([(60, 0.25), (62, 0.5)]).mod(dummy_mod, depth=0.7)
+        p.play(shape, graph)
+
+        self.assertEqual(
+            calls, [(60.0, {"depth": 0.7}), (62.0, {"depth": 0.7})]
+        )
+        self.assertEqual(graph.waits, [0.25, 0.5])
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: chain application
+# ---------------------------------------------------------------------------
+
+class _MarkerNode:
+    """Test double for a SignalFlow node. Behaves like the real thing for
+    chain-walking purposes: supports ``play``/``stop`` and ``*`` so the
+    gate multiplication path works without SignalFlow installed.
+    """
+
+    def __init__(self, tag: str) -> None:
+        self.tag = tag
+        self.events: list[str] = []
+
+    def play(self) -> None:
+        self.events.append("play")
+
+    def stop(self) -> None:
+        self.events.append("stop")
+
+    def __mul__(self, other):
+        return _MarkerNode(f"{self.tag}*{getattr(other, 'tag', other)}")
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"_MarkerNode({self.tag!r})"
+
+
+class TestApplyChain(unittest.TestCase):
+    def test_empty_chain_passes_through(self):
+        p = Pattern([(60, 0.25)])
+        voice = _MarkerNode("voice")
+        self.assertIs(p._apply_chain(voice), voice)
+
+    def test_mod_dist_spec_ir_fx_all_invoke_callable(self):
+        seen: list[tuple[str, str, dict]] = []
+
+        def make_wrapper(kind: str):
+            def wrapper(node, **params):
+                seen.append((kind, node.tag, dict(params)))
+                return _MarkerNode(f"{kind}({node.tag})")
+            return wrapper
+
+        wrapped_mod = make_wrapper("mod")
+        wrapped_dist = make_wrapper("dist")
+        wrapped_spec = make_wrapper("spec")
+        wrapped_ir = make_wrapper("ir")
+        wrapped_fx = make_wrapper("fx")
+
+        p = (Pattern([(60, 0.25)])
+             .mod(wrapped_mod, a=1)
+             .dist(wrapped_dist, b=2)
+             .spec(wrapped_spec, c=3)
+             .ir(wrapped_ir, d=4)
+             .fx(wrapped_fx, e=5))
+
+        voice = _MarkerNode("voice")
+        out = p._apply_chain(voice)
+
+        self.assertEqual(
+            [k for (k, _t, _p) in seen],
+            ["mod", "dist", "spec", "ir", "fx"],
+        )
+        # The outer wrapper sees the next-inner wrapper's tag.
+        self.assertEqual(
+            [t for (_k, t, _p) in seen],
+            ["voice", "mod(voice)", "dist(mod(voice))",
+             "spec(dist(mod(voice)))", "ir(spec(dist(mod(voice))))"],
+        )
+        self.assertEqual(out.tag, "fx(ir(spec(dist(mod(voice)))))")
+
+    def test_bf_delegates_to_helper(self):
+        p = Pattern([(60, 0.25)]).bf("lpf", 800, 0.3)
+        voice = _MarkerNode("v")
+
+        calls: list[tuple] = []
+
+        def fake_bf(self, node, ftype, cutoff, res):
+            calls.append((node.tag, ftype, cutoff, res))
+            return _MarkerNode(f"bf({ftype},{cutoff},{res})")
+
+        # Patch the bound helper for this instance only — keeps the test
+        # independent of SignalFlow's presence / absence.
+        p._apply_builtin_filter = fake_bf.__get__(p, Pattern)
+        out = p._apply_chain(voice)
+
+        self.assertEqual(calls, [("v", "lpf", 800.0, 0.3)])
+        self.assertEqual(out.tag, "bf(lpf,800.0,0.3)")
+
+    def test_gate_delegates_to_helper(self):
+        g = Pattern([(1, 0.25), (0, 0.25)])
+        p = Pattern([(60, 2.0)]).gate(g)
+        voice = _MarkerNode("v")
+
+        calls: list[tuple] = []
+
+        def fake_gate(self, node, rhythm):
+            calls.append((node.tag, rhythm.events))
+            return _MarkerNode("gated")
+
+        p._apply_gate = fake_gate.__get__(p, Pattern)
+        out = p._apply_chain(voice)
+
+        self.assertEqual(calls, [("v", [(1.0, 0.25), (0.0, 0.25)])])
+        self.assertEqual(out.tag, "gated")
+
+    def test_unknown_chain_entry_raises(self):
+        p = Pattern([(60, 0.25)])
+        # Inject a bogus entry — Pattern's public methods never produce
+        # one, so this checks the defensive branch in _apply_chain.
+        p.chain.append(("bogus", None))
+        with self.assertRaises(ValueError):
+            p._apply_chain(_MarkerNode("v"))
 
 
 if __name__ == "__main__":  # pragma: no cover
