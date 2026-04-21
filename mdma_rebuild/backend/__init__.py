@@ -31,6 +31,7 @@ from .input_controller import (
     InputController,
     InputEvent,
 )
+from . import effects
 
 __all__ = [
     "Pattern",
