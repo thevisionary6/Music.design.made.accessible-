@@ -11,6 +11,11 @@ scipy>=1.7.0
 soundfile>=0.10.0
 sounddevice>=0.4.0
 pydub>=0.25.0
+# Windows only: stdlib readline isn't available there, so the REPL
+# history / completion / NVDA-friendly keybindings fall back to
+# pyreadline3. The environment marker keeps it off Linux / macOS
+# where stdlib readline is already present.
+pyreadline3>=3.4; platform_system == "Windows"
 
 # V2 SignalFlow-native backend (Pattern / Scheduler / PAR /
 # InputController). Required for /patn and everything in

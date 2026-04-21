@@ -19,8 +19,19 @@ BUILD ID: bmdma_v52.0
 
 import sys
 import os
-import readline
 import atexit
+
+# Cross-platform readline shim: stdlib readline on Linux/macOS,
+# pyreadline3 on Windows, nothing on hosts that have neither (the
+# REPL still runs, just without history / completion / custom
+# bindings).
+from mdma_rebuild.core.readline_compat import (
+    HAS_READLINE,
+    IS_LIBEDIT,
+    IS_PYREADLINE3,
+    parse_and_bind as _rl_bind,
+    readline,
+)
 
 # Ensure package is importable
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -635,13 +646,21 @@ def main() -> None:
     # ===================================================================
     # READLINE SETUP — history, completion, clipboard, keybindings
     # ===================================================================
+    # On hosts without stdlib readline and without pyreadline3 the
+    # REPL still runs; we just skip history / completion / custom
+    # bindings. See mdma_rebuild/core/readline_compat.py.
     _history_path = os.path.expanduser('~/.mdma_history')
-    try:
-        readline.read_history_file(_history_path)
-        readline.set_history_length(2000)
-    except FileNotFoundError:
-        pass
-    atexit.register(readline.write_history_file, _history_path)
+    if HAS_READLINE:
+        try:
+            readline.read_history_file(_history_path)
+            readline.set_history_length(2000)
+        except FileNotFoundError:
+            pass
+        except Exception:
+            # pyreadline3 can be picky about corrupted history files;
+            # swallow so the REPL launches cleanly either way.
+            pass
+        atexit.register(readline.write_history_file, _history_path)
 
     # Tab-completion for command names
     _cmd_names = sorted('/' + k for k in commands.keys())
@@ -655,37 +674,44 @@ def main() -> None:
             return matches[state]
         return None
 
-    readline.set_completer(_completer)
-    readline.set_completer_delims(' \t\n')
-    readline.parse_and_bind('tab: complete')
+    if HAS_READLINE:
+        try:
+            readline.set_completer(_completer)
+            readline.set_completer_delims(' \t\n')
+        except Exception:
+            # pyreadline3 generally supports these, but guard anyway.
+            pass
+        _rl_bind('tab: complete')
 
-    # OS-specific readline bindings (differs between GNU and libedit)
-    _is_libedit = 'libedit' in readline.__doc__ if readline.__doc__ else False
+        # OS-specific bindings. IS_LIBEDIT (macOS stdlib) uses the
+        # `bind ^K …` syntax; GNU readline and pyreadline3 both use
+        # the `"\C-k": …` syntax. _rl_bind swallows parse failures
+        # so a backend that chokes on one line doesn't abort the
+        # rest of the setup.
+        if IS_LIBEDIT:
+            _rl_bind('bind ^K ed-kill-line')        # Ctrl+K: kill to EOL
+        else:
+            _rl_bind('"\\C-k": kill-line')          # Ctrl+K: kill to EOL
+            _rl_bind('"\\C-u": unix-line-discard')  # Ctrl+U: kill line
+            _rl_bind('"\\C-y": yank')               # Ctrl+Y: yank
+            _rl_bind('"\\C-w": unix-word-rubout')   # Ctrl+W: kill word
 
-    if _is_libedit:
-        # macOS libedit
-        readline.parse_and_bind('bind ^K ed-kill-line')       # Ctrl+K: kill to end of line
-    else:
-        # GNU readline
-        readline.parse_and_bind('"\\C-k": kill-line')         # Ctrl+K: kill to end of line
-        readline.parse_and_bind('"\\C-u": unix-line-discard') # Ctrl+U: kill whole line
-        readline.parse_and_bind('"\\C-y": yank')              # Ctrl+Y: paste from kill ring
-        readline.parse_and_bind('"\\C-w": unix-word-rubout')  # Ctrl+W: kill word backward
-
-    # ===================================================================
-    # SPECIAL KEYSTROKE COMMANDS
-    # ===================================================================
-    # Map Ctrl+S / Ctrl+O / Ctrl+N / Ctrl+R to magic bytes that the
-    # main loop intercepts after input() returns.
-
-    if _is_libedit:
-        readline.parse_and_bind('bind ^S "\\x13"')  # Ctrl+S -> \x13 (save)
-        readline.parse_and_bind('bind ^O "\\x0f"')  # Ctrl+O -> \x0f (open)
-        readline.parse_and_bind('bind ^N "\\x0e"')  # Ctrl+N -> \x0e (new)
-    else:
-        readline.parse_and_bind('"\\C-s": "\\x13"')
-        readline.parse_and_bind('"\\C-o": "\\x0f"')
-        readline.parse_and_bind('"\\C-n": "\\x0e"')
+        # ===============================================================
+        # SPECIAL KEYSTROKE COMMANDS
+        # ===============================================================
+        # Map Ctrl+S / Ctrl+O / Ctrl+N to magic bytes that the main
+        # loop intercepts after input() returns.
+        if IS_LIBEDIT:
+            _rl_bind('bind ^S "\\x13"')
+            _rl_bind('bind ^O "\\x0f"')
+            _rl_bind('bind ^N "\\x0e"')
+        else:
+            # GNU readline + pyreadline3. pyreadline3 may silently
+            # ignore the magic-byte injection; the launcher falls
+            # back to explicit /save, /load, /new commands.
+            _rl_bind('"\\C-s": "\\x13"')
+            _rl_bind('"\\C-o": "\\x0f"')
+            _rl_bind('"\\C-n": "\\x0e"')
 
     # ===================================================================
     # AUTO-PERSISTENCE: load user data on startup

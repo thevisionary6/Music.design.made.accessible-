@@ -193,6 +193,14 @@ def _smoke_test() -> None:
         for name, profile in missing:
             print(f"           {name}  (pulled in by profile '{profile}')")
 
+    # Readline compat status — important for the REPL on Windows where
+    # stdlib readline is absent and pyreadline3 carries the load.
+    try:
+        from mdma_rebuild.core.readline_compat import platform_summary
+        print("  " + platform_summary())
+    except Exception as exc:  # pragma: no cover - diagnostic only
+        print(f"  readline: shim import failed: {exc}")
+
 
 # ---------------------------------------------------------------------------
 # Entry point

@@ -34,6 +34,10 @@ dependencies = [
     "soundfile>=0.10.0",
     "sounddevice>=0.4.0",
     "pydub>=0.25.0",
+    # stdlib readline is absent on Windows; pyreadline3 is a
+    # pure-Python shim maintained for Python on Windows + NVDA.
+    # Linux / macOS ship readline with Python itself.
+    'pyreadline3>=3.4; platform_system == "Windows"',
 ]
 
 [project.optional-dependencies]
