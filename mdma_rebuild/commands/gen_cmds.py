@@ -400,7 +400,7 @@ def cmd_adapt(session: Session, args: List[str]) -> str:
     if sub == 'detect':
         buf = session.ensure_working_buffer()
         # Simple frequency-based key detection
-        from ..dsp.pattern import detect_fundamental_frequency
+        from ..dsp.buffer_rearranger import detect_fundamental_frequency
         freq = detect_fundamental_frequency(buf, session.sample_rate)
         if freq > 0:
             midi = mt.freq_to_midi(freq)
@@ -421,7 +421,7 @@ def cmd_adapt(session: Session, args: List[str]) -> str:
 
         buf = session.ensure_working_buffer()
         # Pitch-shift to new root
-        from ..dsp.pattern import detect_fundamental_frequency
+        from ..dsp.buffer_rearranger import detect_fundamental_frequency
         current_freq = detect_fundamental_frequency(buf, session.sample_rate)
         if current_freq > 0:
             current_midi = mt.freq_to_midi(current_freq)

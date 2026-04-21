@@ -141,10 +141,10 @@ def _apply_pattern_core(session: "Session", args: List[str]) -> str:
     # Check for preset
     if len(pattern_tokens) == 1 and pattern_tokens[0].lower().startswith('preset:'):
         preset_name = pattern_tokens[0].split(':', 1)[1]
-        from ..dsp.pattern import get_preset_pattern, pattern_to_string
+        from ..dsp.buffer_rearranger import get_preset_pattern, pattern_to_string
         notes = get_preset_pattern(preset_name)
         if not notes:
-            from ..dsp.pattern import list_pattern_presets
+            from ..dsp.buffer_rearranger import list_pattern_presets
             available = ', '.join(list_pattern_presets()[:10])
             return f"ERROR: unknown preset '{preset_name}'\n  Available: {available}..."
         tokens_str = pattern_to_string(notes)
@@ -152,7 +152,7 @@ def _apply_pattern_core(session: "Session", args: List[str]) -> str:
         tokens_str = ' '.join(pattern_tokens)
     
     try:
-        from ..dsp.pattern import (
+        from ..dsp.buffer_rearranger import (
             quick_pattern, ALGORITHM_INFO, 
             detect_fundamental_frequency
         )
@@ -209,7 +209,7 @@ def cmd_pag(session: "Session", args: List[str]) -> str:
     Example:
       /pat 0 7 12 /end 3     -> Apply pattern with audio-rate algorithm
     """
-    from ..dsp.pattern import format_algorithm_list, get_algorithm_info
+    from ..dsp.buffer_rearranger import format_algorithm_list, get_algorithm_info
     
     if args:
         try:
@@ -348,10 +348,10 @@ def cmd_pat(session: "Session", args: List[str]) -> str:
     # Check for preset
     if len(pattern_tokens) == 1 and pattern_tokens[0].lower().startswith('preset:'):
         preset_name = pattern_tokens[0].split(':', 1)[1]
-        from ..dsp.pattern import get_preset_pattern, pattern_to_string
+        from ..dsp.buffer_rearranger import get_preset_pattern, pattern_to_string
         notes = get_preset_pattern(preset_name)
         if not notes:
-            from ..dsp.pattern import list_pattern_presets
+            from ..dsp.buffer_rearranger import list_pattern_presets
             available = ', '.join(list_pattern_presets()[:10])
             return f"ERROR: unknown preset '{preset_name}'\n  Available: {available}..."
         tokens_str = pattern_to_string(notes)
@@ -468,7 +468,7 @@ def cmd_arp(session: "Session", args: List[str]) -> str:
             return "ERROR: no valid semitones found"
     
     try:
-        from ..dsp.pattern import arpeggiate, ALGORITHM_INFO
+        from ..dsp.buffer_rearranger import arpeggiate, ALGORITHM_INFO
         result = arpeggiate(
             session.last_buffer,
             chord,
@@ -495,7 +495,7 @@ def cmd_patlist(session: "Session", args: List[str]) -> str:
     
     Categories: scale, arp, rhythm, phrase
     """
-    from ..dsp.pattern import PATTERN_PRESETS, list_pattern_presets
+    from ..dsp.buffer_rearranger import PATTERN_PRESETS, list_pattern_presets
     
     lines = ["Pattern presets:"]
     
@@ -561,7 +561,7 @@ def cmd_patinfo(session: "Session", args: List[str]) -> str:
         lines.append(f"  Peak: {np.max(np.abs(session.last_buffer)):.3f}")
         
         # Try to detect frequency
-        from ..dsp.pattern import detect_fundamental_frequency
+        from ..dsp.buffer_rearranger import detect_fundamental_frequency
         freq = detect_fundamental_frequency(session.last_buffer, session.sample_rate)
         if freq > 0:
             lines.append(f"  Detected frequency: {freq:.1f}Hz")
@@ -702,7 +702,7 @@ def cmd_pitch(session: "Session", args: List[str]) -> str:
         return f"ERROR: invalid semitones '{args[0]}'"
     
     try:
-        from ..dsp.pattern import pitch_shift_segment
+        from ..dsp.buffer_rearranger import pitch_shift_segment
         result = pitch_shift_segment(
             session.last_buffer,
             semitones,
@@ -741,7 +741,7 @@ def cmd_freq(session: "Session", args: List[str]) -> str:
         except ValueError:
             return f"ERROR: invalid frequency '{args[0]}'"
     else:
-        from ..dsp.pattern import detect_fundamental_frequency
+        from ..dsp.buffer_rearranger import detect_fundamental_frequency
         freq = detect_fundamental_frequency(session.last_buffer, session.sample_rate)
         if freq > 0:
             session._pattern_source_freq = freq
