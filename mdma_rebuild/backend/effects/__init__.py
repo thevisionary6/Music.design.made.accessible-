@@ -29,15 +29,34 @@ Porting convention (for future additions):
    mock. Audio-rate correctness tests live under ``tests/audio/``
    and are opt-in.
 
-Phase 8 currently ships:
+Current inventory:
 
-- :mod:`.soft_clip` — tanh saturation (``Pattern.dist``).
-- :mod:`.hard_clip` — symmetric brick-wall clipping (``Pattern.dist``).
-- :mod:`.foldback` — reflective folding (``Pattern.dist``).
-- :mod:`.bitcrush` — bit-depth + sample-rate reduction (``Pattern.dist``).
-- :mod:`.delay` — single-tap feedback delay (``Pattern.fx``).
-- :mod:`.reverb` — Schroeder-style algorithmic reverb (``Pattern.ir``
-  or ``Pattern.fx``).
+**Distortion** (``Pattern.dist``)
+- :mod:`.soft_clip` — tanh saturation.
+- :mod:`.hard_clip` — symmetric brick-wall clipping.
+- :mod:`.foldback` — reflective folding.
+- :mod:`.bitcrush` — bit-depth + sample-rate reduction.
+
+**Delay / ambient** (``Pattern.fx`` / ``Pattern.ir``)
+- :mod:`.delay` — single-tap feedback delay.
+- :mod:`.reverb` — Schroeder-style algorithmic reverb.
+
+**Extended filters** (``Pattern.fx`` / ``Pattern.spec``; ``Pattern.bf``
+is spec-locked to lpf/hpf/bpf/notch)
+- :func:`.filters.peak`, :func:`.filters.low_shelf`,
+  :func:`.filters.high_shelf` — EQ family.
+- :func:`.filters.moog` — Moog-ladder VCF.
+- :func:`.filters.allpass_filter` — phase rotator.
+- :func:`.filters.comb_filter` — feedback comb.
+
+**Modulation** (``Pattern.fx``)
+- :func:`.modulation.chorus`, :func:`.modulation.flanger`,
+  :func:`.modulation.phaser` — LFO-modulated delay family.
+- :func:`.modulation.tremolo`, :func:`.modulation.autopan` —
+  amplitude / stereo LFO effects.
+
+**Dynamics** (``Pattern.fx``)
+- :func:`.dynamics.compressor` — feed-forward compressor.
 
 More effects get ported on demand — see the ``Phase 8+`` note in
 the SKILL.md roadmap.
@@ -45,16 +64,50 @@ the SKILL.md roadmap.
 
 from .bitcrush import bitcrush
 from .delay import delay
+from .dynamics import compressor, db_to_amplitude
+from .filters import (
+    allpass_filter,
+    comb_filter,
+    high_shelf,
+    low_shelf,
+    moog,
+    peak,
+)
 from .foldback import foldback
 from .hard_clip import hard_clip
+from .modulation import (
+    autopan,
+    chorus,
+    flanger,
+    phaser,
+    tremolo,
+)
 from .reverb import reverb
 from .soft_clip import soft_clip
 
 __all__ = [
+    # distortion
     "bitcrush",
-    "delay",
     "foldback",
     "hard_clip",
-    "reverb",
     "soft_clip",
+    # delay / ambient
+    "delay",
+    "reverb",
+    # filters
+    "allpass_filter",
+    "comb_filter",
+    "high_shelf",
+    "low_shelf",
+    "moog",
+    "peak",
+    # modulation
+    "autopan",
+    "chorus",
+    "flanger",
+    "phaser",
+    "tremolo",
+    # dynamics
+    "compressor",
+    "db_to_amplitude",
 ]

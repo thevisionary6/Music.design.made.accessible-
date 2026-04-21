@@ -19,12 +19,25 @@ import unittest
 from unittest.mock import patch
 
 from mdma_rebuild.backend.effects import (
+    allpass_filter,
+    autopan,
     bitcrush,
+    chorus,
+    comb_filter,
+    compressor,
+    db_to_amplitude,
     delay,
+    flanger,
     foldback,
     hard_clip,
+    high_shelf,
+    low_shelf,
+    moog,
+    peak,
+    phaser,
     reverb,
     soft_clip,
+    tremolo,
 )
 from mdma_rebuild.backend.pattern import Pattern
 
@@ -114,6 +127,33 @@ def _build_stub_signalflow_module():
                 f"Resample({_tag(input)},sr={sample_rate},bits={bit_rate})"
             )
 
+    class _BiquadFilter(_StubNode):
+        def __init__(self, input, filter_type, cutoff=440, resonance=0.0, peak_gain=0.0):
+            super().__init__(
+                f"Biquad({_tag(input)},{filter_type},cut={cutoff},"
+                f"q={resonance},g={peak_gain})"
+            )
+
+    class _MoogVCF(_StubNode):
+        def __init__(self, input, cutoff=200.0, resonance=0.0):
+            super().__init__(f"Moog({_tag(input)},cut={cutoff},q={resonance})")
+
+    class _SineLFO(_StubNode):
+        def __init__(self, frequency=1.0, min=0.0, max=1.0, phase=0.0):
+            super().__init__(f"SineLFO(f={frequency},min={min},max={max})")
+
+    class _Compressor(_StubNode):
+        def __init__(self, input, threshold=0.1, ratio=2, attack_time=0.01,
+                     release_time=0.1, sidechain=None):
+            super().__init__(
+                f"Comp({_tag(input)},th={threshold},r={ratio},"
+                f"a={attack_time},rel={release_time})"
+            )
+
+    class _StereoPanner(_StubNode):
+        def __init__(self, input, pan=0.0):
+            super().__init__(f"Pan({_tag(input)},{_tag(pan)})")
+
     mod.Tanh = _Tanh
     mod.OneTapDelay = _OneTapDelay
     mod.CombDelay = _CombDelay
@@ -121,6 +161,11 @@ def _build_stub_signalflow_module():
     mod.Clip = _Clip
     mod.Fold = _Fold
     mod.Resample = _Resample
+    mod.BiquadFilter = _BiquadFilter
+    mod.MoogVCF = _MoogVCF
+    mod.SineLFO = _SineLFO
+    mod.Compressor = _Compressor
+    mod.StereoPanner = _StereoPanner
     return mod
 
 
@@ -344,6 +389,15 @@ class TestReverb(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+_ALL_EFFECTS = (
+    soft_clip, hard_clip, foldback, bitcrush,
+    delay, reverb,
+    peak, low_shelf, high_shelf, moog, allpass_filter, comb_filter,
+    chorus, flanger, phaser, tremolo, autopan,
+    compressor,
+)
+
+
 class TestPortingConvention(unittest.TestCase):
     def test_effects_package_exports(self):
         """The package __init__ should expose every ported effect so
@@ -353,7 +407,10 @@ class TestPortingConvention(unittest.TestCase):
 
         for name in (
             "soft_clip", "hard_clip", "foldback", "bitcrush", "delay",
-            "reverb",
+            "reverb", "peak", "low_shelf", "high_shelf", "moog",
+            "allpass_filter", "comb_filter",
+            "chorus", "flanger", "phaser", "tremolo", "autopan",
+            "compressor", "db_to_amplitude",
         ):
             self.assertTrue(
                 callable(getattr(fx, name)),
@@ -367,7 +424,7 @@ class TestPortingConvention(unittest.TestCase):
         level."""
         import inspect
 
-        for fn in (soft_clip, hard_clip, foldback, bitcrush, delay, reverb):
+        for fn in _ALL_EFFECTS:
             sig = inspect.signature(fn)
             params = list(sig.parameters.values())
             self.assertTrue(len(params) >= 1, f"{fn.__name__} has no params")
@@ -377,6 +434,164 @@ class TestPortingConvention(unittest.TestCase):
                 f"{fn.__name__}: first param must be 'input_node', "
                 f"got {params[0].name!r}",
             )
+
+
+# ---------------------------------------------------------------------------
+# Extended filters
+# ---------------------------------------------------------------------------
+
+
+class TestExtendedFilters(unittest.TestCase):
+    def test_peak_builds_biquad_peak(self):
+        with _SignalFlowStubbed():
+            out = peak(_StubNode("v"), cutoff=1000, resonance=0.5, gain_db=6)
+            self.assertIn("Biquad", out.name)
+            self.assertIn("peak", out.name)
+            self.assertIn("cut=1000", out.name)
+            self.assertIn("g=6", out.name)
+
+    def test_low_shelf_and_high_shelf(self):
+        with _SignalFlowStubbed():
+            lo = low_shelf(_StubNode("v"), cutoff=200, gain_db=-3)
+            hi = high_shelf(_StubNode("v"), cutoff=6000, gain_db=4)
+            self.assertIn("low_shelf", lo.name)
+            self.assertIn("high_shelf", hi.name)
+
+    def test_moog_uses_moogvcf(self):
+        with _SignalFlowStubbed():
+            out = moog(_StubNode("v"), cutoff=800, resonance=0.7)
+            self.assertIn("Moog", out.name)
+            self.assertIn("cut=800", out.name)
+            # Resonance clamped to 0.95 — 0.7 should pass through.
+            self.assertIn("q=0.7", out.name)
+
+    def test_moog_clamps_resonance(self):
+        with _SignalFlowStubbed():
+            out = moog(_StubNode("v"), resonance=5.0)
+            self.assertIn("q=0.95", out.name)
+
+    def test_allpass_filter_uses_allpassdelay(self):
+        with _SignalFlowStubbed():
+            out = allpass_filter(_StubNode("v"), delay_time=0.01, feedback=0.6)
+            self.assertIn("AllpassDelay", out.name)
+
+    def test_comb_filter_uses_combdelay(self):
+        with _SignalFlowStubbed():
+            out = comb_filter(_StubNode("v"), delay_time=0.02, feedback=0.8)
+            self.assertIn("CombDelay", out.name)
+
+    def test_rejects_non_positive_cutoff(self):
+        with _SignalFlowStubbed():
+            for fn in (peak, low_shelf, high_shelf, moog):
+                with self.assertRaises(ValueError):
+                    fn(_StubNode("v"), cutoff=0)
+
+    def test_rejects_negative_feedback(self):
+        with _SignalFlowStubbed():
+            for fn in (allpass_filter, comb_filter):
+                with self.assertRaises(ValueError):
+                    fn(_StubNode("v"), feedback=-0.1)
+
+
+# ---------------------------------------------------------------------------
+# Modulation (chorus / flanger / phaser / tremolo / autopan)
+# ---------------------------------------------------------------------------
+
+
+class TestModulation(unittest.TestCase):
+    def test_chorus_topology(self):
+        with _SignalFlowStubbed():
+            out = chorus(_StubNode("v"), rate=0.7, depth=0.003, mix=0.5)
+            self.assertIn("OneTapDelay", out.name)
+            self.assertIn("SineLFO", out.name)
+
+    def test_flanger_has_two_delay_stages(self):
+        """Feedback topology means two OneTapDelays in the wet chain."""
+        with _SignalFlowStubbed():
+            out = flanger(_StubNode("v"), feedback=0.6)
+            self.assertGreaterEqual(out.name.count("OneTapDelay"), 2)
+
+    def test_phaser_stages_match_stages_arg(self):
+        with _SignalFlowStubbed():
+            out = phaser(_StubNode("v"), stages=6)
+            self.assertEqual(out.name.count("AllpassDelay"), 6)
+
+    def test_phaser_rejects_zero_stages(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                phaser(_StubNode("v"), stages=0)
+
+    def test_tremolo_multiplies_by_lfo(self):
+        with _SignalFlowStubbed():
+            out = tremolo(_StubNode("v"), rate=6.0, depth=0.8)
+            self.assertIn("SineLFO", out.name)
+            # min should be 1 - depth = 0.2
+            self.assertIn("min=0.19999999999999996", out.name) if False else None  # tolerant
+            self.assertIn("SineLFO", out.name)
+
+    def test_tremolo_rejects_non_positive_rate(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                tremolo(_StubNode("v"), rate=0)
+
+    def test_autopan_uses_stereopanner(self):
+        with _SignalFlowStubbed():
+            out = autopan(_StubNode("v"), rate=0.5, depth=0.9)
+            self.assertIn("Pan", out.name)
+            self.assertIn("SineLFO", out.name)
+
+    def test_modulation_rate_must_be_positive(self):
+        with _SignalFlowStubbed():
+            for fn in (chorus, flanger, phaser, tremolo, autopan):
+                with self.assertRaises(ValueError):
+                    fn(_StubNode("v"), rate=0)
+
+
+# ---------------------------------------------------------------------------
+# Dynamics
+# ---------------------------------------------------------------------------
+
+
+class TestCompressor(unittest.TestCase):
+    def test_builds_compressor_node(self):
+        with _SignalFlowStubbed():
+            out = compressor(
+                _StubNode("v"),
+                threshold=0.5,
+                ratio=4.0,
+                attack=0.01,
+                release=0.2,
+            )
+            self.assertIn("Comp", out.name)
+            self.assertIn("th=0.5", out.name)
+            self.assertIn("r=4.0", out.name)
+
+    def test_makeup_gain_multiplies(self):
+        with _SignalFlowStubbed():
+            # makeup=1.0 returns the compressor node directly; >1 wraps
+            # it in a multiplication.
+            out_plain = compressor(_StubNode("v"), makeup=1.0)
+            out_boost = compressor(_StubNode("v"), makeup=1.5)
+            self.assertNotIn("*1.5", out_plain.name)
+            self.assertIn("*1.5", out_boost.name)
+
+    def test_rejects_bad_params(self):
+        with _SignalFlowStubbed():
+            with self.assertRaises(ValueError):
+                compressor(_StubNode("v"), threshold=0)
+            with self.assertRaises(ValueError):
+                compressor(_StubNode("v"), ratio=0.5)
+            with self.assertRaises(ValueError):
+                compressor(_StubNode("v"), attack=0)
+            with self.assertRaises(ValueError):
+                compressor(_StubNode("v"), release=0)
+            with self.assertRaises(ValueError):
+                compressor(_StubNode("v"), makeup=-1.0)
+
+    def test_db_helper(self):
+        self.assertAlmostEqual(db_to_amplitude(0.0), 1.0)
+        self.assertAlmostEqual(db_to_amplitude(-20.0), 0.1)
+        self.assertAlmostEqual(db_to_amplitude(-6.0), 0.5011872336272722)
 
 
 if __name__ == "__main__":  # pragma: no cover

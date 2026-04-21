@@ -1,5 +1,16 @@
 #!/usr/bin/env python
-"""MDMA Textual TUI (NVDA-friendly).
+"""MDMA Textual TUI - DEPRECATED.
+
+**This Textual TUI is deprecated as of the V2 backend merge.** The
+command-line REPL (``bmdma.py`` / ``run_mdma.py --repl``) is the
+supported entry point going forward — it works cleanly with NVDA
+and exercises every V2 backend path.
+
+The TUI code is kept here for reference and is not being extended;
+launching it prints a DeprecationWarning. New features land in the
+CLI and the ``mdma_rebuild/backend/`` stack only.
+
+Historical description (retained for archaeology):
 
 - Multiline script editor
 - Output log
@@ -183,7 +194,21 @@ class MDMA_TUI(App):
                 self._log(out + "\n")
 
 
+def _warn_deprecated() -> None:
+    """Surface the TUI deprecation loudly. See mdma_gui._warn_deprecated."""
+    import warnings
+    msg = (
+        "mad_tui is deprecated. The supported entry point is the "
+        "REPL: `python run_mdma.py --repl` (or `python bmdma.py`). "
+        "The Textual TUI is kept for reference but no longer "
+        "receives new features."
+    )
+    warnings.warn(msg, DeprecationWarning, stacklevel=2)
+    print(f"[MDMA] DEPRECATION: {msg}")
+
+
 def main() -> None:
+    _warn_deprecated()
     MDMA_TUI().run()
 
 

@@ -1,14 +1,17 @@
 """Commands that drive the V2 SignalFlow backend.
 
-Currently exposes one command:
+Current commands:
 
 - ``/patn`` — build a :class:`mdma_rebuild.backend.Pattern` from the
   args and play it via :meth:`Session.play_pattern`.
+- ``/loadfx`` — load custom SignalFlow effect callables from a
+  drop-in file or directory. They land in
+  ``session.custom_effects`` where Python-level callers can pick
+  them up via ``pattern.fx(session.custom_effects[name], ...)``.
+- ``/listfx`` — list the currently-loaded custom effects.
 
 The existing numpy-buffer commands (``/tone``, ``/mel``, ``/pat``,
-etc.) stay untouched. ``/patn`` is the first V2-backed entry point —
-more will follow once Scheduler / PAR / automation commands are
-decided on.
+etc.) stay untouched.
 
 Command argument grammar for ``/patn``:
 
@@ -33,6 +36,11 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
+from ..backend.fx_loader import (
+    DEFAULT_USER_DIR,
+    format_summary,
+    load_from,
+)
 from ..backend.pattern import Pattern
 
 
@@ -110,6 +118,60 @@ def cmd_patn(session, args: List[str]) -> str:
     return f"OK: played {len(events)} events ({total:.3f}s)"
 
 
+# ---------------------------------------------------------------------------
+# /loadfx and /listfx
+# ---------------------------------------------------------------------------
+
+_LOADFX_USAGE = (
+    "Usage: /loadfx [path]\n"
+    "  path defaults to ~/.mdma/effects (the standard drop-in dir).\n"
+    "  Loads every top-level callable matching fn(input_node, **params).\n"
+    "  Loaded effects land in session.custom_effects; see /listfx."
+)
+
+
+def _ensure_registry(session) -> dict:
+    """Lazy-init ``session.custom_effects``. Matches the spec convention
+    that the Session object carries live state the backend needs."""
+    registry = getattr(session, "custom_effects", None)
+    if registry is None:
+        registry = {}
+        session.custom_effects = registry
+    return registry
+
+
+def cmd_loadfx(session, args: List[str]) -> str:
+    """Load drop-in custom effects.
+
+    ``/loadfx`` with no args reads from ``~/.mdma/effects``.
+    ``/loadfx path/to/file.py`` or ``/loadfx path/to/dir`` works too.
+    """
+    if args and args[0] in ("-h", "--help", "help"):
+        return _LOADFX_USAGE
+
+    path = args[0] if args else str(DEFAULT_USER_DIR)
+    registry = _ensure_registry(session)
+    results = load_from(registry, path)
+    return format_summary(results)
+
+
+def cmd_listfx(session, args: List[str]) -> str:
+    """List currently-registered custom effects."""
+    registry = getattr(session, "custom_effects", None) or {}
+    if not registry:
+        return (
+            "No custom effects loaded. Try /loadfx to load from "
+            f"{DEFAULT_USER_DIR}."
+        )
+    lines = [f"{len(registry)} custom effect(s) loaded:"]
+    for name in sorted(registry):
+        fn = registry[name]
+        doc = (fn.__doc__ or "").strip().splitlines()
+        summary = doc[0] if doc else "<no docstring>"
+        lines.append(f"  {name:<20} {summary}")
+    return "\n".join(lines)
+
+
 def get_backend_commands() -> dict:
     """Dict of name -> callable for the router's late-phase loader.
 
@@ -118,7 +180,14 @@ def get_backend_commands() -> dict:
     """
     return {
         "patn": cmd_patn,
+        "loadfx": cmd_loadfx,
+        "listfx": cmd_listfx,
     }
 
 
-__all__ = ["cmd_patn", "get_backend_commands"]
+__all__ = [
+    "cmd_patn",
+    "cmd_loadfx",
+    "cmd_listfx",
+    "get_backend_commands",
+]

@@ -236,6 +236,8 @@ COMMAND_OWNERS: dict[str, str] = {
 
     # V2 backend commands - backend_cmds owns
     "patn": "backend_cmds",
+    "loadfx": "backend_cmds",
+    "listfx": "backend_cmds",
 }
 
 
